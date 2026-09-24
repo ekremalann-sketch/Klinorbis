@@ -17,19 +17,22 @@ export async function GET(request: Request) {
     const recent = await db.select().from(securityEvents).orderBy(desc(securityEvents.createdAt)).limit(40);
     return Response.json({
       generatedAt: new Date().toISOString(),
-      posture: "protected-pilot",
+      posture: "verification-pending",
+      verificationNote: "Kodda yer alan önlemler canlı ortamda bağımsız olarak doğrulanmadı. Bu yanıt güvenlik sertifikası değildir.",
       controls: {
-        platformIdentity: true,
-        serverAuthorization: true,
-        unitIsolation: true,
-        objectAuthorization: true,
-        csrfOriginDefense: true,
-        rateLimiting: true,
-        bodySizeLimit: true,
-        piiRedaction: true,
-        tamperEvidentAudit: true,
+        // 'true' means verified in this environment, not merely present in source.
+        // The listed checks need live adversarial tests before they can be marked verified.
+        platformIdentity: false,
+        serverAuthorization: false,
+        unitIsolation: false,
+        objectAuthorization: false,
+        csrfOriginDefense: false,
+        rateLimiting: false,
+        bodySizeLimit: false,
+        piiRedaction: false,
+        tamperEvidentAudit: false,
         signedWebhooks: Boolean(getWebhookSecret()),
-        securityHeaders: true,
+        securityHeaders: false,
         externalHealthDataTransfer: false,
       },
       eventCount: total?.count || 0,

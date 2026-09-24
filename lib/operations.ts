@@ -153,7 +153,7 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
     safeQuery(db.select().from(transferRequests).where(inArray(transferRequests.requestedUnitCode, unitCodes)).orderBy(desc(transferRequests.updatedAt)).limit(120), []),
     safeQuery(db.select().from(staffShifts).where(inArray(staffShifts.unitCode, unitCodes)).orderBy(asc(staffShifts.facilityCode), asc(staffShifts.unitCode)), []),
     safeQuery(db.select().from(reportAssignments).orderBy(asc(reportAssignments.title)), []),
-    safeQuery(getAutomationAgentStatus(db), {
+    safeQuery<Awaited<ReturnType<typeof getAutomationAgentStatus>>>(getAutomationAgentStatus(db), {
       state: "waiting" as const,
       lastRunAt: null,
       lastSuccessfulRunAt: null,

@@ -2797,8 +2797,10 @@ function PrivacyWorkspace({ security }: { security: SecurityStatus | null }) {
                 <p>{detail}</p>
                 <small>
                   {security?.controls[key]
-                    ? "Etkin teknik kontrol"
-                    : "Durum doğrulaması bekleniyor"}
+                    ? "Yapılandırma tespit edildi; canlı test gerekli"
+                    : key === "externalHealthDataTransfer"
+                      ? "Pilot politikası: dışa aktarım kapalı"
+                      : "Kodda mevcut; canlı doğrulama bekleniyor"}
                 </small>
               </div>
               <em>{security?.controls[key] ? "✓" : "…"}</em>
@@ -2831,12 +2833,12 @@ function SecurityWorkspace({
         <div>
           <b>
             {status
-              ? "Korunan pilot durumu"
+              ? "Pilot güvenlik kontrolleri"
               : "Güvenlik telemetrisi yükleniyor"}
           </b>
           <p>
-            Kimlik, yetki, birim izolasyonu, CSRF, hız sınırı, CSP, imzalı
-            webhook ve olay kaydı uygulama katmanında etkinleştirildi.
+            Kodda kimlik, yetki, birim izolasyonu, CSRF, hız sınırı, CSP ve olay
+            kaydı önlemleri bulunur. Canlı ortam testi ve bağımsız inceleme bekleniyor.
           </p>
         </div>
         <strong>{status?.eventCount ?? workspaceEvents.length} olay</strong>
@@ -2850,10 +2852,10 @@ function SecurityWorkspace({
               <p>{detail}</p>
               <small>
                 {status?.controls[key]
-                  ? "ETKİN"
+                  ? "YAPILANDIRMA TESPİT EDİLDİ"
                   : key === "externalHealthDataTransfer"
                     ? "KAPALI (GÜVENLİ VARSAYILAN)"
-                    : "DOĞRULANIYOR"}
+                    : "CANLI TEST BEKLENİYOR"}
               </small>
             </div>
             <em
