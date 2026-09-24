@@ -1,0 +1,176 @@
+{
+  "name": "KLINORBIS — İmzalı Olay Köprüsü",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "klinorbis-pilot-events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "klinorbis-webhook",
+      "name": "KLINORBIS Olay Alıcı",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-720, 0],
+      "webhookId": "klinorbis-pilot-events"
+    },
+    {
+      "parameters": {
+        "jsCode": "const headers = $json.headers ?? {};\nconst body = $json.body ?? $json;\nconst secret = $env.KLINORBIS_N8N_SHARED_SECRET;\nif (!secret) throw new Error('KLINORBIS_N8N_SHARED_SECRET tanımlı değil');\nconst eventId = String(headers['x-klinorbis-event-id'] ?? body.eventId ?? '');\nconst timestamp = String(headers['x-klinorbis-timestamp'] ?? '');\nconst supplied = String(headers['x-klinorbis-signature'] ?? '').replace(/^sha256=/, '').toLowerCase();\nif (!eventId || !/^\\d{13}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > 300000) throw new Error('Olay kimliği veya replay penceresi geçersiz');\nconst raw = JSON.stringify(body);\nconst key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\nconst bytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}.${eventId}.${raw}`));\nconst expected = [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');\nlet diff = expected.length ^ supplied.length;\nfor (let index = 0; index < Math.max(expected.length, supplied.length); index++) diff |= (expected.charCodeAt(index) || 0) ^ (supplied.charCodeAt(index) || 0);\nif (diff !== 0) throw new Error('KLINORBIS olay imzası doğrulanamadı');\nreturn [{ json: { ...body, eventId } }];"
+      },
+      "id": "verify-klinorbis-signature",
+      "name": "KLINORBIS İmza Doğrulama",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-520, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allowed = new Set(['workflow.started','workflow.step','workflow.completed','workflow.failed','human.approval.requested']);\nconst body = $json.body ?? $json;\nif (!allowed.has(body.eventType)) throw new Error('Desteklenmeyen olay türü');\nconst forbidden = new Set(['name','fullname','patientname','patientalias','tckn','nationalid','phone','telephone','mobile','email','diagnosis','clinicaltext','medicaltext','transcript','address']);\nconst pii = /(?:\\b[1-9]\\d{10}\\b)|(?:\\b(?:\\+?90\\s?|0)?(?:5\\d{2}|[2-4]\\d{2})[\\s().-]*\\d{3}[\\s.-]*\\d{2}[\\s.-]*\\d{2}\\b)|(?:\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b)/i;\nfunction blocked(value, depth = 0) {\n  if (depth > 12) return true;\n  if (typeof value === 'string') return pii.test(value);\n  if (Array.isArray(value)) return value.some((item) => blocked(item, depth + 1));\n  if (!value || typeof value !== 'object') return false;\n  return Object.entries(value).some(([key, nested]) => forbidden.has(key.toLowerCase().replace(/[^a-z0-9]/g, '')) || blocked(nested, depth + 1));\n}\nif (blocked(body)) throw new Error('Veri minimizasyonu ihlali');\nreturn [{ json: { eventId: String(body.eventId), eventType: body.eventType, workflowRunId: String(body.workflowRunId), ticketReference: body.ticketReference ? String(body.ticketReference) : undefined, unitCode: body.unitCode ? String(body.unitCode) : 'HIL', status: body.status ? String(body.status) : 'received', message: body.message ? String(body.message).slice(0, 280) : 'n8n adımı tamamlandı' } }];"
+      },
+      "id": "minimise-schema",
+      "name": "Şema ve Veri Minimizasyonu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const secret = $env.KLINORBIS_N8N_SHARED_SECRET;\nif (!secret) throw new Error('KLINORBIS_N8N_SHARED_SECRET tanımlı değil');\nconst eventId = String($json.eventId);\nconst timestamp = String(Date.now());\nconst body = JSON.stringify($json);\nconst key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\nconst signatureBytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}.${eventId}.${body}`));\nconst signature = [...new Uint8Array(signatureBytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');\nreturn [{ json: { body, eventId, timestamp, signature } }];"
+      },
+      "id": "sign-event",
+      "name": "HMAC İmza ve Replay Koruması",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-80, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.KLINORBIS_CALLBACK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" },
+            { "name": "x-klinorbis-event-id", "value": "={{ $json.eventId }}" },
+            { "name": "x-klinorbis-timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "x-klinorbis-signature", "value": "={{ $json.signature }}" },
+            { "name": "OAI-Sites-Authorization", "value": "={{ 'Bearer ' + $env.KLINORBIS_SITES_AUTH_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "neverError": false } }
+        }
+      },
+      "id": "send-callback",
+      "name": "KLINORBIS İmzalı Callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [140, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { accepted: true, klinorbis: $json } }}",
+        "options": { "responseCode": 202 }
+      },
+      "id": "respond",
+      "name": "202 Kabul Yanıtı",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [360, 0]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 1 }
+          ]
+        }
+      },
+      "id": "agent-schedule",
+      "name": "KLINORBIS Ajan Zamanlayıcısı",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-720, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const secret = $env.KLINORBIS_N8N_SHARED_SECRET;\nif (!secret) throw new Error('KLINORBIS_N8N_SHARED_SECRET tanımlı değil');\nconst eventId = `n8n-agent-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;\nconst timestamp = String(Date.now());\nconst body = JSON.stringify({ action: 'tick' });\nconst key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\nconst bytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}.${eventId}.${body}`));\nconst signature = [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');\nreturn [{ json: { body, eventId, timestamp, signature } }];"
+      },
+      "id": "sign-agent-tick",
+      "name": "Ajan Tick İmzası",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-500, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.KLINORBIS_AGENT_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" },
+            { "name": "x-klinorbis-event-id", "value": "={{ $json.eventId }}" },
+            { "name": "x-klinorbis-timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "x-klinorbis-signature", "value": "={{ $json.signature }}" },
+            { "name": "OAI-Sites-Authorization", "value": "={{ 'Bearer ' + $env.KLINORBIS_SITES_AUTH_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "timeout": 30000,
+          "response": { "response": { "neverError": false } }
+        }
+      },
+      "id": "run-agent-tick",
+      "name": "KLINORBIS Ajanını Çalıştır",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-280, 320],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "KLINORBIS Olay Alıcı": { "main": [[{ "node": "KLINORBIS İmza Doğrulama", "type": "main", "index": 0 }]] },
+    "KLINORBIS İmza Doğrulama": { "main": [[{ "node": "Şema ve Veri Minimizasyonu", "type": "main", "index": 0 }]] },
+    "Şema ve Veri Minimizasyonu": { "main": [[{ "node": "HMAC İmza ve Replay Koruması", "type": "main", "index": 0 }]] },
+    "HMAC İmza ve Replay Koruması": { "main": [[{ "node": "KLINORBIS İmzalı Callback", "type": "main", "index": 0 }]] },
+    "KLINORBIS İmzalı Callback": { "main": [[{ "node": "202 Kabul Yanıtı", "type": "main", "index": 0 }]] },
+    "KLINORBIS Ajan Zamanlayıcısı": { "main": [[{ "node": "Ajan Tick İmzası", "type": "main", "index": 0 }]] },
+    "Ajan Tick İmzası": { "main": [[{ "node": "KLINORBIS Ajanını Çalıştır", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveExecutionProgress": true
+  },
+  "active": false,
+  "versionId": "5a8f994d-91d0-4d8b-93c9-2b0d8c771082",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "klinorbisDataPolicy": "Yalnız kimliksiz olay metadatası. Gerçek sağlık verisi bu akışa gönderilmez."
+  },
+  "tags": [
+    { "name": "KLINORBIS", "id": "klinorbis" },
+    { "name": "PILOT", "id": "pilot" }
+  ]
+}

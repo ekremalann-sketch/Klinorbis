@@ -1,0 +1,98 @@
+name: klinorbis-automation
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?Set a reviewed PostgreSQL image tag}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - n8n_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [automation_internal]
+
+  redis:
+    image: ${REDIS_IMAGE:?Set a reviewed Redis image tag}
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - n8n_redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [automation_internal]
+
+  n8n-main:
+    image: ${N8N_IMAGE:?Set a reviewed n8n image tag}
+    restart: unless-stopped
+    command: start
+    env_file: .env
+    environment: &n8n_environment
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: ${N8N_HOST}
+      N8N_PROTOCOL: https
+      N8N_PORT: 5678
+      WEBHOOK_URL: ${N8N_PUBLIC_URL}
+      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+      KLINORBIS_N8N_SHARED_SECRET: ${KLINORBIS_N8N_SHARED_SECRET}
+      KLINORBIS_SITES_AUTH_TOKEN: ${KLINORBIS_SITES_AUTH_TOKEN}
+      KLINORBIS_CALLBACK_URL: ${KLINORBIS_CALLBACK_URL}
+      KLINORBIS_AGENT_URL: ${KLINORBIS_AGENT_URL}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks: [automation_internal, reverse_proxy]
+
+  n8n-worker:
+    image: ${N8N_IMAGE:?Set a reviewed n8n image tag}
+    restart: unless-stopped
+    command: worker --concurrency=${N8N_WORKER_CONCURRENCY:-5}
+    env_file: .env
+    environment: *n8n_environment
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks: [automation_internal]
+
+networks:
+  automation_internal:
+    internal: true
+  reverse_proxy:
+
+volumes:
+  n8n_data:
+  n8n_postgres:
+  n8n_redis:

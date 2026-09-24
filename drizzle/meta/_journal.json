@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786016372094,
+      "tag": "0000_furry_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786017578422,
+      "tag": "0001_square_maestro",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786025003072,
+      "tag": "0002_rare_joseph",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786096598875,
+      "tag": "0003_worried_hellfire_club",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786209320203,
+      "tag": "0004_cynical_earthquake",
+      "breakpoints": true
+    }
+  ]
+}
