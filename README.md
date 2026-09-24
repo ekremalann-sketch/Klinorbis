@@ -4,6 +4,10 @@
 
 [Canlı ürün vitrini](https://klinorbis.ekremalan.chatgpt.site/) · [Etkileşimli demo](https://klinorbis.ekremalan.chatgpt.site/demo) · [English README](README.en.md) · [Güvenlik](SECURITY.md)
 
+![Klinorbis ürün vitrini, sentetik senaryo](docs/klinorbis-site.jpg)
+
+**İnceleme yolu:** Ürün sayfası → sentetik verili demo → iş akışı ve kontrollü pilot kapsamı. Görsel canlı ürün vitrininden alınmıştır; ekrandaki örnek sayılar hastane ölçümü değildir.
+
 > Bu depo profesyonel portföy ve teknik inceleme amacıyla yayımlanır. Canlı demo yalnızca sentetik, kimliksiz veri kullanır; klinik karar desteği veya tıbbi tanı sistemi değildir.
 
 ## Ürün özeti
@@ -30,6 +34,10 @@ Vinext, React, TypeScript, Cloudflare Workers/D1, Drizzle ORM ve GitHub uyumlu s
 - Klinik uygunluk, tanı veya tedavi kararı vermez.
 - HBYS, PBX ve n8n bağlantıları yapılandırılmadıkça bağlıymış gibi gösterilmez.
 - Gerçek sağlık kuruluşu kullanımı öncesinde kurum güvenlik incelemesi, KVKK/GDPR değerlendirmesi, entegrasyon doğrulaması ve pilot kabulü gerekir.
+
+## Kaynak ve canlı sürüm
+
+GitHub deposu teknik inceleme ve portföy kaynağıdır. Canlı demo ayrı Sites kaynağından yayımlanır; yalnızca depo `main` dalının varlığı, canlı yayında birebir aynı commit'in çalıştığını kanıtlamaz. Sürüm doğrulaması Sites yayın kaydı ve GitHub commit'i karşılaştırılarak yapılır. Güvenlik durum ekranındaki doğrulanmamış kontroller bağımsız denetim yerine geçmez.
 
 ---
 

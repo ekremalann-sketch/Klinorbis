@@ -41,11 +41,11 @@ export async function getAutomationAgentStatus(db: Db) {
       ? new Date(successfulRows[0].createdAt).toISOString()
       : null,
     lastRunSucceeded: latestSucceeded,
-    lastCycleStatus: latest?.status ?? null,
+    lastCycleStatus: (latest?.status ?? null) as string | null,
     ageSeconds,
     heartbeatWindowSeconds: HEARTBEAT_WINDOW_SECONDS,
-    latestSource: latest?.source ?? null,
-    latestEventType: latest?.eventType ?? null,
+    latestSource: (latest?.source ?? null) as string | null,
+    latestEventType: (latest?.eventType ?? null) as string | null,
     jobs: {
       queued: jobRows.filter((row) => row.status === "queued" || row.status === "running").length,
       completed: jobRows.filter((row) => row.status === "completed").length,
