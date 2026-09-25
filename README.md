@@ -35,6 +35,12 @@ Vinext, React, TypeScript, Cloudflare Workers/D1, Drizzle ORM ve GitHub uyumlu s
 - HBYS, PBX ve n8n bağlantıları yapılandırılmadıkça bağlıymış gibi gösterilmez.
 - Gerçek sağlık kuruluşu kullanımı öncesinde kurum güvenlik incelemesi, KVKK/GDPR değerlendirmesi, entegrasyon doğrulaması ve pilot kabulü gerekir.
 
+## Entegrasyon imza sözleşmesi
+
+Santral (`/api/integrations/calls`), n8n (`/api/integrations/n8n`) ve zamanlayıcı (`/api/automation/agent`) uçları aynı HMAC-SHA256 sözleşmesini kullanır: imzalanan metin `${timestamp}.${eventId}.${gövde}` biçimindedir; `x-klinorbis-timestamp`, `x-klinorbis-event-id` ve `x-klinorbis-signature` başlıkları zorunludur, zaman penceresi 5 dakikadır ve aynı `eventId` yalnız bir kez işlenir. Santral ucu geçiş dönemi için eski `${timestamp}.${gövde}` imzasını da kabul eder ve bunu güvenlik kaydına işler; tekrar koruması imzalı içeriğe bağlı olduğundan eski biçimle yakalanan bir istek farklı `eventId` ile yeniden işletilemez. Yeni göndericiler v2 biçimini kullanmalıdır.
+
+Onay kararlarını yalnız operasyon yöneticisi, birim yöneticisi ve klinik rol verebilir; çağrı görevlisi, gizlilik ve güvenlik rolleri kayıtları izler. Eşzamanlı iki karardan yalnız ilki kaydedilir, ikincisi `409` alır.
+
 ## Kaynak ve canlı sürüm
 
 GitHub deposu teknik inceleme ve portföy kaynağıdır. Canlı demo ayrı Sites kaynağından yayımlanır; yalnızca depo `main` dalının varlığı, canlı yayında birebir aynı commit'in çalıştığını kanıtlamaz. Sürüm doğrulaması Sites yayın kaydı ve GitHub commit'i karşılaştırılarak yapılır. Güvenlik durum ekranındaki doğrulanmamış kontroller bağımsız denetim yerine geçmez.

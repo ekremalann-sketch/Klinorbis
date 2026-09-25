@@ -6,6 +6,7 @@ import { findUnit, HOSPITAL_UNITS } from "../../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../../lib/operations";
 import { redactPII, urgencySignal } from "../../../../lib/privacy";
 import { cleanText, getWebhookSecret, recordSecurityEvent, securityResponse, sha256 } from "../../../../lib/security";
+import { replayKey, verifyPbxSignature } from "../../../../lib/webhook-signature";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +30,15 @@ export async function POST(request: Request) {
       return Response.json({ error: "Webhook zaman penceresi geçersiz.", code: "REPLAY_BLOCKED" }, { status: 401 });
     }
     const rawBody = await request.text();
-    const expected = await hmacHex(secret, `${timestamp}.${rawBody}`);
-    if (!constantTimeEqual(signature.toLowerCase(), expected)) {
+    // v2 imza olay kimliğini kapsar; eski (timestamp.body) biçim bağlı olabilecek
+    // mevcut göndericiler için geçici olarak kabul edilir ve güvenlik kaydına düşer.
+    const scheme = await verifyPbxSignature({ secret, timestamp, eventId, rawBody, signature });
+    if (!scheme) {
       await recordSecurityEvent(request, "webhook_signature_rejected", "critical", source, "HMAC imzası doğrulanamadı");
       return Response.json({ error: "Webhook imzası geçersiz.", code: "INVALID_SIGNATURE" }, { status: 401 });
+    }
+    if (scheme === "legacy") {
+      await recordSecurityEvent(request, "webhook_legacy_signature", "low", source, "Eski timestamp.body imza biçimi kullanıldı; timestamp.eventId.body biçimine geçilmeli");
     }
     let payload: Record<string, unknown>;
     try { payload = JSON.parse(rawBody) as Record<string, unknown>; } catch { return Response.json({ error: "Geçersiz JSON.", code: "INVALID_JSON" }, { status: 400 }); }
@@ -40,11 +46,18 @@ export async function POST(request: Request) {
     const callReference = cleanText(payload.callReference, "Çağrı referansı", 5, 80).toUpperCase();
     const db = getDb();
     await ensureOperationalSeed(db);
-    const [duplicate] = await db.select().from(integrationEvents).where(eq(integrationEvents.eventId, eventId)).limit(1);
-    if (duplicate) return Response.json({ ok: true, duplicate: true, eventId }, { status: 200 });
-
     const payloadHash = await sha256(rawBody);
-    await db.insert(integrationEvents).values({ eventId, source, eventType, payloadHash, status: "processing" });
+    // Tekrar koruması imzalı içeriğe bağlıdır: aynı timestamp+gövde farklı event-id ile
+    // yeniden gönderilse de ikinci kez işlenmez. Her iki sahiplenme de tek adımlı insert'tir.
+    const replayClaim = await db.insert(integrationEvents).values({ eventId: await replayKey(timestamp, rawBody), source, eventType: `replay-guard:${eventType}`, payloadHash, status: "guard" })
+      .onConflictDoNothing().returning({ eventId: integrationEvents.eventId });
+    if (!replayClaim.length) {
+      await recordSecurityEvent(request, "webhook_replay_blocked", "high", source, `Aynı imzalı içerik tekrar gönderildi · ${eventId}`);
+      return Response.json({ ok: true, duplicate: true, eventId }, { status: 200 });
+    }
+    const claimed = await db.insert(integrationEvents).values({ eventId, source, eventType, payloadHash, status: "processing" })
+      .onConflictDoNothing().returning({ eventId: integrationEvents.eventId });
+    if (!claimed.length) return Response.json({ ok: true, duplicate: true, eventId }, { status: 200 });
     let destination = findUnit("CAG");
     let outcome = "";
     if (eventType === "call.started") {
@@ -90,19 +103,6 @@ export async function POST(request: Request) {
   } catch (error) {
     return securityResponse(error, request);
   }
-}
-
-async function hmacHex(secret: string, value: string) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
-  return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function constantTimeEqual(a: string, b: string) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let index = 0; index < a.length; index++) diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
-  return diff === 0;
 }
 
 function cleanSource(value: string) {
