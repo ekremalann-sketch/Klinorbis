@@ -18,7 +18,7 @@ KLINORBIS; hastanelerde kapasite, birimler arası sevk, vardiya devri, çağrı/
 
 - Birim bazlı kapasite ve iş kuyruğu görünümü
 - Gerekçeli ön kabul, ret ve alternatif kampüs yönlendirme akışı
-- Transfer, vardiya/devretme ve zamanlanmış raporlama
+- Transfer, vardiya kapsamı/devir görünümü ve zamanlanmış raporlama
 - Rol ve birim kapsamlı çalışma alanı
 - Yetkili CSV dışa aktarma ve denetim kaydı
 - Mobil, tablet ve masaüstüne uyumlu arayüz
@@ -27,6 +27,19 @@ KLINORBIS; hastanelerde kapasite, birimler arası sevk, vardiya devri, çağrı/
 ### Teknoloji
 
 Vinext, React, TypeScript, Cloudflare Workers/D1, Drizzle ORM ve GitHub uyumlu sürümleme yapısı kullanılır.
+
+## Canlıda ne var, ne yok (25.09.2026)
+
+| Özellik | Durum |
+|---|---|
+| Ürün sayfası (`/`, `/en`) ve herkese açık `/demo` | Canlı. `/demo` tarayıcıda **sabit örnek verilerle** çalışan bir vitrindir; API'ye veya veri tabanına bağlı değildir. Demo arayüzü Türkçedir. |
+| Operatör çalışma alanı (talep, birim kuyruğu, onay, kapasite, rapor) | Canlı, ancak Sites oturumu ve atanmış personel rolü gerektirir; oturumsuz API istekleri 401 döner. Veriler kimliksiz pilot senaryolarıdır. |
+| Talep → birim kuyruğu → görev üstlenme/işleme/aktarım → sonuç | Sunucuda ve talep çekmecesinde çalışır; davranış testleriyle doğrulanır (`tests/behavior-flow.test.mjs`). |
+| Acil olasılık sinyalinde insan onayı | Çalışır; onayı yalnız operasyon yöneticisi, birim yöneticisi veya klinik rol verir. |
+| Kapasite ön kabulü / gerekçeli ret / alternatif kampüs | Otomatik pilot karar motoru; klinik uygunluk kararı değildir. |
+| Vardiya devri | Yalnız **görünüm**: vardiya ekipleri ve devir durumu otomasyon tarafından sentetik olarak döndürülür. Kullanıcının yaptığı bir devir işlemi yoktur. |
+| Rapor | Rol/birim kapsamlı CSV dışa aktarma ve denetim kaydı çalışır. |
+| HBYS, kurum santrali, harici n8n | **Bağlı değil.** Santral ve n8n için imzalı alıcılar hazırdır; HBYS için yalnız adaptör sözleşmesi vardır. |
 
 ## Sınırlar
 

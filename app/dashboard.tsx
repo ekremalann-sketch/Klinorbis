@@ -635,6 +635,36 @@ export default function Dashboard({
     return data;
   }
 
+  async function ticketAction(
+    reference: string,
+    action: "accept" | "start" | "resolve" | "transfer",
+    targetUnitCode?: string,
+  ) {
+    setBusy(`${reference}:${action}`);
+    try {
+      const response = await fetch("/api/tickets", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "x-klinorbis-request": "browser",
+        },
+        body: JSON.stringify({ reference, action, targetUnitCode }),
+      });
+      const data = (await response.json()) as ApiError;
+      if (!response.ok) throw new Error(data.error || "İşlem tamamlanamadı.");
+      await refresh(true);
+    } catch (cause) {
+      setReceipt({
+        title: "Talep işlemi uygulanmadı",
+        detail: cause instanceof Error ? cause.message : "Sunucu işlemi reddetti.",
+        path: viewPaths[initialView],
+        actionLabel: "Ekrana dön",
+      });
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function sendCallMessage(
     reference: string,
     speakerType: "caller" | "agent" | "clinician",
@@ -749,7 +779,7 @@ export default function Dashboard({
           throw new Error(data.error || "Talep oluşturulamadı.");
         setDialog(null);
         setReceipt({
-          title: "Talep oluşturuldu ve gerçek kuyruğa gönderildi",
+          title: "Talep oluşturuldu ve kalıcı birim kuyruğuna gönderildi",
           detail: `${data.ticket.reference} · ${data.destination.unitName} · ${data.destination.assignedRole} · ${data.destination.taskReference}`,
           path: `/units/${data.destination.unitCode}`,
           actionLabel: "Hedef birimi aç",
@@ -1073,6 +1103,8 @@ export default function Dashboard({
           snapshot={snapshot}
           ticket={selectedTicket}
           close={() => navigate(initialView)}
+          busy={busy}
+          act={ticketAction}
         />
       )}
       {dialog && (
@@ -2925,7 +2957,7 @@ function AuditWorkspace({ audit }: { audit: Audit[] }) {
         title="Hash zincirli denetim izleri"
         text="Her yazma işlemi aktör, kaynak, sonuç ve önceki kayıt özetiyle sunucuda tutulur."
       />
-      <div className="panel audit-table">
+      <div className="panel audit-table" tabIndex={0} role="region" aria-label="Denetim kayıtları tablosu">
         <div className="audit-head">
           <span>ZAMAN</span>
           <span>AKTÖR</span>
@@ -2956,11 +2988,21 @@ function TicketDrawer({
   snapshot,
   ticket,
   close,
+  busy,
+  act,
 }: {
   snapshot: Snapshot;
   ticket: Ticket;
   close: () => void;
+  busy: string;
+  act: (reference: string, action: "accept" | "start" | "resolve" | "transfer", targetUnitCode?: string) => void;
 }) {
+  // Sunucu aynı kuralları uygular (TICKET_OPERATOR_ROLES, kapalı talep); burada yalnız görünürlük.
+  const canOperate =
+    ["operations_manager", "unit_manager", "clinician", "call_agent"].includes(snapshot.identity.role) &&
+    ticket.status !== "Çözüldü";
+  const [targetUnit, setTargetUnit] = useState("");
+  const working = busy.startsWith(`${ticket.reference}:`);
   const transfer = snapshot.transfers.find((item) => item.ticketReference === ticket.reference);
   const targetCapacity = transfer
     ? snapshot.capacity.find((row) => row.facilityCode === transfer.targetFacilityCode && row.unitCode === transfer.requestedUnitCode && row.resourceCode === transfer.resourceCode)
@@ -3028,6 +3070,42 @@ function TicketDrawer({
               <span><small>UYGUN</small><b>{targetCapacity?.available ?? "—"}</b></span>
             </div>
             <p className="muted">Kapasite yetersizse motor uygun alternatif kampüsü tarar; alternatif de yoksa gerekçeli ret üretir. Klinik uygunluk kararı bu motorun kapsamı dışındadır.</p>
+          </section>
+        )}
+        {canOperate ? (
+          <section aria-labelledby={`actions-${ticket.reference}`}>
+            <h3 id={`actions-${ticket.reference}`}>Birim işlemleri</h3>
+            <div className="drawer-actions">
+              <button type="button" disabled={working || ticket.status === "Kabul edildi"} onClick={() => act(ticket.reference, "accept")}>Görevi üstlen</button>
+              <button type="button" disabled={working || ticket.status === "İşlemde"} onClick={() => act(ticket.reference, "start")}>İşleme al</button>
+              <button type="button" className="primary" disabled={working} onClick={() => act(ticket.reference, "resolve")}>Görevi sonuçlandır</button>
+            </div>
+            <form
+              className="drawer-transfer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (targetUnit) act(ticket.reference, "transfer", targetUnit);
+              }}
+            >
+              <label htmlFor={`transfer-${ticket.reference}`}>Başka birime aktar</label>
+              <select id={`transfer-${ticket.reference}`} value={targetUnit} onChange={(event) => setTargetUnit(event.target.value)} required>
+                <option value="">Hedef birim seçin</option>
+                {snapshot.units.filter((unit) => unit.code !== ticket.unitCode).map((unit) => (
+                  <option key={unit.code} value={unit.code}>{unit.name}</option>
+                ))}
+              </select>
+              <button type="submit" disabled={working || !targetUnit}>Aktar</button>
+            </form>
+            {working && <p className="muted" role="status">İşleniyor…</p>}
+          </section>
+        ) : (
+          <section>
+            <h3>Birim işlemleri</h3>
+            <p className="muted">
+              {ticket.status === "Çözüldü"
+                ? "Talep sonuçlandırıldı; yeniden işlenemez."
+                : "Bu rol talebi izleyebilir; durum değişikliği birim ekibi veya operasyon yöneticisi tarafından yapılır."}
+            </p>
           </section>
         )}
         <section>
