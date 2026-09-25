@@ -1699,6 +1699,10 @@ function ApprovalWorkspace({
   const pending = snapshot.approvals.filter(
     (approval) => approval.status === "pending",
   );
+  // Sunucu da aynı kuralı uygular; burada yalnız yetkisiz rolde düğmeler gizlenir.
+  const canDecide = ["operations_manager", "unit_manager", "clinician"].includes(
+    snapshot.identity.role,
+  );
   const decided = snapshot.approvals.filter(
     (approval) => approval.status !== "pending",
   );
@@ -1753,21 +1757,27 @@ function ApprovalWorkspace({
             <button className="secondary" onClick={() => openRelated(approval)}>
               Kaydı aç
             </button>
-            <button
-              disabled={Boolean(busy)}
-              onClick={() => decide(approval.reference, "reject")}
-            >
-              Reddet
-            </button>
-            <button
-              className="primary"
-              disabled={Boolean(busy)}
-              onClick={() => decide(approval.reference, "approve")}
-            >
-              {busy === `${approval.reference}:approve`
-                ? "İşleniyor…"
-                : "Onayla"}
-            </button>
+            {canDecide ? (
+              <>
+                <button
+                  disabled={Boolean(busy)}
+                  onClick={() => decide(approval.reference, "reject")}
+                >
+                  Reddet
+                </button>
+                <button
+                  className="primary"
+                  disabled={Boolean(busy)}
+                  onClick={() => decide(approval.reference, "approve")}
+                >
+                  {busy === `${approval.reference}:approve`
+                    ? "İşleniyor…"
+                    : "Onayla"}
+                </button>
+              </>
+            ) : (
+              <small>Karar yetkisi: operasyon/birim yöneticisi veya klinik rol</small>
+            )}
           </article>
         ))}
         {!pending.length && (

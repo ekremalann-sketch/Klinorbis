@@ -31,6 +31,12 @@ Vinext, React, TypeScript, Cloudflare Workers/D1, Drizzle ORM and a Git-compatib
 - It does not claim HBYS/EHR, PBX or n8n connectivity unless configured.
 - Deployment in a real healthcare organization requires an institutional security review, privacy and regulatory assessment, integration validation and controlled pilot acceptance.
 
+## Integration signature contract
+
+The PBX (`/api/integrations/calls`), n8n (`/api/integrations/n8n`) and scheduler (`/api/automation/agent`) endpoints share one HMAC-SHA256 contract: the signed string is `${timestamp}.${eventId}.${body}`, the `x-klinorbis-timestamp`, `x-klinorbis-event-id` and `x-klinorbis-signature` headers are required, the replay window is five minutes and each `eventId` is processed once. During migration the PBX endpoint also accepts the legacy `${timestamp}.${body}` signature and records it as a security event; replay protection is bound to the signed content, so a captured legacy request cannot be re-processed under a new `eventId`. New senders should use the v2 format.
+
+Only operations managers, unit managers and clinical roles can decide approvals; call agents, privacy and security officers have read access. When two decisions race, only the first is stored and the second receives `409`.
+
 ## Source and deployment
 
 The public GitHub repository is the portfolio and technical review source. The live demo is published from a separate Sites source; the repository's `main` commit alone does not prove that the identical commit is running in production. Compare both publication records before claiming a version match. The security dashboard does not constitute an independent audit.

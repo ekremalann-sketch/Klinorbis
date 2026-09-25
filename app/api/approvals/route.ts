@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
   approvals,
@@ -17,8 +17,14 @@ import {
   enforceRateLimit,
   requireActor,
   requireUnitAccess,
+  SecurityError,
   securityResponse,
+  type SystemRole,
 } from "../../../lib/security";
+
+// Çağrı görevlisi, gizlilik ve güvenlik rolleri kayıtları izleyebilir ama
+// klinik devir / birim onayı kararı veremez.
+const APPROVAL_DECIDER_ROLES = new Set<SystemRole>(["operations_manager", "unit_manager", "clinician"]);
 
 export async function POST(request: Request) {
   try {
@@ -57,6 +63,9 @@ export async function POST(request: Request) {
         { status: 404 },
       );
     requireUnitAccess(actor, approval.unitCode);
+    if (!APPROVAL_DECIDER_ROLES.has(actor.role)) {
+      throw new SecurityError(403, "Onay kararı yalnız operasyon yöneticisi, birim yöneticisi veya klinik rol tarafından verilebilir.", "APPROVAL_ROLE_REQUIRED");
+    }
     if (approval.status !== "pending")
       return Response.json(
         {
@@ -67,7 +76,8 @@ export async function POST(request: Request) {
       );
     const now = new Date();
     const status = body.decision === "approve" ? "approved" : "rejected";
-    await db
+    // Koşullu güncelleme: iki eşzamanlı karardan yalnız ilki kazanır.
+    const claimed = await db
       .update(approvals)
       .set({
         status,
@@ -75,7 +85,16 @@ export async function POST(request: Request) {
         decisionNote: note,
         decidedAt: now,
       })
-      .where(eq(approvals.reference, approval.reference));
+      .where(and(eq(approvals.reference, approval.reference), eq(approvals.status, "pending")))
+      .returning({ reference: approvals.reference });
+    if (!claimed.length)
+      return Response.json(
+        {
+          error: "Bu onay daha önce karara bağlanmış.",
+          code: "ALREADY_DECIDED",
+        },
+        { status: 409 },
+      );
 
     const relatedReference =
       approval.ticketReference || approval.callReference || approval.reference;
