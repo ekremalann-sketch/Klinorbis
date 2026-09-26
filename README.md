@@ -37,7 +37,8 @@ Vinext, React, TypeScript, Cloudflare Workers/D1, Drizzle ORM ve GitHub uyumlu s
 | Talep → birim kuyruğu → görev üstlenme/işleme/aktarım → sonuç | Sunucuda ve talep çekmecesinde çalışır; davranış testleriyle doğrulanır (`tests/behavior-flow.test.mjs`). |
 | Acil olasılık sinyalinde insan onayı | Çalışır; onayı yalnız operasyon yöneticisi, birim yöneticisi veya klinik rol verir. |
 | Kapasite ön kabulü / gerekçeli ret / alternatif kampüs | Otomatik pilot karar motoru; klinik uygunluk kararı değildir. |
-| Vardiya devri | Yalnız **görünüm**: vardiya ekipleri ve devir durumu otomasyon tarafından sentetik olarak döndürülür. Kullanıcının yaptığı bir devir işlemi yoktur. |
+| Personel ve yetki | Operasyon yöneticisi "Personel ve Yetki" ekranında çalışan ekler, rol ve birim atar, pasife alır (`/api/staff`). Parola yoktur; kişi Sites'a kendi hesabıyla girer ve Sites paylaşım ayarından ayrıca eklenmelidir. |
+| Vardiya devri | **Gerçek devir:** giden görevli başlatır, aynı birimdeki gelen görevli kabul eder; kabulde açık talep ve görevler devralana geçer, denetim izine yazılır (`/api/shifts`). Pilot vardiya panosu ise sentetik görünüm olarak kalır. |
 | Rapor | Rol/birim kapsamlı CSV dışa aktarma ve denetim kaydı çalışır. |
 | HBYS, kurum santrali, harici n8n | **Bağlı değil.** Santral ve n8n için imzalı alıcılar hazırdır; HBYS için yalnız adaptör sözleşmesi vardır. |
 

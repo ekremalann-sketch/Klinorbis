@@ -1,4 +1,5 @@
 "use client";
+import { StaffManagement } from "./staff-management";
 
 import {
   FormEvent,
@@ -2686,9 +2687,12 @@ function StaffWorkspace({ snapshot }: { snapshot: Snapshot }) {
   return (
     <>
       <Hero
-        title="Personel, hastane, vardiya ve devir görünümü"
-        text="Birim personeli yalnız kendi üyelik kapsamını görür; operasyon yöneticisi hastane ağı vardiya kapsamasını izler. Pilot ekipler gerçek personel adı kullanmadan açıkça etiketlenir."
+        title="Personel, rol ve vardiya devri"
+        text="Her çalışan kendi rolü ve birimiyle çalışır. Operasyon yöneticisi personeli ekler ve yetkilendirir; birim görevlileri vardiya devrini birbirine yapar."
       />
+      <StaffManagement />
+      <h3 className="sm-section-title">Pilot vardiya panosu (sentetik)</h3>
+      <p className="sm-muted">Aşağıdaki pano otomasyonun sentetik pilot verisidir; gerçek devirler yukarıdaki “Vardiya devri” bölümündedir.</p>
       <section className="stats">
         <Stat value={shifts.length} label="Vardiya kapsamı" />
         <Stat value={shifts.filter((shift) => shift.status === "active").length} label="Aktif ekip" />
@@ -2705,7 +2709,7 @@ function StaffWorkspace({ snapshot }: { snapshot: Snapshot }) {
             <h3>Canlı vardiya panosu</h3>
             <p>Kim nerede, hangi hastane ve birimde, hangi devir durumunda</p>
           </div>
-          <span className="live"><i /> CANLI PİLOT</span>
+          <span className="live pilot"><i /> SENTETİK PİLOT</span>
         </div>
         <div className="shift-head"><span>EKİP / ROL</span><span>HASTANE</span><span>BİRİM</span><span>VARDİYA</span><span>DURUM / DEVİR</span></div>
         {shifts.map((shift) => (

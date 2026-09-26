@@ -1,3 +1,4 @@
 import PublicDemo from "./public-demo";
-export const metadata={title:"KLINORBIS Demo | Hastane Operasyon Kontrol Kulesi",description:"Kimliksiz ve sentetik verilerle çalışan Klinorbis operasyon demosu."};
+import { pageMeta } from "../../lib/seo";
+export const metadata=pageMeta({title:"KLINORBIS Demo | Hastane Operasyon Kontrol Kulesi",description:"Kimliksiz ve sabit sentetik örnek verilerle çalışan Klinorbis operasyon demosu; gerçek hasta verisi içermez.",path:"/demo"});
 export default function DemoPage(){return <PublicDemo/>}
