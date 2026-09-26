@@ -14,11 +14,24 @@ KLINORBIS is a production-oriented prototype that brings hospital capacity, inte
 
 - Unit-scoped capacity and work queues
 - Reasoned operational pre-acceptance, rejection and alternative-campus routing
-- Transfer, shift/handover and scheduled reporting workflows
+- Transfer, shift coverage/handover view and scheduled reporting
 - Role- and unit-scoped workspaces
 - Authorized CSV export with audit records
 - Responsive mobile, tablet and desktop experience
 - Public interactive demo backed by synthetic data
+
+## What is live and what is not (25 Sep 2026)
+
+| Capability | Status |
+|---|---|
+| Product site (`/`, `/en`) and public `/demo` | Live. `/demo` is a showcase running on **fixed sample data** in the browser; it is not connected to the API or database. The demo UI is Turkish. |
+| Operator workspace (requests, unit queues, approvals, capacity, reports) | Live, but requires Sites sign-in and an assigned staff role; unauthenticated API calls return 401. Data are identity-free pilot scenarios. |
+| Request → unit queue → take ownership/start/transfer → resolve | Works server-side and in the request drawer; covered by behaviour tests (`tests/behavior-flow.test.mjs`). |
+| Human approval on urgent signals | Works; only operations managers, unit managers or clinical roles can decide. |
+| Capacity pre-acceptance / reasoned rejection / alternative campus | Automatic pilot decision engine; not a clinical suitability decision. |
+| Shift handover | **View only**: shift teams and handover status are rotated synthetically by the automation. There is no user-performed handover action. |
+| Reports | Role/unit-scoped CSV export with audit record. |
+| EHR (HBYS), hospital PBX, external n8n | **Not connected.** Signed receivers exist for PBX and n8n; EHR has an adapter contract only. |
 
 ## Technology
 

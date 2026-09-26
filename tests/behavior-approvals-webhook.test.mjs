@@ -154,3 +154,45 @@ test("webhook: anahtar tanımlı değilse 503 döner", async () => {
   const response = await route.POST(pbxRequest({ body: started, eventId: "evt-noconf-01" }));
   assert.equal(response.status, 503);
 });
+
+test("webhook: eski imzalı asıl istek ile farklı event-id'li kopyası AYNI ANDA gelirse yalnız biri işlenir", async () => {
+  const { route, count } = await webhookFixture();
+  await route.POST(pbxRequest({ body: started, eventId: "evt-legacy-200", scheme: "legacy" }));
+  const timestamp = String(Date.now());
+  const signature = sign(`${timestamp}.${JSON.stringify(line)}`);
+  const before = count("call_messages", "call_reference = 'CALL-TEST-0001'");
+  const results = await Promise.all(["evt-legacy-201", "evt-attacker-777", "evt-attacker-778"].map((eventId) => route.POST(pbxRequest({ body: line, eventId, timestamp, signature }))));
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 200, 202]);
+  assert.equal(count("call_messages", "call_reference = 'CALL-TEST-0001'"), before + 1, "konuşma satırı tam bir kez eklenmeli");
+});
+
+test("webhook: aynı event-id yeni zaman damgası ve farklı gövdeyle gelse de ikinci kez işlenmez", async () => {
+  const { route, count } = await webhookFixture();
+  assert.equal((await route.POST(pbxRequest({ body: started, eventId: "evt-same-id-01" }))).status, 202);
+  const other = { ...started, callReference: "CALL-TEST-0002" };
+  const again = await route.POST(pbxRequest({ body: other, eventId: "evt-same-id-01", timestamp: String(Date.now() + 1) }));
+  assert.equal(again.status, 200);
+  assert.equal((await again.json()).duplicate, true);
+  assert.equal(count("call_sessions", "reference = 'CALL-TEST-0002'"), 0);
+});
+
+test("webhook: saniye hassasiyetli (10 haneli) zaman damgası v2 ve eski biçimde kabul edilir", async () => {
+  const { route } = await webhookFixture();
+  const seconds = String(Math.floor(Date.now() / 1000));
+  assert.equal((await route.POST(pbxRequest({ body: started, eventId: "evt-seconds-01", timestamp: seconds }))).status, 202);
+  const ended = { eventType: "call.ended", callReference: "CALL-TEST-0001" };
+  assert.equal((await route.POST(pbxRequest({ body: ended, eventId: "evt-seconds-02", timestamp: seconds, scheme: "legacy" }))).status, 202);
+});
+
+test("webhook: v2 akışı — acil sinyal insan devrine alınır, çağrı kapanışı görevi tamamlar", async () => {
+  const { route, count } = await webhookFixture();
+  await route.POST(pbxRequest({ body: started, eventId: "evt-flow-0001" }));
+  const urgent = { eventType: "transcript.final", callReference: "CALL-TEST-0001", text: "Arayan göğüs ağrısı tarif ediyor (sentetik)", speakerType: "caller" };
+  const r = await route.POST(pbxRequest({ body: urgent, eventId: "evt-flow-0002" }));
+  assert.equal(r.status, 202);
+  assert.equal((await r.json()).destination.unitCode, "ACY");
+  assert.equal(count("call_sessions", "reference = 'CALL-TEST-0001' AND status = 'human_handoff' AND requires_human = 1"), 1);
+  await route.POST(pbxRequest({ body: { eventType: "call.ended", callReference: "CALL-TEST-0001" }, eventId: "evt-flow-0003" }));
+  assert.equal(count("operational_tasks", "call_reference = 'CALL-TEST-0001' AND status = 'completed'"), 1);
+  assert.equal(count("audit_logs", "actor = 'integration:test-pbx'"), 3);
+});

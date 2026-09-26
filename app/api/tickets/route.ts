@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { approvals, automationEvents, operationalTasks, ticketEvents, tickets, workflowJobs } from "../../../db/schema";
 import { appendAudit } from "../../../lib/audit";
@@ -12,11 +12,18 @@ import {
   enforceRateLimit,
   requireActor,
   requireUnitAccess,
+  SecurityError,
   securityResponse,
+  type SystemRole,
 } from "../../../lib/security";
 import { runWorkflowCycle } from "../../../lib/workflow-engine";
 
 export const dynamic = "force-dynamic";
+
+// Gizlilik ve güvenlik görevlileri tüm birimleri izler ama operasyonel talebi değiştirmez.
+const TICKET_OPERATOR_ROLES = new Set<SystemRole>(["operations_manager", "unit_manager", "clinician", "call_agent"]);
+const CLOSED_STATUS = "Çözüldü";
+const SAME_STATE: Record<string, string> = { accept: "Kabul edildi", start: "İşlemde" };
 
 export async function GET(request: Request) {
   try {
@@ -151,7 +158,21 @@ export async function PATCH(request: Request) {
         : [];
     if (!ticket) return Response.json({ error: "Talep bulunamadı.", code: "NOT_FOUND" }, { status: 404 });
     requireUnitAccess(actor, ticket.unitCode);
+    if (!TICKET_OPERATOR_ROLES.has(actor.role)) {
+      throw new SecurityError(403, "Gözetim rolleri talep durumunu değiştiremez.", "TICKET_ROLE_REQUIRED");
+    }
     const action = normalizeAction(payload.action, payload.status);
+    if (ticket.status === CLOSED_STATUS) {
+      return Response.json({ error: "Çözülmüş talep yeniden işlenemez.", code: "TICKET_CLOSED" }, { status: 409 });
+    }
+    if (SAME_STATE[action] && ticket.status === SAME_STATE[action]) {
+      return Response.json({ error: "Talep zaten bu durumda.", code: "NO_STATE_CHANGE" }, { status: 409 });
+    }
+    // Eşzamanlı iki işlemden yalnız ilki uygulanır: güncelleme okunan durum değişmediyse yapılır.
+    const claimTicket = async (values: Partial<typeof tickets.$inferInsert>) => {
+      const updated = await db.update(tickets).set(values).where(and(eq(tickets.id, ticket.id), eq(tickets.status, ticket.status))).returning({ id: tickets.id });
+      if (!updated.length) throw new SecurityError(409, "Talep başka bir işlemle değişti; yenileyin.", "TICKET_CHANGED");
+    };
     const now = new Date();
     let destination = findUnit(ticket.unitCode);
     let nextStatus = ticket.status;
@@ -161,17 +182,17 @@ export async function PATCH(request: Request) {
     if (action === "accept") {
       nextStatus = "Kabul edildi";
       detail = `${actor.label} görevi kabul etti. Kayıt ${destination.name} biriminde ve ${destination.assignedRole} sorumluluğunda.`;
-      await db.update(tickets).set({ status: nextStatus, acceptedBy: actor.email, acceptedAt: now, updatedAt: now }).where(eq(tickets.id, ticket.id));
+      await claimTicket({ status: nextStatus, acceptedBy: actor.email, acceptedAt: now, updatedAt: now });
       await db.update(operationalTasks).set({ status: "accepted", acceptedBy: actor.email, acceptedAt: now, updatedAt: now }).where(eq(operationalTasks.ticketReference, ticket.reference));
     } else if (action === "start") {
       nextStatus = "İşlemde";
       detail = `${destination.name} birimi görevi işleme aldı; sorumlu rol ${destination.assignedRole}.`;
-      await db.update(tickets).set({ status: nextStatus, updatedAt: now }).where(eq(tickets.id, ticket.id));
+      await claimTicket({ status: nextStatus, updatedAt: now });
       await db.update(operationalTasks).set({ status: "in_progress", updatedAt: now }).where(eq(operationalTasks.ticketReference, ticket.reference));
     } else if (action === "resolve") {
       nextStatus = "Çözüldü";
       detail = `${destination.name} birimi görevi sonuçlandırdı. Kapanış denetim izine işlendi.`;
-      await db.update(tickets).set({ status: nextStatus, updatedAt: now }).where(eq(tickets.id, ticket.id));
+      await claimTicket({ status: nextStatus, updatedAt: now });
       await db.update(operationalTasks).set({ status: "completed", updatedAt: now }).where(eq(operationalTasks.ticketReference, ticket.reference));
     } else if (action === "transfer") {
       if (typeof payload.targetUnitCode !== "string" || !HOSPITAL_UNITS.some((unit) => unit.code === payload.targetUnitCode)) {
@@ -181,7 +202,8 @@ export async function PATCH(request: Request) {
       destination = findUnit(payload.targetUnitCode);
       nextStatus = "Bekliyor";
       detail = `${from.name} → ${destination.name}. Görev ${destination.assignedRole} kuyruğuna taşındı; yeni birim kabulü bekleniyor.`;
-      await db.update(tickets).set({ previousUnitCode: from.code, unitCode: destination.code, unit: destination.name, assignedRole: destination.assignedRole, status: nextStatus, acceptedBy: null, acceptedAt: null, updatedAt: now, slaDueAt: new Date(now.getTime() + destination.slaMinutes * 60_000) }).where(eq(tickets.id, ticket.id));
+      if (destination.code === from.code) return Response.json({ error: "Talep zaten bu birimde.", code: "NO_STATE_CHANGE" }, { status: 409 });
+      await claimTicket({ previousUnitCode: from.code, unitCode: destination.code, unit: destination.name, assignedRole: destination.assignedRole, status: nextStatus, acceptedBy: null, acceptedAt: null, updatedAt: now, slaDueAt: new Date(now.getTime() + destination.slaMinutes * 60_000) });
       await db.update(operationalTasks).set({ unitCode: destination.code, assignedRole: destination.assignedRole, status: "queued", acceptedBy: null, acceptedAt: null, dueAt: new Date(now.getTime() + destination.slaMinutes * 60_000), updatedAt: now }).where(eq(operationalTasks.ticketReference, ticket.reference));
       await db.insert(ticketEvents).values({ ticketReference: ticket.reference, eventType, actor: actor.email, fromUnitCode: from.code, toUnitCode: destination.code, detail, createdAt: now });
     } else {
