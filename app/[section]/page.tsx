@@ -30,3 +30,6 @@ export default async function SectionPage({
   if (!sections.has(section as View)) notFound();
   return <Dashboard initialView={section as View} />;
 }
+
+import { privateMeta } from "../../lib/seo";
+export const metadata = privateMeta;

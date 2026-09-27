@@ -1,4 +1,5 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const tickets = sqliteTable("tickets", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -284,3 +285,25 @@ export const reportAssignments = sqliteTable("report_assignments", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
+
+// Gerçek kullanıcı vardiya devri. Otomasyonun sentetik vardiya panosundan (staff_shifts) ayrıdır:
+// giden görevli devri başlatır, gelen görevli kabul eder; kabulde açık işler gelen kişiye geçer.
+export const shiftHandoffs = sqliteTable("shift_handoffs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  unitCode: text("unit_code").notNull(),
+  fromEmail: text("from_email").notNull(),
+  toEmail: text("to_email").notNull(),
+  note: text("note").notNull().default(""),
+  status: text("status").notNull().default("pending"),
+  openTickets: integer("open_tickets").notNull().default(0),
+  openTasks: integer("open_tasks").notNull().default(0),
+  movedTickets: integer("moved_tickets").notNull().default(0),
+  movedTasks: integer("moved_tasks").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
+  decidedBy: text("decided_by"),
+}, (table) => [
+  index("shift_handoffs_unit_status").on(table.unitCode, table.status),
+  // Aynı kişinin aynı birimde aynı anda yalnız bir bekleyen devri olabilir (çift tıklama/yarış).
+  uniqueIndex("shift_handoffs_one_pending").on(table.fromEmail, table.unitCode).where(sql`status = 'pending'`),
+]);

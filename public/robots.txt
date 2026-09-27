@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /$
+Allow: /en
+Allow: /demo
+Allow: /og/
+Disallow: /
+
+Sitemap: https://klinorbis.ekremalan.chatgpt.site/sitemap.xml

@@ -29,7 +29,10 @@ KLINORBIS is a production-oriented prototype that brings hospital capacity, inte
 | Request → unit queue → take ownership/start/transfer → resolve | Works server-side and in the request drawer; covered by behaviour tests (`tests/behavior-flow.test.mjs`). |
 | Human approval on urgent signals | Works; only operations managers, unit managers or clinical roles can decide. |
 | Capacity pre-acceptance / reasoned rejection / alternative campus | Automatic pilot decision engine; not a clinical suitability decision. |
-| Shift handover | **View only**: shift teams and handover status are rotated synthetically by the automation. There is no user-performed handover action. |
+| Staff and roles | The operations manager adds staff, assigns role and units, and deactivates them on the "Personel ve Yetki" screen (`/api/staff`). No passwords: people sign in to Sites with their own account and must also be added in the Sites sharing settings. |
+| Patient transport and discharge forms | Structured forms on the requests screen route to the ULS or TBR unit and list open discharge blockers. Emergency wording still triggers the emergency path. |
+| FHIR R4 capacity validator | On the integrations screen (operations/security roles): validates an HIS Bundle (Location, HL7 v2-0116) and maps beds to units. **Not a live connection; stores nothing.** |
+| Shift handover | **Real handover:** the outgoing person starts it, a colleague in the same unit accepts; open tickets and tasks move to them and the audit trail records it (`/api/shifts`). The pilot shift board remains a synthetic view. |
 | Reports | Role/unit-scoped CSV export with audit record. |
 | EHR (HBYS), hospital PBX, external n8n | **Not connected.** Signed receivers exist for PBX and n8n; EHR has an adapter contract only. |
 

@@ -1,10 +1,13 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { pageMeta } from "../../lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "KLINORBIS | Hospital Operations Control Tower",
-  description: "Working hospital-operations prototype for capacity, transfer, call, request, shift and approval workflows with human oversight. Synthetic demo data only.",
-};
+  description: "Working hospital-operations prototype for capacity, transfer, call, request, shift and approval workflows with human oversight. Synthetic demo data only; no clinical decisions.",
+  path: "/en",
+  locale: "en_US",
+});
 
 const modules=[["Demand orchestration","Connect calls, requests, tasks, accountable units and SLA records."],["Capacity and transfer view","Show resources, reservations, blocks and routing alternatives."],["Shift ownership","Keep handovers and accountable human approval traceable."],["Audit and reporting","Bring operational history and evidence into one control view."]];
 

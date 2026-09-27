@@ -1,4 +1,6 @@
 "use client";
+import { StaffManagement } from "./staff-management";
+import { FhirValidator, OperationsForms } from "./operations-forms";
 
 import {
   FormEvent,
@@ -401,7 +403,7 @@ const titles: Record<View, string> = {
 };
 const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
   [
-    { view: "dashboard", icon: "▦", label: "Operasyon Merkezi" },
+    { view: "dashboard", icon: "▦", label: "Operasyon Merkezi", group: "GÜNLÜK İŞ" },
     { view: "inbox", icon: "◎", label: "Ortak İş Kutusu" },
     { view: "flow", icon: "⇢", label: "Uçtan Uca Akış" },
     { view: "requests", icon: "◉", label: "Hasta Talepleri" },
@@ -417,7 +419,7 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
     { view: "capacity", icon: "↔", label: "Kapasite ve Transfer" },
     { view: "integrations", icon: "⌁", label: "Entegrasyon Sağlığı" },
     { view: "units", icon: "◇", label: "Birim Çalışma Masaları" },
-    { view: "staff", icon: "♙", label: "Personel ve Yetki" },
+    { view: "staff", icon: "♙", label: "Personel ve Yetki", group: "YÖNETİM" },
     { view: "reports", icon: "▥", label: "Raporlar" },
     { view: "privacy", icon: "⌾", label: "KVKK ve Etik", group: "GÜVENCE" },
     { view: "security", icon: "⬡", label: "Siber Güvenlik" },
@@ -976,6 +978,7 @@ export default function Dashboard({
             openCall={(reference) => navigate("calls", reference)}
           />
         )}
+        {initialView === "requests" && <OperationsForms />}
         {initialView === "requests" && (
           <TicketWorkspace
             title="Hasta talepleri"
@@ -1029,6 +1032,7 @@ export default function Dashboard({
             openTicket={(reference) => navigate("requests", reference)}
           />
         )}
+        {initialView === "integrations" && ["operations_manager", "security_officer"].includes(snapshot.identity.role) && <FhirValidator />}
         {initialView === "integrations" && (
           <IntegrationWorkspace
             snapshot={snapshot}
@@ -2686,9 +2690,12 @@ function StaffWorkspace({ snapshot }: { snapshot: Snapshot }) {
   return (
     <>
       <Hero
-        title="Personel, hastane, vardiya ve devir görünümü"
-        text="Birim personeli yalnız kendi üyelik kapsamını görür; operasyon yöneticisi hastane ağı vardiya kapsamasını izler. Pilot ekipler gerçek personel adı kullanmadan açıkça etiketlenir."
+        title="Personel, rol ve vardiya devri"
+        text="Her çalışan kendi rolü ve birimiyle çalışır. Operasyon yöneticisi personeli ekler ve yetkilendirir; birim görevlileri vardiya devrini birbirine yapar."
       />
+      <StaffManagement />
+      <h3 className="sm-section-title">Pilot vardiya panosu (sentetik)</h3>
+      <p className="sm-muted">Aşağıdaki pano otomasyonun sentetik pilot verisidir; gerçek devirler yukarıdaki “Vardiya devri” bölümündedir.</p>
       <section className="stats">
         <Stat value={shifts.length} label="Vardiya kapsamı" />
         <Stat value={shifts.filter((shift) => shift.status === "active").length} label="Aktif ekip" />
@@ -2705,7 +2712,7 @@ function StaffWorkspace({ snapshot }: { snapshot: Snapshot }) {
             <h3>Canlı vardiya panosu</h3>
             <p>Kim nerede, hangi hastane ve birimde, hangi devir durumunda</p>
           </div>
-          <span className="live"><i /> CANLI PİLOT</span>
+          <span className="live pilot"><i /> SENTETİK PİLOT</span>
         </div>
         <div className="shift-head"><span>EKİP / ROL</span><span>HASTANE</span><span>BİRİM</span><span>VARDİYA</span><span>DURUM / DEVİR</span></div>
         {shifts.map((shift) => (

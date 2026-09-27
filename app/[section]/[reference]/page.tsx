@@ -10,3 +10,6 @@ export default async function DetailPage({ params }: { params: Promise<{ section
   if (!detailSections.has(section as View) || !/^[A-Za-z0-9._-]{2,96}$/.test(reference)) notFound();
   return <Dashboard initialView={section as View} initialReference={reference} />;
 }
+
+import { privateMeta } from "../../../lib/seo";
+export const metadata = privateMeta;
