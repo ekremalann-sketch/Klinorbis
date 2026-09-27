@@ -16,6 +16,7 @@ test("herkese açık sayfalar kendi başlık, kanonik adres, paylaşım kartı v
     ["/", /KLINORBIS \| Hastane Operasyon Kontrol Kulesi/, "https://klinorbis.ekremalan.chatgpt.site"],
     ["/en", /KLINORBIS \| Hospital Operations Control Tower/, "https://klinorbis.ekremalan.chatgpt.site/en"],
     ["/demo", /KLINORBIS Demo/, "https://klinorbis.ekremalan.chatgpt.site/demo"],
+    ["/en/demo", /KLINORBIS Demo/, "https://klinorbis.ekremalan.chatgpt.site/en/demo"],
   ]) {
     const html = await render(path);
     assert.match(html, title, path);
@@ -31,7 +32,7 @@ test("robots, sitemap ve security.txt yalnız herkese açık sayfaları duyurur"
   const [robots, sitemap, security] = await Promise.all(["robots.txt", "sitemap.xml", ".well-known/security.txt"].map((f) => readFile(new URL(`../public/${f}`, import.meta.url), "utf8")));
   assert.match(robots, /Disallow: \//);
   assert.match(robots, /Allow: \/demo/);
-  assert.equal((sitemap.match(/<loc>/g) || []).length, 3);
+  assert.equal((sitemap.match(/<loc>/g) || []).length, 4);
   assert.ok(!/inbox|requests|api/.test(sitemap));
   assert.match(security, /^Contact: https:/m);
   assert.ok(new Date(security.match(/^Expires: (.+)$/m)[1]) > new Date());

@@ -42,6 +42,7 @@ export default function PublicDemo(){
       <nav aria-label="Demo bölümleri">{Object.entries(views).map(([key,item])=><button key={key} type="button" aria-current={view===key?"page":undefined} className={view===key?"active":""} onClick={()=>setView(key as keyof typeof views)}>{item.label}</button>)}</nav>
       <div className="demo-trust"><i/> SENTETİK DEMO VERİSİ<small>Gerçek hasta verisi içermez</small></div>
       <Link className="demo-back" href="/">← Ürün sayfasına dön</Link>
+      <Link className="demo-back" href="/en/demo" hrefLang="en">English demo</Link>
     </aside>
     <section className="demo-main">
       <header className="demo-topbar"><div><span>Kontrol merkezi · Örnek senaryo</span><h1>{current.title}</h1></div><div className="demo-status">Sentetik veriler</div></header>
