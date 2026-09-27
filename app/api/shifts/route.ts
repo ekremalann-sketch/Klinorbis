@@ -14,6 +14,7 @@ import {
   type RequestActor,
 } from "../../../lib/security";
 import { HANDOFF_ROLES, normalizeEmail } from "../../../lib/staff";
+import { ensureShiftSchema } from "../../../lib/shift-schema";
 
 export const dynamic = "force-dynamic";
 const noStore = { "cache-control": "no-store, private" };
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
   try {
     const actor = await requireActor(request);
     await enforceRateLimit(request, actor, "shifts.read", 180, 60);
+    await ensureShiftSchema();
     const db = getDb();
     const handoffs = await visibleHandoffs(actor);
     // Devralabilecek kişiler: kendi birimlerimde etkin üyeliği olan diğer etkin personel.
@@ -70,6 +72,7 @@ export async function POST(request: Request) {
     assertBrowserMutation(request);
     const actor = await requireActor(request);
     await enforceRateLimit(request, actor, "shifts.change", 30, 60);
+    await ensureShiftSchema();
     const payload = await request.json() as Record<string, unknown>;
     const db = getDb();
     const now = new Date();
