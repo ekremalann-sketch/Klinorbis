@@ -38,6 +38,8 @@ Vinext, React, TypeScript, Cloudflare Workers/D1, Drizzle ORM ve GitHub uyumlu s
 | Acil olasılık sinyalinde insan onayı | Çalışır; onayı yalnız operasyon yöneticisi, birim yöneticisi veya klinik rol verir. |
 | Kapasite ön kabulü / gerekçeli ret / alternatif kampüs | Otomatik pilot karar motoru; klinik uygunluk kararı değildir. |
 | Personel ve yetki | Operasyon yöneticisi "Personel ve Yetki" ekranında çalışan ekler, rol ve birim atar, pasife alır (`/api/staff`). Parola yoktur; kişi Sites'a kendi hesabıyla girer ve Sites paylaşım ayarından ayrıca eklenmelidir. |
+| Hasta nakli ve taburculuk formları | "Hasta Talepleri" ekranında yapılandırılmış form; talep ULS veya TBR birimine düşer, açık taburculuk engelleri listelenir. Acil ifade yine acil akışa gider. |
+| FHIR R4 kapasite doğrulayıcı | "Entegrasyon Sağlığı" ekranında (operasyon/güvenlik rolü): HBYS'nin göndereceği Bundle (Location, HL7 v2-0116) doğrulanır ve birimlere eşlenir. **Canlı bağlantı değildir, veri saklamaz.** |
 | Vardiya devri | **Gerçek devir:** giden görevli başlatır, aynı birimdeki gelen görevli kabul eder; kabulde açık talep ve görevler devralana geçer, denetim izine yazılır (`/api/shifts`). Pilot vardiya panosu ise sentetik görünüm olarak kalır. |
 | Rapor | Rol/birim kapsamlı CSV dışa aktarma ve denetim kaydı çalışır. |
 | HBYS, kurum santrali, harici n8n | **Bağlı değil.** Santral ve n8n için imzalı alıcılar hazırdır; HBYS için yalnız adaptör sözleşmesi vardır. |

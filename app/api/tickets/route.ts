@@ -17,6 +17,7 @@ import {
   type SystemRole,
 } from "../../../lib/security";
 import { runWorkflowCycle } from "../../../lib/workflow-engine";
+import { buildStructuredSubject } from "../../../lib/structured-forms";
 
 export const dynamic = "force-dynamic";
 
@@ -48,12 +49,14 @@ export async function POST(request: Request) {
     assertBrowserMutation(request);
     const actor = await requireActor(request);
     await enforceRateLimit(request, actor, "tickets.create", 30, 60);
-    const payload = await request.json() as { patientAlias?: unknown; subject?: unknown; unitCode?: unknown; channel?: unknown };
+    const payload = await request.json() as { patientAlias?: unknown; subject?: unknown; unitCode?: unknown; channel?: unknown; formKind?: unknown; form?: unknown };
     const patientAlias = cleanText(payload.patientAlias, "Hasta/protokol takma adı", 3, 40).toUpperCase();
     if (!/^[A-ZÇĞİÖŞÜ0-9._-]+$/u.test(patientAlias)) throw new Error("Hasta takma adı yalnız harf, sayı, nokta, tire ve alt çizgi içerebilir.");
-    const subject = cleanText(payload.subject, "Talep özeti", 6, 2_000);
-    const channel = typeof payload.channel === "string" && ["Web", "Telefon", "Çağrı", "Portal", "WhatsApp", "HBYS"].includes(payload.channel) ? payload.channel : "Web";
-    const requestedCode = typeof payload.unitCode === "string" && HOSPITAL_UNITS.some((unit) => unit.code === payload.unitCode) ? payload.unitCode : null;
+    // Yapılandırılmış form (hasta nakli / taburculuk): özet ve birim sunucuda formdan üretilir.
+    const structured = payload.formKind === undefined ? null : buildStructuredSubject(payload.formKind, payload.form);
+    const subject = structured ? structured.subject : cleanText(payload.subject, "Talep özeti", 6, 2_000);
+    const channel = structured ? "Portal" : typeof payload.channel === "string" && ["Web", "Telefon", "Çağrı", "Portal", "WhatsApp", "HBYS"].includes(payload.channel) ? payload.channel : "Web";
+    const requestedCode = structured ? structured.unitCode : typeof payload.unitCode === "string" && HOSPITAL_UNITS.some((unit) => unit.code === payload.unitCode) ? payload.unitCode : null;
     const redaction = redactPII(subject);
     const signal = urgencySignal(redaction.maskedText);
     const destination = signal.isEmergency ? findUnit("ACY") : recommendUnit(redaction.maskedText, requestedCode);
@@ -73,7 +76,7 @@ export async function POST(request: Request) {
       unit: destination.name,
       unitCode: destination.code,
       assignedRole: destination.assignedRole,
-      priority: signal.isEmergency ? "Acil" : signal.level === 4 ? "Yüksek" : "Normal",
+      priority: signal.isEmergency ? "Acil" : signal.level === 4 || structured?.priority === "Yüksek" ? "Yüksek" : "Normal",
       status: signal.isEmergency ? "Personele aktarıldı" : "Yeni",
       channel,
       createdAt: now,
