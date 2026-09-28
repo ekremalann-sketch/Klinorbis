@@ -24,7 +24,7 @@ test("herkese açık sayfalar kendi başlık, kanonik adres, paylaşım kartı v
     assert.match(html, /<meta property="og:image" content="https:\/\/klinorbis\.ekremalan\.chatgpt\.site\/og\/klinorbis-og\.png"/, `${path} og:image`);
     assert.match(html, /<meta name="twitter:card" content="summary_large_image"/);
     assert.match(html, /hrefLang="en"|hreflang="en"/i, `${path} hreflang`);
-    assert.doesNotMatch(html, /\/workspace\/sites\/[^"\']*\.vinext\/fonts\//, `${path} üretim font yolu`);
+    assert.doesNotMatch(html, /\/workspace\/sites\/[^"']*\.vinext\/fonts\//, `${path} üretim font yolu`);
   }
   assert.match(await render("/"), /<script nonce="[^"]+" type="application\/ld\+json">/, "JSON-LD nonce ile gelir");
 });
