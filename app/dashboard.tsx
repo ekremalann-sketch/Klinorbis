@@ -234,6 +234,7 @@ type Audit = {
 type Snapshot = {
   generatedAt: string;
   identity: {
+    email?: string;
     label: string;
     role: string;
     unitCodes: string[];
@@ -426,6 +427,21 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
     { view: "security", icon: "⬡", label: "Siber Güvenlik" },
     { view: "audit", icon: "≡", label: "Denetim İzleri" },
   ];
+// Rol bazlı menü: her rol önce kendi işine ait ekranları görür (sade menü). Yetki sunucuda
+// uygulanır; menüden gizlemek güvenlik değil kolaylıktır. "Tüm ekranlar" ile tamamı açılır.
+const ROLE_VIEWS: Record<string, View[]> = {
+  unit_manager: ["dashboard", "inbox", "flow", "requests", "appointments", "calls", "approvals", "capacity", "units", "staff", "reports"],
+  clinician: ["dashboard", "inbox", "requests", "approvals", "capacity", "units", "staff"],
+  call_agent: ["dashboard", "inbox", "requests", "appointments", "calls", "units", "staff"],
+  privacy_officer: ["dashboard", "inbox", "requests", "reports", "privacy", "audit", "staff"],
+  security_officer: ["dashboard", "automation", "integrations", "security", "audit", "reports", "staff"],
+};
+const NAV_GROUP_OF: Record<string, string> = (() => {
+  let current = "";
+  const out: Record<string, string> = {};
+  for (const item of nav) { if (item.group) current = item.group; out[item.view] = current; }
+  return out;
+})();
 const roleNames: Record<string, string> = {
   operations_manager: "Operasyon Yöneticisi",
   unit_manager: "Birim Sorumlusu",
@@ -501,6 +517,7 @@ export default function Dashboard({
   const [bell, setBell] = useState(false);
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [query, setQuery] = useState("");
+  const [showAllNav, setShowAllNav] = useState(false);
   const [busy, setBusy] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const knownCalls = useRef<Set<string>>(new Set());
@@ -866,7 +883,11 @@ export default function Dashboard({
           </div>
         </div>
         <nav>
-          {nav.map((item) => {
+          {(() => {
+            const allowed = ROLE_VIEWS[snapshot.identity.role];
+            const list = showAllNav || !allowed ? nav : nav.filter((item) => allowed.includes(item.view) || item.view === initialView);
+            return list.map((item, index) => ({ ...item, group: index === 0 || NAV_GROUP_OF[list[index - 1].view] !== NAV_GROUP_OF[item.view] ? NAV_GROUP_OF[item.view] || undefined : undefined }));
+          })().map((item) => {
             const badge =
               item.view === "inbox"
                 ? snapshot.tasks.filter(
@@ -900,6 +921,11 @@ export default function Dashboard({
               </span>
             );
           })}
+          {ROLE_VIEWS[snapshot.identity.role] && (
+            <button type="button" className="nav-toggle" aria-expanded={showAllNav} onClick={() => setShowAllNav((v) => !v)}>
+              {showAllNav ? "Yalnız rolümün ekranları" : "Tüm ekranları göster"}
+            </button>
+          )}
         </nav>
         <div className="system">
           <span className={`pulse ${error ? "off" : ""}`} />
@@ -989,6 +1015,13 @@ export default function Dashboard({
             openTicket={(reference) => navigate("requests", reference)}
             openCall={(reference) => navigate("calls", reference)}
           />
+        )}
+        {snapshot.identity.role === "operations_manager" && snapshot.staff.length === 0 && initialView !== "staff" && (
+          <div className="setup-banner" role="note">
+            <b>Ekibiniz henüz eklenmedi.</b>
+            <span>Çalışanları “Personel ve Yetki” ekranından rol ve birimiyle ekleyin. Uygulamaya erişim izni ile işlem yetkisi ayrı yönetilir.</span>
+            <button type="button" onClick={() => navigate("staff")}>Personel ekle</button>
+          </div>
         )}
         {initialView === "requests" && <OperationsForms />}
         {initialView === "requests" && (
@@ -1414,7 +1447,21 @@ function TicketWorkspace({
   open: (reference: string) => void;
   create?: () => void;
 }) {
-  const tickets = snapshot.tickets.filter((ticket) =>
+  // Hızlı filtre: varsayılan "Açık" — çözülmüş işler kalabalık yapmasın; "Benim" üstlendiklerim.
+  const [scope, setScope] = useState<"open" | "mine" | "urgent" | "all">("open");
+  const me = snapshot.identity.email;
+  const inScope = (ticket: Snapshot["tickets"][number]) =>
+    scope === "all" ? true
+      : scope === "mine" ? Boolean(me) && ticket.acceptedBy === me && ticket.status !== "Çözüldü"
+        : scope === "urgent" ? ticket.status !== "Çözüldü" && ["Acil", "Yüksek"].includes(ticket.priority)
+          : ticket.status !== "Çözüldü";
+  const counts = { open: 0, mine: 0, urgent: 0, all: snapshot.tickets.length };
+  for (const t of snapshot.tickets) {
+    if (t.status !== "Çözüldü") counts.open++;
+    if (me && t.acceptedBy === me && t.status !== "Çözüldü") counts.mine++;
+    if (t.status !== "Çözüldü" && ["Acil", "Yüksek"].includes(t.priority)) counts.urgent++;
+  }
+  const tickets = snapshot.tickets.filter((ticket) => inScope(ticket) &&
     `${ticket.reference} ${ticket.subject} ${ticket.unit} ${ticket.assignedRole} ${ticket.status}`
       .toLocaleLowerCase("tr-TR")
       .includes(query.toLocaleLowerCase("tr-TR")),
@@ -1435,7 +1482,13 @@ function TicketWorkspace({
         />
         <span>{tickets.length} kayıt</span>
       </div>
-      <TicketTable tickets={tickets} open={open} />
+      <div className="scope-chips" role="group" aria-label="Talep filtresi">
+        {([["open", "Açık"], ["mine", "Benim üstlendiklerim"], ["urgent", "Acil / yüksek"], ["all", "Tümü"]] as const).map(([key, label]) => (
+          <button type="button" key={key} aria-pressed={scope === key} className={scope === key ? "on" : ""} onClick={() => setScope(key)}>{label} <b>{counts[key]}</b></button>
+        ))}
+      </div>
+      {!tickets.length && <div className="empty scope-empty">{scope === "mine" ? "Üstlendiğiniz açık iş yok. “Açık” sekmesinden bir talebi açıp “Görevi üstlen” deyin." : scope === "urgent" ? "Acil veya yüksek öncelikli açık talep yok." : "Bu filtrede talep yok."}</div>}
+      {tickets.length > 0 && <TicketTable tickets={tickets} open={open} />}
     </>
   );
 }

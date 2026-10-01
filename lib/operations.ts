@@ -214,7 +214,7 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
   };
   return {
     generatedAt: new Date().toISOString(),
-    identity: { label: actor.label, role: actor.role, unitCodes: actor.unitCodes, canSeeAllUnits: actor.canSeeAllUnits },
+    identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: actor.unitCodes, canSeeAllUnits: actor.canSeeAllUnits },
     units: unitRows.map((unit) => ({ ...unit, queue: queueByUnit.get(unit.code) || 0, assignedRole: findUnit(unit.code).assignedRole })),
     tickets: ticketRows.map((ticket) => ({ ...ticket, task: taskRows.find((task) => task.ticketReference === ticket.reference) || null, history: historyRows.filter((event) => event.ticketReference === ticket.reference).reverse() })),
     tasks: taskRows,
@@ -298,7 +298,7 @@ function safeJsonObject(value: string) {
 function emptySnapshot(actor: RequestActor) {
   return {
     generatedAt: new Date().toISOString(),
-    identity: { label: actor.label, role: actor.role, unitCodes: [], canSeeAllUnits: false },
+    identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: [], canSeeAllUnits: false },
     units: [], tickets: [], tasks: [], calls: [], events: [], approvals: [], jobs: { queued: 0, completed: 0, deadLetter: 0 },
     automation: { pilot: null, controlTower: null, agent: { state: "waiting", lastRunAt: null, lastSuccessfulRunAt: null, lastRunSucceeded: false, lastCycleStatus: null, lastActor: null, ageSeconds: null, heartbeatWindowSeconds: 180, trigger: "scheduled-worker-or-signed-n8n-webhook" }, connectors: automationConnectorStatus() }, facilities: [], capacity: [],
     capacitySummary: { total: 0, occupied: 0, reserved: 0, available: 0, blocked: 0, dischargeForecast: 0, incoming: 0, outgoing: 0, transfersOpen: 0, autoAccepted: 0, autoRejected: 0, checking: 0 },
