@@ -28,7 +28,7 @@ export default function EnglishDemo(){
       <div className="demo-trust"><i/> SYNTHETIC DEMO DATA<small>No real patient information</small></div>
       <Link className="demo-back" href="/en">← Back to product</Link><Link className="demo-back" href="/demo" hrefLang="tr">Türkçe demo</Link>
     </aside>
-    <section className="demo-main">
+    <section className="demo-main"><div className="workspace-demo-entry"><p>This public demo is read-only. Open the signed-in workspace to create and route requests.</p><Link href="/workspace">Open workspace (Turkish UI)</Link></div>
       <header className="demo-topbar"><div><span>Control centre · Example scenario</span><h1>{views[view].title}</h1></div><div className="demo-status">Synthetic data</div></header>
       <div className="demo-kpis">{views[view].cards.map(([label,value,note])=><article key={label}><small>{label}</small><strong>{value}</strong><span>{note}</span></article>)}</div>
       <div className="demo-grid">

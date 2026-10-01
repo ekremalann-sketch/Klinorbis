@@ -1,3 +1,4 @@
+import { requireChatGPTUser } from "../../chatgpt-auth";
 import { notFound } from "next/navigation";
 import Dashboard, { type View } from "../../dashboard";
 
@@ -8,8 +9,13 @@ const detailSections = new Set<View>(["inbox", "requests", "appointments", "call
 export default async function DetailPage({ params }: { params: Promise<{ section: string; reference: string }> }) {
   const { section, reference } = await params;
   if (!detailSections.has(section as View) || !/^[A-Za-z0-9._-]{2,96}$/.test(reference)) notFound();
-  return <Dashboard initialView={section as View} initialReference={reference} />;
+  return <AuthenticatedDetail section={section as View} reference={reference} />;
 }
 
 import { privateMeta } from "../../../lib/seo";
 export const metadata = privateMeta;
+
+async function AuthenticatedDetail({ section, reference }: { section: View; reference: string }) {
+  await requireChatGPTUser(`/${section}/${encodeURIComponent(reference)}`);
+  return <Dashboard initialView={section} initialReference={reference} />;
+}

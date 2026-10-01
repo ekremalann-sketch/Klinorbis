@@ -1,3 +1,4 @@
+import { requireChatGPTUser } from "../chatgpt-auth";
 import { notFound } from "next/navigation";
 import Dashboard, { type View } from "../dashboard";
 
@@ -28,8 +29,13 @@ export default async function SectionPage({
 }) {
   const { section } = await params;
   if (!sections.has(section as View)) notFound();
-  return <Dashboard initialView={section as View} />;
+  return <AuthenticatedSection section={section as View} />;
 }
 
 import { privateMeta } from "../../lib/seo";
 export const metadata = privateMeta;
+
+async function AuthenticatedSection({ section }: { section: View }) {
+  await requireChatGPTUser(`/${section}`);
+  return <Dashboard initialView={section} />;
+}

@@ -44,7 +44,7 @@ test("renders direct operation routes instead of losing the click target", async
   const { default: worker } = await import(workerUrl.href);
   const response = await worker.fetch(
     new Request("http://localhost/requests/KLI-TEST-01", {
-      headers: { accept: "text/html" },
+      headers: { accept: "text/html", "oai-authenticated-user-email": "signed-in@test.invalid" },
     }),
     {
       ASSETS: {
@@ -85,7 +85,7 @@ test("every operation tab has a real routable screen", async () => {
   for (const section of sections) {
     const response = await worker.fetch(
       new Request(`http://localhost/${section}`, {
-        headers: { accept: "text/html" },
+        headers: { accept: "text/html", "oai-authenticated-user-email": "signed-in@test.invalid" },
       }),
       {
         ASSETS: {
@@ -99,5 +99,21 @@ test("every operation tab has a real routable screen", async () => {
     );
     assert.equal(response.status, 200, `${section} must render`);
     assert.match(await response.text(), productTitle);
+  }
+});
+
+
+test("anonymous operational navigation initiates sign-in and preserves the selected destination", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("auth-route-test", String(process.pid));
+  const { default: worker } = await import(workerUrl.href);
+  const env = { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } };
+  const ctx = { waitUntil() {}, passThroughOnException() {} };
+  for (const path of ["/workspace", "/inbox", "/requests/KLI-TEST-01"]) {
+    const response = await worker.fetch(new Request(`https://klinorbis.example${path}`, { headers: { accept: "text/html" } }), env, ctx);
+    assert.equal(response.status, 307, path);
+    const target = new URL(response.headers.get("location"), "https://klinorbis.example");
+    assert.equal(target.pathname, "/signin-with-chatgpt");
+    assert.equal(target.searchParams.get("return_to"), path);
   }
 });

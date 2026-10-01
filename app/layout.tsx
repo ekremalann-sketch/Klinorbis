@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./public-navigation.css";
 import { pageMeta, SITE_URL, structuredData } from "../lib/seo";
 
 const HOME_TITLE = "KLINORBIS | Hastane Operasyon Kontrol Kulesi";

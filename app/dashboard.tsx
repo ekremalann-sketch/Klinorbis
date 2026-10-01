@@ -655,6 +655,12 @@ export default function Dashboard({
       const data = (await response.json()) as ApiError;
       if (!response.ok) throw new Error(data.error || "İşlem tamamlanamadı.");
       await refresh(true);
+      setReceipt({
+        title: action === "transfer" ? "Talep hedef birime aktarıldı" : "Talep işlemi kaydedildi",
+        detail: action === "transfer" ? `${reference} · Yeni birimin kabulü bekleniyor; kayıt işlem geçmişine eklendi.` : `${reference} · Durum güncellendi.`,
+        path: "/requests",
+        actionLabel: "Talepleri aç",
+      });
     } catch (cause) {
       setReceipt({
         title: "Talep işlemi uygulanmadı",
@@ -815,7 +821,10 @@ export default function Dashboard({
     return (
       <main className="loading-screen error-screen">
         <b>Çalışma alanı açılamadı</b>
-        <p>{error}</p>
+        <p role="alert">{error}</p>
+        <a className="primary" href="/signin-with-chatgpt?return_to=%2Fworkspace" target="_top">Giriş yap ve çalışma alanını aç</a>
+        <p>Giriş yaptıktan sonra yetki hatası sürerse bu hesaba birim veya rol atanmamış olabilir. Gözetim rolleri kayıt değiştiremez.</p>
+        <a href="/demo">Herkese açık demoya dön</a>
         <button className="primary" onClick={() => void refresh()}>
           Yeniden bağlan
         </button>
