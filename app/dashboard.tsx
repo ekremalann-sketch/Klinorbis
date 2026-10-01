@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export type View =
   | "dashboard"
@@ -655,6 +656,12 @@ export default function Dashboard({
       const data = (await response.json()) as ApiError;
       if (!response.ok) throw new Error(data.error || "İşlem tamamlanamadı.");
       await refresh(true);
+      setReceipt({
+        title: action === "transfer" ? "Talep hedef birime aktarıldı" : "Talep işlemi kaydedildi",
+        detail: action === "transfer" ? `${reference} · Yeni birimin kabulü bekleniyor; kayıt işlem geçmişine eklendi.` : `${reference} · Durum güncellendi.`,
+        path: "/requests",
+        actionLabel: "Talepleri aç",
+      });
     } catch (cause) {
       setReceipt({
         title: "Talep işlemi uygulanmadı",
@@ -815,7 +822,12 @@ export default function Dashboard({
     return (
       <main className="loading-screen error-screen">
         <b>Çalışma alanı açılamadı</b>
-        <p>{error}</p>
+        <p role="alert">{error}</p>
+        {/* Authentication must navigate the top-level document, not the client router. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <a className="primary" href="/signin-with-chatgpt?return_to=%2Fworkspace" target="_top">Giriş yap ve çalışma alanını aç</a>
+        <p>Giriş yaptıktan sonra yetki hatası sürerse bu hesaba birim veya rol atanmamış olabilir. Gözetim rolleri kayıt değiştiremez.</p>
+        <Link href="/demo">Herkese açık demoya dön</Link>
         <button className="primary" onClick={() => void refresh()}>
           Yeniden bağlan
         </button>
