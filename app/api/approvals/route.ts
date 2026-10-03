@@ -1,14 +1,14 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
   approvals,
   automationEvents,
-  callMessages,
   callSessions,
   operationalTasks,
   ticketEvents,
   tickets,
 } from "../../../db/schema";
+import { redactPII } from "../../../lib/privacy";
 import { appendAudit } from "../../../lib/audit";
 import {
   assertBrowserMutation,
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       );
     }
     const note = body.note
-      ? cleanText(body.note, "Karar notu", 2, 500)
+      ? redactPII(cleanText(body.note, "Karar notu", 2, 500)).maskedText
       : body.decision === "approve"
         ? "Yetkili insan onayı verildi."
         : "Yetkili insan onayı reddedildi.";
@@ -74,96 +74,42 @@ export async function POST(request: Request) {
         },
         { status: 409 },
       );
-    const now = new Date();
-    const status = body.decision === "approve" ? "approved" : "rejected";
-    // Koşullu güncelleme: iki eşzamanlı karardan yalnız ilki kazanır.
-    const claimed = await db
-      .update(approvals)
-      .set({
-        status,
-        decidedBy: actor.email,
-        decisionNote: note,
-        decidedAt: now,
-      })
-      .where(and(eq(approvals.reference, approval.reference), eq(approvals.status, "pending")))
-      .returning({ reference: approvals.reference });
-    if (!claimed.length)
-      return Response.json(
-        {
-          error: "Bu onay daha önce karara bağlanmış.",
-          code: "ALREADY_DECIDED",
-        },
-        { status: 409 },
-      );
-
-    const relatedReference =
-      approval.ticketReference || approval.callReference || approval.reference;
     if (approval.ticketReference) {
-      const ticketStatus =
-        body.decision === "approve"
-          ? "Kabul edildi"
-          : "İnsan incelemesi gerekli";
-      await db
-        .update(tickets)
-        .set({
-          status: ticketStatus,
-          acceptedBy: body.decision === "approve" ? actor.email : null,
-          acceptedAt: body.decision === "approve" ? now : null,
-          updatedAt: now,
-        })
-        .where(eq(tickets.reference, approval.ticketReference));
-      await db
-        .update(operationalTasks)
-        .set({
-          status: body.decision === "approve" ? "accepted" : "queued",
-          acceptedBy: body.decision === "approve" ? actor.email : null,
-          acceptedAt: body.decision === "approve" ? now : null,
-          updatedAt: now,
-        })
-        .where(eq(operationalTasks.ticketReference, approval.ticketReference));
-      await db
-        .insert(ticketEvents)
-        .values({
-          ticketReference: approval.ticketReference,
-          eventType: `approval_${status}`,
-          actor: actor.email,
-          fromUnitCode: approval.unitCode,
-          toUnitCode: approval.unitCode,
-          detail: `${approval.approvalType} kararı: ${status}. ${note}`,
-          createdAt: now,
-        });
+      const [related] = await db.select().from(tickets).where(eq(tickets.reference, approval.ticketReference)).limit(1);
+      if (!related || related.status !== "Personele aktarıldı") throw new SecurityError(409, "İlgili talep onay bekleyen durumda değil.", "APPROVAL_STATE_CHANGED");
     }
     if (approval.callReference) {
-      await db
-        .update(operationalTasks)
-        .set({
-          status: body.decision === "approve" ? "accepted" : "queued",
-          acceptedBy: body.decision === "approve" ? actor.email : null,
-          acceptedAt: body.decision === "approve" ? now : null,
-          updatedAt: now,
-        })
-        .where(eq(operationalTasks.callReference, approval.callReference));
-      const [last] = await db
-        .select()
-        .from(callMessages)
-        .where(eq(callMessages.callReference, approval.callReference))
-        .orderBy(desc(callMessages.sequence))
-        .limit(1);
-      await db
-        .insert(callMessages)
-        .values({
-          callReference: approval.callReference,
-          sequence: (last?.sequence || 0) + 1,
-          speakerType: "system",
-          speakerLabel: "Onay kaydı",
-          message: `${actor.label}: ${status === "approved" ? "Onaylandı" : "Reddedildi"}. ${note}`,
-          redacted: false,
-          createdAt: now,
-        });
-      await db
-        .update(callSessions)
-        .set({ lastMessageAt: now })
-        .where(eq(callSessions.reference, approval.callReference));
+      const [related] = await db.select().from(callSessions).where(eq(callSessions.reference, approval.callReference)).limit(1);
+      if (!related || related.status === "completed") throw new SecurityError(409, "İlgili görüşme kapalı veya bulunamadı.", "CALL_CLOSED");
+    }
+    const now = new Date();
+    const status = body.decision === "approve" ? "approved" : "rejected";
+    // D1 batch is atomic. The approval claim and all related state changes commit together.
+    const relatedReference = approval.ticketReference || approval.callReference || approval.reference;
+    const claim = db.update(approvals).set({ status, decidedBy: actor.email, decisionNote: note, decidedAt: now })
+      .where(and(eq(approvals.reference, approval.reference), eq(approvals.status, "pending"))).returning({ reference: approvals.reference });
+    if (approval.ticketReference) {
+      const ticketReference = approval.ticketReference;
+      const claimedDecision = sql`exists (select 1 from approvals where reference = ${approval.reference} and decided_by = ${actor.email} and decided_at = ${now.getTime()} and status = ${status})`;
+      const ticketUpdate = db.update(tickets).set({ status: body.decision === "approve" ? "Kabul edildi" : "İnsan incelemesi gerekli", acceptedBy: body.decision === "approve" ? actor.email : null, acceptedAt: body.decision === "approve" ? now : null, updatedAt: now })
+        .where(and(eq(tickets.reference, ticketReference), eq(tickets.status, "Personele aktarıldı"), claimedDecision)).returning({ reference: tickets.reference });
+      const taskUpdate = db.update(operationalTasks).set({ status: body.decision === "approve" ? "accepted" : "queued", acceptedBy: body.decision === "approve" ? actor.email : null, acceptedAt: body.decision === "approve" ? now : null, updatedAt: now })
+        .where(and(eq(operationalTasks.ticketReference, ticketReference), claimedDecision, sql`exists (select 1 from tickets where reference = ${ticketReference} and updated_at = ${now.getTime()} and status = ${body.decision === "approve" ? "Kabul edildi" : "İnsan incelemesi gerekli"})`));
+      const [claimed, changed] = await db.batch([claim, ticketUpdate, taskUpdate]);
+      if (!claimed.length || !changed.length) throw new SecurityError(409, "Talep veya onay başka bir işlemle değişti.", "APPROVAL_STATE_CHANGED");
+      await db.insert(ticketEvents).values({ ticketReference, eventType: `approval_${status}`, actor: actor.email, fromUnitCode: approval.unitCode, toUnitCode: approval.unitCode, detail: `${approval.approvalType} kararı: ${status}. ${note}`, createdAt: now });
+    } else if (approval.callReference) {
+      const callReference = approval.callReference;
+      const claimedDecision = sql`exists (select 1 from approvals where reference = ${approval.reference} and decided_by = ${actor.email} and decided_at = ${now.getTime()} and status = ${status})`;
+      const [claimed] = await db.batch([
+        claim,
+        db.update(operationalTasks).set({ status: body.decision === "approve" ? "accepted" : "queued", acceptedBy: body.decision === "approve" ? actor.email : null, acceptedAt: body.decision === "approve" ? now : null, updatedAt: now }).where(and(eq(operationalTasks.callReference, callReference), claimedDecision, sql`exists (select 1 from call_sessions where reference = ${callReference} and status != 'completed')`)),
+        db.update(callSessions).set({ lastMessageAt: now }).where(and(eq(callSessions.reference, callReference), ne(callSessions.status, "completed"), claimedDecision)),
+      ]);
+      if (!claimed.length) throw new SecurityError(409, "Onay başka bir işlemle değişti.", "ALREADY_DECIDED");
+    } else {
+      const claimed = await claim;
+      if (!claimed.length) throw new SecurityError(409, "Onay başka bir işlemle değişti.", "ALREADY_DECIDED");
     }
     await db
       .insert(automationEvents)

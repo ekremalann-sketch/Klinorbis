@@ -560,9 +560,6 @@ export default function Dashboard({
               path: `/calls/${encodeURIComponent(incoming.reference)}`,
               actionLabel: "Görüşmeye dön",
             });
-            if (!incoming.training || initialView === "calls") {
-              router.push(`/calls/${encodeURIComponent(incoming.reference)}`);
-            }
           }
         }
         knownCalls.current = new Set(data.calls.map((call) => call.reference));
@@ -581,7 +578,7 @@ export default function Dashboard({
         refreshInFlight.current = false;
       }
     },
-    [initialView, router],
+    [],
   );
 
   const refreshSecurity = useCallback(async () => {
@@ -601,7 +598,7 @@ export default function Dashboard({
       if (initialView === "security" || initialView === "privacy")
         void refreshSecurity();
     }, 0);
-    const timer = window.setInterval(() => void refresh(true), 5000);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(true); }, 5000);
     return () => {
       window.clearTimeout(initialTimer);
       window.clearInterval(timer);
@@ -931,7 +928,7 @@ export default function Dashboard({
           <span className={`pulse ${error ? "off" : ""}`} />
           <div>
             <b>{error ? "Eşitleme uyarısı" : "Sunucu akışı bağlı"}</b>
-            <small>{formatTime(snapshot.generatedAt)} · 2,5 sn yenileme</small>
+            <small>{formatTime(snapshot.generatedAt)} · 5 sn yenileme</small>
           </div>
         </div>
       </aside>

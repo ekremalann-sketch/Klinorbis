@@ -21,6 +21,7 @@ export async function createD1() {
     }
   }
   const statement = (sql, params = []) => ({
+    sql, params,
     bind: (...next) => statement(sql, next),
     // Her çağrı olay döngüsüne döner: eşzamanlı isteklerin araya girmesi gerçekçi olur.
     async all() { await tick(); return { results: sqlite.prepare(sql).all(...norm(params)), success: true, meta: {} }; },
@@ -35,7 +36,17 @@ export async function createD1() {
   });
   const d1 = {
     prepare: (sql) => statement(sql),
-    async batch(list) { const out = []; for (const item of list) out.push(await item.all()); return out; },
+    async batch(list) {
+      await tick(); sqlite.exec("BEGIN");
+      try {
+        const out = list.map(item => {
+          const stmt = sqlite.prepare(item.sql);
+          if (stmt.columns().length) return { results: stmt.all(...norm(item.params)), success: true, meta: {} };
+          const r = stmt.run(...norm(item.params)); return { results: [], success: true, meta: { changes: Number(r.changes) } };
+        });
+        sqlite.exec("COMMIT"); return out;
+      } catch (error) { sqlite.exec("ROLLBACK"); throw error; }
+    },
     async exec(sql) { sqlite.exec(sql); return { count: 1, duration: 0 }; },
   };
   return { d1, sqlite };

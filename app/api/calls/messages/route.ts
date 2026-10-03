@@ -1,3 +1,4 @@
+import { requireOperationalWriter } from "../../../../lib/security";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import {
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
     assertJsonRequest(request);
     assertBrowserMutation(request);
     const actor = await requireActor(request);
+    requireOperationalWriter(actor);
     await enforceRateLimit(request, actor, "calls.message", 90, 60);
     const body = (await request.json()) as {
       callReference?: unknown;
@@ -72,25 +74,15 @@ export async function POST(request: Request) {
       .where(eq(callMessages.callReference, call.reference))
       .orderBy(desc(callMessages.sequence))
       .limit(1);
-    const redaction =
-      body.speakerType === "caller"
-        ? redactPII(message)
-        : { maskedText: message, detected: [] as string[] };
-    const signal =
-      body.speakerType === "caller"
-        ? urgencySignal(redaction.maskedText)
-        : { isEmergency: false, level: 2, matched: "" };
-    const speakerLabel =
-      body.speakerType === "caller"
-        ? "Arayan"
-        : body.speakerType === "clinician"
-          ? "Klinik personel · " + actor.label
-          : "Çağrı görevlisi · " + actor.label;
+    const redaction = redactPII(message);
+    const signal = urgencySignal(redaction.maskedText);
+    const speakerType = actor.role === "clinician" ? "clinician" : "agent";
+    const speakerLabel = (speakerType === "clinician" ? "Klinik personel · " : "Çağrı görevlisi · ") + actor.label;
     const nextSequence = (last?.sequence || 0) + 1;
     await db.insert(callMessages).values({
       callReference: call.reference,
       sequence: nextSequence,
-      speakerType: body.speakerType,
+      speakerType,
       speakerLabel,
       message: redaction.maskedText,
       redacted: redaction.detected.length > 0,

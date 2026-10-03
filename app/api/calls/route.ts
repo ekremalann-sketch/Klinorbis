@@ -1,10 +1,11 @@
+import { requireOperationalWriter } from "../../../lib/security";
 import { desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { automationEvents, callMessages, callSessions, operationalTasks } from "../../../db/schema";
 import { appendAudit } from "../../../lib/audit";
 import { findUnit } from "../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../lib/operations";
-import { redactPII, urgencySignal } from "../../../lib/privacy";
+import { redactPII, urgencySignal, validPatientAlias } from "../../../lib/privacy";
 import { assertBrowserMutation, assertJsonRequest, cleanText, enforceRateLimit, requireActor, securityResponse } from "../../../lib/security";
 
 export const dynamic = "force-dynamic";
@@ -33,9 +34,11 @@ export async function POST(request: Request) {
     assertJsonRequest(request);
     assertBrowserMutation(request);
     const actor = await requireActor(request);
+    requireOperationalWriter(actor);
     await enforceRateLimit(request, actor, "calls.create", 20, 60);
     const body = await request.json() as { patientAlias?: unknown; openingMessage?: unknown };
     const patientAlias = cleanText(body.patientAlias, "Hasta/protokol takma adı", 3, 40).toUpperCase();
+    if (!validPatientAlias(patientAlias)) return Response.json({ error: "Takma ad kimlik bilgisi içeremez.", code: "ALIAS_INVALID" }, { status: 422 });
     const openingMessage = cleanText(body.openingMessage, "Gelen konuşma", 3, 2_000);
     const redaction = redactPII(openingMessage);
     const signal = urgencySignal(redaction.maskedText);

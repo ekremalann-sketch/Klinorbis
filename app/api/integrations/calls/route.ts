@@ -1,10 +1,10 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { automationEvents, callMessages, callSessions, integrationEvents, operationalTasks } from "../../../../db/schema";
+import { approvals, automationEvents, callMessages, callSessions, integrationEvents, operationalTasks } from "../../../../db/schema";
 import { appendAudit } from "../../../../lib/audit";
 import { findUnit, HOSPITAL_UNITS } from "../../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../../lib/operations";
-import { redactPII, urgencySignal } from "../../../../lib/privacy";
+import { redactPII, urgencySignal, validPatientAlias } from "../../../../lib/privacy";
 import { cleanText, getWebhookSecret, recordSecurityEvent, securityResponse, sha256 } from "../../../../lib/security";
 import { replayKey, verifyPbxSignature } from "../../../../lib/webhook-signature";
 
@@ -46,6 +46,19 @@ export async function POST(request: Request) {
     const callReference = cleanText(payload.callReference, "Çağrı referansı", 5, 80).toUpperCase();
     const db = getDb();
     await ensureOperationalSeed(db);
+    if (!["call.started", "transcript.partial", "transcript.final", "call.ended"].includes(eventType)) return Response.json({ error: "Desteklenmeyen santral olayı.", code: "UNSUPPORTED_EVENT" }, { status: 400 });
+    if (eventType !== "call.started") {
+      const [existingCall] = await db.select().from(callSessions).where(eq(callSessions.reference, callReference)).limit(1);
+      if (!existingCall) return Response.json({ error: "Önce call.started olayı gönderilmelidir.", code: "CALL_NOT_FOUND" }, { status: 409 });
+      if (existingCall.status === "completed") return Response.json({ error: "Görüşme kapalı.", code: "CALL_CLOSED" }, { status: 409 });
+      if (eventType.startsWith("transcript.")) cleanText(payload.text, "Konuşma metni", 1, 4_000);
+      if (eventType === "call.ended" && existingCall.requiresHuman) {
+        const [decision] = await db.select().from(approvals).where(and(eq(approvals.callReference, callReference), eq(approvals.status, "approved"))).limit(1);
+        const [pending] = await db.select().from(approvals).where(and(eq(approvals.callReference, callReference), eq(approvals.status, "pending"))).limit(1);
+        if (!decision || pending) return Response.json({ error: "Yetkili insan onayı bekleniyor.", code: "APPROVAL_PENDING" }, { status: 409 });
+      }
+    }
+    if (eventType === "call.started" && typeof payload.patientAlias === "string" && !validPatientAlias(cleanText(payload.patientAlias, "Hasta takma adı", 3, 40).toUpperCase())) return Response.json({ error: "Takma ad kimlik bilgisi içeremez.", code: "ALIAS_INVALID" }, { status: 422 });
     const payloadHash = await sha256(rawBody);
     // Tekrar koruması imzalı içeriğe bağlıdır: aynı timestamp+gövde farklı event-id ile
     // yeniden gönderilse de ikinci kez işlenmez. Her iki sahiplenme de tek adımlı insert'tir.
@@ -62,6 +75,7 @@ export async function POST(request: Request) {
     let outcome = "";
     if (eventType === "call.started") {
       const patientAlias = typeof payload.patientAlias === "string" ? cleanText(payload.patientAlias, "Hasta takma adı", 3, 40).toUpperCase() : `HST-${callReference.slice(-6)}`;
+    if (!validPatientAlias(patientAlias)) return Response.json({ error: "Takma ad kimlik bilgisi içeremez.", code: "ALIAS_INVALID" }, { status: 422 });
       if (typeof payload.unitCode === "string" && HOSPITAL_UNITS.some((unit) => unit.code === payload.unitCode)) destination = findUnit(payload.unitCode);
       const now = new Date();
       await db.insert(callSessions).values({ reference: callReference, patientAlias, source, status: "ringing", unitCode: destination.code, assignedRole: destination.assignedRole, summary: "Gelen çağrı bağlandı; canlı döküm bekleniyor.", training: false, requiresHuman: false, startedAt: now, lastMessageAt: now }).onConflictDoNothing();
@@ -81,11 +95,12 @@ export async function POST(request: Request) {
       const speakerLabel = speakerType === "caller" ? "Arayan" : speakerType === "clinician" ? "Klinik rol" : "Çağrı görevlisi";
       await db.insert(callMessages).values({ callReference, sequence, speakerType, speakerLabel, message: redaction.maskedText, redacted: redaction.detected.length > 0, createdAt: new Date() });
       if (signal.isEmergency) {
+        await db.insert(approvals).values({ reference: `ONAY-${callReference}-ACIL`, callReference, unitCode: "ACY", approvalType: "clinical_handoff", requestedBy: `integration:${source}`, status: "pending", createdAt: new Date() }).onConflictDoNothing();
         await db.update(callSessions).set({ status: "human_handoff", unitCode: destination.code, assignedRole: destination.assignedRole, requiresHuman: true, lastMessageAt: new Date(), summary: "Acil olasılık sinyali algılandı; otomatik işlem durduruldu ve klinik insan devri açıldı." }).where(eq(callSessions.reference, callReference));
         await db.update(operationalTasks).set({ unitCode: destination.code, assignedRole: destination.assignedRole, status: "queued", priority: "Acil", dueAt: new Date(Date.now() + 2 * 60_000), updatedAt: new Date() }).where(eq(operationalTasks.callReference, callReference));
         await db.insert(callMessages).values({ callReference, sequence: sequence + 1, speakerType: "assistant", speakerLabel: "AI güvenlik yardımcısı", message: `Acil olasılık sinyali: ${signal.matched}. Normal otomasyon durduruldu; ${destination.assignedRole} devri açıldı.`, redacted: false, createdAt: new Date() });
       } else {
-        await db.update(callSessions).set({ status: "active", lastMessageAt: new Date() }).where(eq(callSessions.reference, callReference));
+        await db.update(callSessions).set({ status: call.requiresHuman ? "human_handoff" : "active", lastMessageAt: new Date() }).where(eq(callSessions.reference, callReference));
       }
       outcome = signal.isEmergency ? `${destination.name} insan devri açıldı.` : `Konuşma satırı güvenli biçimde eklendi.`;
     } else if (eventType === "call.ended") {
