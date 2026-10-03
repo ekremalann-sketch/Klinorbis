@@ -184,7 +184,7 @@ test("webhook: saniye hassasiyetli (10 haneli) zaman damgası v2 ve eski biçimd
   assert.equal((await route.POST(pbxRequest({ body: ended, eventId: "evt-seconds-02", timestamp: seconds, scheme: "legacy" }))).status, 202);
 });
 
-test("webhook: v2 akışı — acil sinyal insan devrine alınır, çağrı kapanışı görevi tamamlar", async () => {
+test("webhook: acil sinyal onay açar, onaysız santral kapanışı reddedilir", async () => {
   const { route, count } = await webhookFixture();
   await route.POST(pbxRequest({ body: started, eventId: "evt-flow-0001" }));
   const urgent = { eventType: "transcript.final", callReference: "CALL-TEST-0001", text: "Arayan göğüs ağrısı tarif ediyor (sentetik)", speakerType: "caller" };
@@ -192,7 +192,9 @@ test("webhook: v2 akışı — acil sinyal insan devrine alınır, çağrı kapa
   assert.equal(r.status, 202);
   assert.equal((await r.json()).destination.unitCode, "ACY");
   assert.equal(count("call_sessions", "reference = 'CALL-TEST-0001' AND status = 'human_handoff' AND requires_human = 1"), 1);
-  await route.POST(pbxRequest({ body: { eventType: "call.ended", callReference: "CALL-TEST-0001" }, eventId: "evt-flow-0003" }));
-  assert.equal(count("operational_tasks", "call_reference = 'CALL-TEST-0001' AND status = 'completed'"), 1);
-  assert.equal(count("audit_logs", "actor = 'integration:test-pbx'"), 3);
+  const closed = await route.POST(pbxRequest({ body: { eventType: "call.ended", callReference: "CALL-TEST-0001" }, eventId: "evt-flow-0003" }));
+  assert.equal(closed.status, 409);
+  assert.equal(count("approvals", "call_reference = 'CALL-TEST-0001' AND status = 'pending'"), 1);
+  assert.equal(count("operational_tasks", "call_reference = 'CALL-TEST-0001' AND status = 'completed'"), 0);
+  assert.equal(count("audit_logs", "actor = 'integration:test-pbx'"), 2);
 });

@@ -35,7 +35,7 @@ test("workspace reads are side-effect free and the signed agent endpoint owns sc
   const snapshotBody = operations.slice(operations.indexOf("export async function workspaceSnapshot"));
   assert.doesNotMatch(snapshotBody, /advancePilotAutomation|advanceControlTower|runWorkflowCycle/);
   assert.match(dashboard, /refreshInFlight/);
-  assert.match(dashboard, /setInterval\(\(\) => void refresh\(true\), 5000\)/);
+  assert.match(dashboard, /document.visibilityState === "visible"/);
   assert.match(agentRoute, /x-klinorbis-signature/);
   assert.match(agentRoute, /WEBHOOK_REPLAY_WINDOW/);
   assert.match(agentRoute, /runAutomationAgent/);

@@ -18,6 +18,7 @@ export class SecurityError extends Error {
 }
 
 type RuntimeSecurityEnv = {
+  allowPreviewOwner?: string;
   ownerEmail?: string;
   ownerAccountUserId?: string;
   webhookSecret?: string;
@@ -71,7 +72,7 @@ export function assertBrowserMutation(request: Request) {
 export async function requireActor(request: Request): Promise<RequestActor> {
   const db = getDb();
   const host = new URL(request.url).hostname;
-  const isAgentPreview = host === "terminal.local" || host === "localhost" || host === "127.0.0.1";
+  const isAgentPreview = runtimeEnv().allowPreviewOwner === "1" && ["terminal.local", "localhost", "127.0.0.1"].includes(host) && !request.headers.has("cf-ray");
   const headerEmail = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
   const headerUserId = request.headers.get("oai-authenticated-user-id")?.trim();
   const ownerEmail = runtimeEnv().ownerEmail?.trim().toLowerCase();
@@ -101,6 +102,10 @@ export async function requireActor(request: Request): Promise<RequestActor> {
     unitCodes: memberships.map((membership) => membership.unitCode),
     canSeeAllUnits: account.systemRole === "operations_manager" || account.systemRole === "privacy_officer" || account.systemRole === "security_officer",
   };
+}
+
+export function requireOperationalWriter(actor: RequestActor) {
+  if (!["operations_manager", "unit_manager", "clinician", "call_agent"].includes(actor.role)) throw new SecurityError(403, "Gözetim rolleri operasyon kayıtlarını değiştiremez.", "OPERATION_ROLE_REQUIRED");
 }
 
 export function canAccessUnit(actor: RequestActor, unitCode: string) {

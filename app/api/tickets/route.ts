@@ -1,10 +1,11 @@
+import { requireOperationalWriter } from "../../../lib/security";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { approvals, automationEvents, operationalTasks, ticketEvents, tickets, workflowJobs } from "../../../db/schema";
 import { appendAudit } from "../../../lib/audit";
 import { findUnit, HOSPITAL_UNITS, recommendUnit } from "../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../lib/operations";
-import { redactPII, urgencySignal } from "../../../lib/privacy";
+import { redactPII, urgencySignal, validPatientAlias } from "../../../lib/privacy";
 import {
   assertBrowserMutation,
   assertJsonRequest,
@@ -48,10 +49,11 @@ export async function POST(request: Request) {
     assertJsonRequest(request);
     assertBrowserMutation(request);
     const actor = await requireActor(request);
+    requireOperationalWriter(actor);
     await enforceRateLimit(request, actor, "tickets.create", 30, 60);
     const payload = await request.json() as { patientAlias?: unknown; subject?: unknown; unitCode?: unknown; channel?: unknown; formKind?: unknown; form?: unknown };
     const patientAlias = cleanText(payload.patientAlias, "Hasta/protokol takma adı", 3, 40).toUpperCase();
-    if (!/^[A-ZÇĞİÖŞÜ0-9._-]+$/u.test(patientAlias)) throw new Error("Hasta takma adı yalnız harf, sayı, nokta, tire ve alt çizgi içerebilir.");
+    if (!validPatientAlias(patientAlias)) throw new Error("Hasta takma adı yalnız harf, sayı, nokta, tire ve alt çizgi içerebilir.");
     // Yapılandırılmış form (hasta nakli / taburculuk): özet ve birim sunucuda formdan üretilir.
     const structured = payload.formKind === undefined ? null : buildStructuredSubject(payload.formKind, payload.form);
     const subject = structured ? structured.subject : cleanText(payload.subject, "Talep özeti", 6, 2_000);
@@ -165,6 +167,8 @@ export async function PATCH(request: Request) {
       throw new SecurityError(403, "Gözetim rolleri talep durumunu değiştiremez.", "TICKET_ROLE_REQUIRED");
     }
     const action = normalizeAction(payload.action, payload.status);
+    const [pending] = await db.select().from(approvals).where(and(eq(approvals.ticketReference, ticket.reference), eq(approvals.status, "pending"))).limit(1);
+    if (pending) throw new SecurityError(409, "Bekleyen insan onayı var; önce onay kutusunda karar verilmelidir.", "APPROVAL_PENDING");
     if (ticket.status === CLOSED_STATUS) {
       return Response.json({ error: "Çözülmüş talep yeniden işlenemez.", code: "TICKET_CLOSED" }, { status: 409 });
     }

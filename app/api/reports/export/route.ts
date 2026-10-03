@@ -130,7 +130,8 @@ function csvRows(headers: Array<string>, rows: Array<Array<unknown>>) {
 }
 
 function csvCell(value: unknown) {
-  const text = String(value ?? "").replace(/\r?\n/g, " ");
+  const raw = String(value ?? "").replace(/\r?\n/g, " ");
+  const text = typeof value === "string" && /^[\s]*[=+\-@\t\r]/.test(raw) ? "'" + raw : raw;
   return /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

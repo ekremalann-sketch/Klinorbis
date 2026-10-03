@@ -1,6 +1,8 @@
-import { desc, eq } from "drizzle-orm";
+import { requireOperationalWriter } from "../../../../lib/security";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import {
+  approvals,
   automationEvents,
   callMessages,
   callSessions,
@@ -15,6 +17,7 @@ import {
   enforceRateLimit,
   requireActor,
   requireUnitAccess,
+  SecurityError,
   securityResponse,
 } from "../../../../lib/security";
 import { runWorkflowCycle } from "../../../../lib/workflow-engine";
@@ -32,6 +35,7 @@ export async function POST(request: Request) {
     assertJsonRequest(request);
     assertBrowserMutation(request);
     const actor = await requireActor(request);
+    requireOperationalWriter(actor);
     await enforceRateLimit(request, actor, "calls.action", 40, 60);
     const body = (await request.json()) as {
       callId?: unknown;
@@ -60,6 +64,12 @@ export async function POST(request: Request) {
         { status: 404 },
       );
     requireUnitAccess(actor, call.unitCode);
+    if (call.status === "completed") throw new SecurityError(409, "Sonuçlanmış görüşme değiştirilemez.", "CALL_CLOSED");
+    const [pending] = await db.select().from(approvals).where(and(eq(approvals.callReference, call.reference), eq(approvals.status, "pending"))).limit(1);
+    if ((pending || call.requiresHuman) && ["CALL_COMPLETED", "UNIT_TRANSFER"].includes(String(body.action))) {
+      const [approved] = await db.select().from(approvals).where(and(eq(approvals.callReference, call.reference), eq(approvals.status, "approved"))).limit(1);
+      if (pending || !approved) throw new SecurityError(409, "Yetkili insan onayı bekleniyor.", "APPROVAL_PENDING");
+    }
     const now = new Date();
     const nonce = crypto.randomUUID();
     let destination = findUnit(call.unitCode);
