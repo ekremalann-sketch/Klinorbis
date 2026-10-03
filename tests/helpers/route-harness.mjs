@@ -41,7 +41,7 @@ export async function createD1() {
       try {
         const out = list.map(item => {
           const stmt = sqlite.prepare(item.sql);
-          if (stmt.columns().length) return { results: stmt.all(...norm(item.params)), success: true, meta: {} };
+          if (/\bRETURNING\b|^\s*(?:SELECT|WITH|PRAGMA)\b/i.test(item.sql)) return { results: stmt.all(...norm(item.params)), success: true, meta: {} };
           const r = stmt.run(...norm(item.params)); return { results: [], success: true, meta: { changes: Number(r.changes) } };
         });
         sqlite.exec("COMMIT"); return out;
