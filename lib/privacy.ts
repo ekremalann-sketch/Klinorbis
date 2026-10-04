@@ -32,9 +32,10 @@ const critical = ["gogus agrisi", "nefes alamiyorum", "nefes alamiyor", "siddetl
 export function urgencySignal(text: string) {
   const normalized = fold(text);
   for (const phrase of critical) {
-    const regex = new RegExp(`(?<![a-z])${phrase}(?![a-z])`, "g");
+    const suffix = phrase === "gogus agrisi" ? "(?:ndan|nden|na|ne|ni|nin|yla|yle)?" : phrase === "inme" ? "(?:si|sini|sinin|de|den|ye|yi|nin)?" : "";
+    const regex = new RegExp(`(?<![a-z])${phrase}${suffix}(?![a-z])`, "g");
     for (const match of normalized.matchAll(regex)) {
-      const after = normalized.slice((match.index ?? 0) + phrase.length);
+      const after = normalized.slice((match.index ?? 0) + match[0].length);
       if (/^\s*(?:yok(?:tu)?|degil|olmadi|bulunmuyor)\b/.test(after)) continue;
       return { level: 5 as const, isEmergency: true, matched: phrase, category: "ACİL OLASILIK SİNYALİ", recommendedUnit: "Acil Yönlendirme" };
     }
