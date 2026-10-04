@@ -40,3 +40,9 @@ await test('out-of-order transcript remains retryable after call.started',async(
  assert.equal((await route.POST(pbx({eventType:'call.started',callReference:line.callReference},'evt-start-001'))).status,202);
  assert.equal((await route.POST(pbx(line,'evt-retry-001'))).status,202);
 });
+
+await test('urgent Turkish suffixes remain emergency signals without matching ordinary words',async()=>{
+ const {urgencySignal}=await loadRoute('lib/privacy.ts');
+ for(const phrase of ['göğüs ağrısından','göğüs ağrısını','inmesi oldu','inmeden']) assert.equal(urgencySignal(phrase).isEmergency,true,phrase);
+ for(const phrase of ['göğüs ağrısı yok','inme değil','inmek istiyorum']) assert.equal(urgencySignal(phrase).isEmergency,false,phrase);
+});
