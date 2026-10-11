@@ -30,16 +30,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Webhook zaman penceresi geçersiz.", code: "REPLAY_BLOCKED" }, { status: 401 });
     }
     const rawBody = await request.text();
-    // v2 imza olay kimliğini kapsar; eski (timestamp.body) biçim bağlı olabilecek
-    // mevcut göndericiler için geçici olarak kabul edilir ve güvenlik kaydına düşer.
+    // Olay kimliği dahil yalnız v2 imza kabul edilir.
     const scheme = await verifyPbxSignature({ secret, timestamp, eventId, rawBody, signature });
     if (!scheme) {
       await recordSecurityEvent(request, "webhook_signature_rejected", "critical", source, "HMAC imzası doğrulanamadı");
       return Response.json({ error: "Webhook imzası geçersiz.", code: "INVALID_SIGNATURE" }, { status: 401 });
     }
-    if (scheme === "legacy") {
-      await recordSecurityEvent(request, "webhook_legacy_signature", "low", source, "Eski timestamp.body imza biçimi kullanıldı; timestamp.eventId.body biçimine geçilmeli");
-    }
+
     let payload: Record<string, unknown>;
     try { payload = JSON.parse(rawBody) as Record<string, unknown>; } catch { return Response.json({ error: "Geçersiz JSON.", code: "INVALID_JSON" }, { status: 400 }); }
     const eventType = cleanText(payload.eventType, "Olay türü", 3, 40);
@@ -98,7 +95,7 @@ export async function POST(request: Request) {
         await db.insert(approvals).values({ reference: `ONAY-${callReference}-ACIL`, callReference, unitCode: "ACY", approvalType: "clinical_handoff", requestedBy: `integration:${source}`, status: "pending", createdAt: new Date() }).onConflictDoNothing();
         await db.update(callSessions).set({ status: "human_handoff", unitCode: destination.code, assignedRole: destination.assignedRole, requiresHuman: true, lastMessageAt: new Date(), summary: "Acil olasılık sinyali algılandı; otomatik işlem durduruldu ve klinik insan devri açıldı." }).where(eq(callSessions.reference, callReference));
         await db.update(operationalTasks).set({ unitCode: destination.code, assignedRole: destination.assignedRole, status: "queued", priority: "Acil", dueAt: new Date(Date.now() + 2 * 60_000), updatedAt: new Date() }).where(eq(operationalTasks.callReference, callReference));
-        await db.insert(callMessages).values({ callReference, sequence: sequence + 1, speakerType: "assistant", speakerLabel: "AI güvenlik yardımcısı", message: `Acil olasılık sinyali: ${signal.matched}. Normal otomasyon durduruldu; ${destination.assignedRole} devri açıldı.`, redacted: false, createdAt: new Date() });
+        await db.insert(callMessages).values({ callReference, sequence: sequence + 1, speakerType: "assistant", speakerLabel: "Kural tabanlı güvenlik kontrolü", message: `Acil olasılık sinyali: ${signal.matched}. Normal otomasyon durduruldu; ${destination.assignedRole} devri açıldı.`, redacted: false, createdAt: new Date() });
       } else {
         await db.update(callSessions).set({ status: call.requiresHuman ? "human_handoff" : "active", lastMessageAt: new Date() }).where(eq(callSessions.reference, callReference));
       }

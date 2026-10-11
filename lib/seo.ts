@@ -8,7 +8,7 @@ export function pageMeta(input: { title: string; description: string; path: stri
   return {
     title: input.title,
     description: input.description,
-    alternates: { canonical: input.path, languages: input.path.endsWith("/demo") ? { tr: "/demo", en: "/en/demo" } : { tr: "/", en: "/en" } },
+    alternates: { canonical: input.path, languages: input.path.endsWith("/demo") ? { tr: "/demo", en: "/en/demo" } : input.path === "/" || input.path === "/en" ? { tr: "/", en: "/en" } : { tr: input.path } },
     openGraph: { type: "website", siteName: "KLINORBIS", locale: input.locale ?? "tr_TR", url: input.path, title: input.title, description: input.description, images: [OG_IMAGE] },
     twitter: { card: "summary_large_image", title: input.title, description: input.description, images: [OG_IMAGE.url] },
   };

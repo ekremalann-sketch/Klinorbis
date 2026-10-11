@@ -17,7 +17,7 @@ await test('privacy officer cannot create operations or unmasked call messages',
 await test('pending approval prevents ticket completion; late approval never reopens a closed ticket',async()=>{
  const {sqlite}=await fixture();
  const tickets=await loadRoute('app/api/tickets/route.ts');const approvals=await loadRoute('app/api/approvals/route.ts');
- const response=await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ACIL',subject:'gogus agrisi var'},OWNER));assert.equal(response.status,201);const {ticket}=await response.json();
+ const response=await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ACIL-01',subject:'gogus agrisi var'},OWNER));assert.equal(response.status,201);const {ticket}=await response.json();
  const req=browserJson('/api/tickets',{reference:ticket.reference,action:'resolve'},OWNER);
  const blocked=await tickets.PATCH(new Request(req,{method:'PATCH'}));assert.equal(blocked.status,409);
  sqlite.prepare("UPDATE tickets SET status='Çözüldü' WHERE reference=?").run(ticket.reference);
@@ -26,7 +26,7 @@ await test('pending approval prevents ticket completion; late approval never reo
 });
 await test('valid approval atomically updates the pending ticket and task',async()=>{
  const {sqlite}=await fixture();const tickets=await loadRoute('app/api/tickets/route.ts');const approval=await loadRoute('app/api/approvals/route.ts');
- const {ticket}=await (await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ONAY',subject:'nefes alamiyorum'},OWNER))).json();
+ const {ticket}=await (await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ONAY-01',subject:'nefes alamiyorum'},OWNER))).json();
  const r=await approval.POST(browserJson('/api/approvals',{reference:'ONAY-'+ticket.reference,decision:'approve',note:'Numara 10000000146'},OWNER));assert.equal(r.status,200,JSON.stringify(await r.json()));
  assert.equal(sqlite.prepare('SELECT status FROM tickets WHERE reference=?').get(ticket.reference).status,'Kabul edildi');
  assert.equal(sqlite.prepare('SELECT status FROM operational_tasks WHERE ticket_reference=?').get(ticket.reference).status,'accepted');

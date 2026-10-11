@@ -3,7 +3,9 @@
 // operasyon yöneticisi) ve gerçek vardiya devri. Tüm kurallar sunucuda uygulanır;
 // bu bileşen yalnız sunucunun izin verdiği işlemleri gösterir.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { ROLE_MAP, type RoleKey } from "../lib/role-map";
+import { maskEmail } from "../lib/privacy";
 
 type Unit = { code: string; name: string; assignedRole: string };
 type Member = { unitCode: string; unitRole: string };
@@ -14,6 +16,7 @@ type ShiftData = { me: { email: string; role: RoleKey; canHandoff: boolean }; ha
 
 const UNIT_ROLES: RoleKey[] = ["unit_manager", "clinician", "call_agent"];
 const STATUS: Record<Handoff["status"], string> = { pending: "Bekliyor", accepted: "Kabul edildi", declined: "Reddedildi", cancelled: "İptal edildi" };
+const Req = () => <b className="field-star" aria-hidden="true"> *</b>;
 const time = (v: string | number | null) => (v ? new Date(v).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
 async function call<T>(url: string, body?: unknown): Promise<T> {
@@ -61,7 +64,7 @@ export function StaffManagement() {
 
       <section className="panel sm-panel" aria-labelledby="sm-me">
         <div className="panel-head"><div><h3 id="sm-me">Benim işim</h3><p>{role.title} · {staff.me.unitCodes.length ? staff.me.unitCodes.map(unitName).join(", ") : "Tüm birimler"}</p></div>
-          <a className="sm-button" href={role.homePath}>Çalışma alanıma git →</a></div>
+          <Link className="sm-button" href={role.homePath}>Çalışma alanıma git →</Link></div>
         <div className="sm-columns">
           <div><h4>Yapabildiklerim</h4><ul>{role.does.map((d) => <li key={d}>{d}</li>)}</ul></div>
           <div><h4>Sınırlar</h4><ul>{role.cannot.map((d) => <li key={d}>{d}</li>)}</ul></div>
@@ -72,8 +75,8 @@ export function StaffManagement() {
 
       {staff.me.role === "operations_manager" && <StaffAdmin data={staff} busy={busy} run={run} unitName={unitName} />}
 
-      <section className="panel sm-panel" aria-labelledby="sm-map">
-        <div className="panel-head"><div><h3 id="sm-map">Rol haritası: kim nerede çalışır</h3><p>Yetki sunucuda uygulanır; tarayıcıdan rol seçilemez.</p></div></div>
+      {staff.me.role === "operations_manager" && <section className="panel sm-panel" aria-labelledby="sm-map">
+        <div className="panel-head"><div><h3 id="sm-map">Rol haritası: kim nerede çalışır</h3><p>Yetkiler sistem tarafından uygulanır; rol yalnız yetkili yönetici tarafından değiştirilebilir.</p></div></div>
         <div className="sm-role-grid">
           {(Object.keys(ROLE_MAP) as RoleKey[]).map((key) => (
             <article key={key} className={key === staff.me.role ? "mine" : ""}>
@@ -84,7 +87,7 @@ export function StaffManagement() {
             </article>
           ))}
         </div>
-      </section>
+      </section>}
     </div>
   );
 }
@@ -98,6 +101,12 @@ function HandoffPanel({ data, unitName, busy, run }: { data: ShiftData; unitName
   const incoming = data.handoffs.filter((h) => h.status === "pending" && h.toEmail === data.me.email);
   const outgoing = data.handoffs.filter((h) => h.status === "pending" && h.fromEmail === data.me.email);
   const managerView = data.me.role === "operations_manager";
+  const [confirmId, setConfirmId] = useState<string>("");
+  const confirmBox = (key: string, label: string, action: () => void) => confirmId === key
+    ? <span className="inline-confirm" role="group" aria-label={`${label} onayı`}><span>Emin misiniz?</span><button className="danger" disabled={busy} onClick={() => { setConfirmId(""); action(); }}>Evet, {label.toLocaleLowerCase("tr-TR")}</button><button type="button" className="secondary" onClick={() => setConfirmId("")}>Vazgeç</button></span>
+    : <button className="secondary" disabled={busy} onClick={() => setConfirmId(key)}>{label}</button>;
+  // Devir kayıtlarında tam e-posta yerine görünen ad (yoksa kısaltılmış e-posta) gösterilir.
+  const who = (email: string) => email === data.me.email ? "Siz" : (data.colleagues.find((c) => c.email === email)?.label || maskEmail(email));
 
   async function start(event: FormEvent) {
     event.preventDefault();
@@ -110,11 +119,11 @@ function HandoffPanel({ data, unitName, busy, run }: { data: ShiftData; unitName
 
       {incoming.map((h) => (
         <div key={h.id} className="sm-incoming" role="group" aria-label={`Size gelen devir ${h.id}`}>
-          <p><b>Size devir var:</b> {h.fromEmail} · {unitName(h.unitCode)} · {h.openTickets} açık talep, {h.openTasks} görev</p>
+          <p><b>Size devir var:</b> {who(h.fromEmail)} · {unitName(h.unitCode)} · {h.openTickets} açık talep, {h.openTasks} görev</p>
           {h.note && <p className="sm-note">Not: {h.note}</p>}
           <div className="sm-actions">
             <button disabled={busy} onClick={() => void run("/api/shifts", { action: "accept", id: h.id }, "Devri aldınız; işler artık sizde.")}>Devri al</button>
-            <button className="secondary" disabled={busy} onClick={() => void run("/api/shifts", { action: "decline", id: h.id }, "Devir reddedildi.")}>Reddet</button>
+            {confirmBox(`decline-${h.id}`, "Reddet", () => void run("/api/shifts", { action: "decline", id: h.id }, "Devir reddedildi."))}
           </div>
         </div>
       ))}
@@ -126,7 +135,7 @@ function HandoffPanel({ data, unitName, busy, run }: { data: ShiftData; unitName
               {data.openWork.map((w) => <option key={w.unitCode} value={w.unitCode}>{unitName(w.unitCode)}</option>)}
             </select>
           </label>
-          <label>Devralacak görevli
+          <label>Devralacak görevli<Req />
             <select value={toEmail} onChange={(e) => setToEmail(e.target.value)} required>
               <option value="">Seçin</option>
               {candidates.map((c) => <option key={c.email} value={c.email}>{c.label} · {ROLE_MAP[c.role]?.title || c.role}</option>)}
@@ -143,8 +152,8 @@ function HandoffPanel({ data, unitName, busy, run }: { data: ShiftData; unitName
       {!data.me.canHandoff && !managerView && <p className="sm-muted">Rolünüz gözetim rolüdür; devir yapmaz, devir kayıtlarını denetim izinden izler.</p>}
 
       {outgoing.map((h) => (
-        <div key={h.id} className="sm-outgoing"><span>Bekleyen devriniz: {h.toEmail} · {unitName(h.unitCode)}</span>
-          <button className="secondary" disabled={busy} onClick={() => void run("/api/shifts", { action: "cancel", id: h.id }, "Devir iptal edildi.")}>İptal et</button></div>
+        <div key={h.id} className="sm-outgoing"><span>Bekleyen devriniz: {who(h.toEmail)} · {unitName(h.unitCode)}</span>
+          {confirmBox(`cancel-${h.id}`, "İptal et", () => void run("/api/shifts", { action: "cancel", id: h.id }, "Devir iptal edildi."))}</div>
       ))}
 
       <div className="sm-table" role="table" aria-label="Devir geçmişi">
@@ -152,11 +161,11 @@ function HandoffPanel({ data, unitName, busy, run }: { data: ShiftData; unitName
         {data.handoffs.map((h) => (
           <div role="row" key={h.id}>
             <span role="cell">{unitName(h.unitCode)}</span>
-            <span role="cell">{h.fromEmail} → {h.toEmail}</span>
+            <span role="cell">{who(h.fromEmail)} → {who(h.toEmail)}</span>
             <span role="cell"><em className={`sm-state ${h.status}`}>{STATUS[h.status]}</em></span>
             <span role="cell">{h.status === "accepted" ? `${h.movedTickets} talep, ${h.movedTasks} görev taşındı` : `${h.openTickets} talep, ${h.openTasks} görev`}</span>
             <span role="cell">{time(h.decidedAt || h.createdAt)}</span>
-            {managerView && <span role="cell">{h.status === "pending" && <button className="secondary" disabled={busy} onClick={() => void run("/api/shifts", { action: "cancel", id: h.id }, "Devir iptal edildi.")}>İptal et</button>}</span>}
+            {managerView && <span role="cell">{h.status === "pending" && confirmBox(`mcancel-${h.id}`, "İptal et", () => void run("/api/shifts", { action: "cancel", id: h.id }, "Devir iptal edildi."))}</span>}
           </div>
         ))}
         {!data.handoffs.length && <div role="row"><span role="cell" className="sm-muted">Henüz devir kaydı yok.</span></div>}
@@ -168,6 +177,7 @@ function HandoffPanel({ data, unitName, busy, run }: { data: ShiftData; unitName
 function StaffAdmin({ data, busy, run, unitName }: { data: StaffData; busy: boolean; run: (u: string, b: unknown, d: string) => Promise<boolean>; unitName: (c: string) => string }) {
   const empty = { email: "", displayLabel: "", systemRole: "call_agent" as RoleKey, units: [] as string[] };
   const [form, setForm] = useState(empty);
+  const [confirming, setConfirming] = useState("");
   const needsUnit = UNIT_ROLES.includes(form.systemRole);
   const editing = data.staff.some((s) => s.email === form.email.trim().toLowerCase());
 
@@ -186,16 +196,16 @@ function StaffAdmin({ data, busy, run, unitName }: { data: StaffData; busy: bool
     <section className="panel sm-panel" aria-labelledby="sm-admin">
       <div className="panel-head"><div><h3 id="sm-admin">Personel ekle ve yetkilendir</h3><p>Parola yok: kişi Sites&apos;a kendi hesabıyla girer; burada yalnız rolü ve birimleri belirlenir. Siteye erişim ayrıca Sites paylaşım ayarından verilmelidir.</p></div></div>
       <form className="sm-form" onSubmit={submit}>
-        <label>İş e-postası<input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} autoComplete="off" /></label>
-        <label>Görünen ad / ekip etiketi<input required minLength={2} maxLength={80} value={form.displayLabel} onChange={(e) => setForm({ ...form, displayLabel: e.target.value })} /></label>
-        <label>Rol
+        <label>İş e-postası<Req /><input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} autoComplete="off" /></label>
+        <label>Görünen ad / ekip etiketi<Req /><input required minLength={2} maxLength={80} value={form.displayLabel} onChange={(e) => setForm({ ...form, displayLabel: e.target.value })} /></label>
+        <label>Rol<Req />
           <select value={form.systemRole} onChange={(e) => setForm({ ...form, systemRole: e.target.value as RoleKey })}>
             {(Object.keys(ROLE_MAP) as RoleKey[]).map((key) => <option key={key} value={key}>{ROLE_MAP[key].title}</option>)}
           </select>
         </label>
         <p className="sm-hint">{ROLE_MAP[form.systemRole].home} · {needsUnit ? "En az bir birim seçin." : "Tüm birimleri kapsar; birim seçilmez."}</p>
         {needsUnit && (
-          <fieldset className="sm-wide sm-units"><legend>Birimler</legend>
+          <fieldset className="sm-wide sm-units"><legend>Birimler<Req /></legend>
             {data.units.map((u) => <label key={u.code} className="sm-check"><input type="checkbox" checked={form.units.includes(u.code)} onChange={() => toggle(u.code)} />{u.name}</label>)}
           </fieldset>
         )}
@@ -214,11 +224,12 @@ function StaffAdmin({ data, busy, run, unitName }: { data: StaffData; busy: bool
             <span role="cell"><em className={`sm-state ${s.active ? "accepted" : "cancelled"}`}>{s.active ? "Etkin" : "Pasif"}</em></span>
             <span role="cell" className="sm-actions">
               <button className="secondary" onClick={() => edit(s)}>Düzenle</button>
-              {s.active && s.email !== data.me.email && <button className="secondary" disabled={busy} onClick={() => void run("/api/staff", { action: "deactivate", email: s.email }, "Personel pasife alındı; erişimi hemen kapandı.")}>Pasife al</button>}
+              {s.active && s.email !== data.me.email && confirming !== s.email && <button className="secondary" disabled={busy} onClick={() => setConfirming(s.email)}>Pasife al</button>}
+              {confirming === s.email && <span className="inline-confirm" role="group" aria-label="Pasife alma onayı"><span>Erişimi hemen kapansın mı?</span><button className="danger" disabled={busy} onClick={() => { setConfirming(""); void run("/api/staff", { action: "deactivate", email: s.email }, "Personel pasife alındı; erişimi hemen kapandı."); }}>Evet, pasife al</button><button className="secondary" type="button" onClick={() => setConfirming("")}>Vazgeç</button></span>}
             </span>
           </div>
         ))}
-        {!data.staff.length && <div role="row"><span role="cell" className="sm-muted">Henüz personel eklenmedi. Şu an sisteme yalnız site sahibi girebilir.</span></div>}
+        {!data.staff.length && <div role="row"><span role="cell" className="sm-muted">Henüz personel eklenmedi.</span></div>}
       </div>
     </section>
   );

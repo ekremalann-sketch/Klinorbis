@@ -10,7 +10,10 @@ import { DatabaseSync } from "node:sqlite";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-const norm = (params) => params.map((value) => (value === undefined ? null : typeof value === "boolean" ? Number(value) : value));
+// Cloudflare D1, tek ifadede 100'den fazla bağlı parametreyi reddeder; testler de aynı sınırı uygular.
+const D1_MAX_PARAMS = 100;
+const norm = (params) => { if (params.length > D1_MAX_PARAMS) throw new Error(`D1 parametre sınırı aşıldı: ${params.length}`); return normValues(params); };
+const normValues = (params) => params.map((value) => (value === undefined ? null : typeof value === "boolean" ? Number(value) : value));
 
 export async function createD1() {
   const sqlite = new DatabaseSync(":memory:");
@@ -70,8 +73,9 @@ export async function loadRoute(relativePath) {
 }
 
 export function setRuntime(d1, env) {
+  globalThis.__KLINORBIS_DEMO_ENABLED = env.demoEnabled ?? "1"; // Existing fixtures exercise the explicit training environment.
   globalThis.__KLINORBIS_DB = d1;
-  globalThis.__KLINORBIS_SECURITY_ENV = env;
+  globalThis.__KLINORBIS_SECURITY_ENV = {auditHmacKey:"synthetic-audit-key-for-test-only-0001",securityLogSalt:"test-only-security-salt",...env};
   globalThis.__KLINORBIS_OPERATIONAL_SEEDED = false;
 }
 

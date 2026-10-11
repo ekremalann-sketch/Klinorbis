@@ -67,6 +67,7 @@ test("every operation tab has a real routable screen", async () => {
   const sections = [
     "inbox",
     "flow",
+    "merkez",
     "requests",
     "appointments",
     "calls",
@@ -110,9 +111,9 @@ test("anonymous operational navigation initiates sign-in and preserves the selec
   const env = { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } };
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   for (const path of ["/workspace", "/inbox", "/requests/KLI-TEST-01"]) {
-    const response = await worker.fetch(new Request(`https://klinorbis.example${path}`, { headers: { accept: "text/html" } }), env, ctx);
+    const response = await worker.fetch(new Request(`https://klinorbis.ekremalan.chatgpt.site${path}`, { headers: { accept: "text/html" } }), env, ctx);
     assert.equal(response.status, 307, path);
-    const target = new URL(response.headers.get("location"), "https://klinorbis.example");
+    const target = new URL(response.headers.get("location"), "https://klinorbis.ekremalan.chatgpt.site");
     assert.equal(target.pathname, "/signin-with-chatgpt");
     assert.equal(target.searchParams.get("return_to"), path);
   }

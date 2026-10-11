@@ -1,3 +1,5 @@
+import { recordRead } from "../../../lib/read-audit";
+import { oversightView } from "../../../lib/oversight-view";
 import { getDb } from "../../../db";
 import { workspaceSnapshot } from "../../../lib/operations";
 import { enforceRateLimit, requireActor, securityResponse } from "../../../lib/security";
@@ -14,7 +16,8 @@ export async function GET(request: Request) {
       // workspace offline when the rate-limit telemetry store is unavailable.
       if (error && typeof error === "object" && "status" in error) throw error;
     }
-    return Response.json(await workspaceSnapshot(getDb(), actor), {
+    await recordRead(actor,"workspace:list");
+    return Response.json(oversightView(actor,await workspaceSnapshot(getDb(), actor)), {
       headers: { "cache-control": "no-store, private", "x-content-type-options": "nosniff" },
     });
   } catch (error) {

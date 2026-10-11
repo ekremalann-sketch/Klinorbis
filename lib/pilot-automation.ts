@@ -1,3 +1,4 @@
+import { demoEnabled } from "./automation-policy";
 import { and, eq } from "drizzle-orm";
 import type { getDb } from "../db";
 import {
@@ -213,7 +214,7 @@ const SCENARIOS: PilotScenario[] = [
 ];
 
 export type PilotHeartbeat = {
-  enabled: true;
+  enabled: boolean;
   disclosure: "Kimliksiz eğitim/pilot verisi";
   runReference: string;
   callReference: string;
@@ -242,6 +243,7 @@ const BASELINE_CASES = [
 ] as const;
 
 export async function ensurePilotBaseline(db: Db) {
+  if (!demoEnabled()) return;
   const now = Date.now();
   for (const [index, item] of BASELINE_CASES.entries()) {
     const unit = findUnit(item.unitCode);
@@ -311,6 +313,7 @@ export async function advancePilotAutomation(db: Db, at = new Date()): Promise<P
   const callReference = `CAG-${suffix}`;
   const ticketReference = `TLP-${suffix}`;
 
+  if (!demoEnabled()) return { ...currentPilotHeartbeat(at), enabled: false };
   for (let index = 0; index <= step; index += 1) {
     await applyStep(db, scenario, {
       index,
@@ -322,7 +325,7 @@ export async function advancePilotAutomation(db: Db, at = new Date()): Promise<P
   }
 
   return {
-    enabled: true,
+    enabled: demoEnabled(),
     disclosure: "Kimliksiz eğitim/pilot verisi",
     runReference,
     callReference,
@@ -345,7 +348,7 @@ export function currentPilotHeartbeat(at = new Date()): PilotHeartbeat {
   const step = Math.min(STEP_COUNT - 1, Math.floor((at.getTime() - cycleStartedAt) / STEP_MS));
   const suffix = Math.abs(cycle).toString(36).toUpperCase().padStart(7, "0");
   return {
-    enabled: true,
+    enabled: demoEnabled(),
     disclosure: "Kimliksiz eğitim/pilot verisi",
     runReference: `PLT-${scenario.code}-${suffix}`,
     callReference: `CAG-${suffix}`,

@@ -1,7 +1,10 @@
+import { recordRead } from "../../../lib/read-audit";
+import { oversightView } from "../../../lib/oversight-view";
+import { demoEnabled } from "../../../lib/automation-policy";
 import { requireOperationalWriter } from "../../../lib/security";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { approvals, automationEvents, operationalTasks, ticketEvents, tickets, workflowJobs } from "../../../db/schema";
+import { patientCoordination, approvals, automationEvents, operationalTasks, ticketEvents, tickets, workflowJobs } from "../../../db/schema";
 import { appendAudit } from "../../../lib/audit";
 import { findUnit, HOSPITAL_UNITS, recommendUnit } from "../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../lib/operations";
@@ -19,6 +22,9 @@ import {
 } from "../../../lib/security";
 import { runWorkflowCycle } from "../../../lib/workflow-engine";
 import { buildStructuredSubject } from "../../../lib/structured-forms";
+import { classifyRequest, renderMessage } from "../../../lib/patient-access";
+import { queueNotification } from "../../../lib/patient-access-store";
+import { startFromEvent } from "../../../lib/playbook-store";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +40,12 @@ export async function GET(request: Request) {
     const db = getDb();
     await ensureOperationalSeed(db);
     const rows = actor.canSeeAllUnits
-      ? await db.select().from(tickets).orderBy(desc(tickets.updatedAt)).limit(200)
+      ? await db.select().from(tickets).where(demoEnabled() ? undefined : sql`channel != 'Canlı Pilot' and reference not like 'S2S-%'`).orderBy(desc(tickets.updatedAt)).limit(200)
       : actor.unitCodes.length
-        ? await db.select().from(tickets).where(inArray(tickets.unitCode, actor.unitCodes)).orderBy(desc(tickets.updatedAt)).limit(200)
+        ? await db.select().from(tickets).where(and(inArray(tickets.unitCode, actor.unitCodes), demoEnabled() ? undefined : sql`channel != 'Canlı Pilot' and reference not like 'S2S-%'`)).orderBy(desc(tickets.updatedAt)).limit(200)
         : [];
-    return Response.json({ tickets: rows }, { headers: { "cache-control": "no-store, private" } });
+    await recordRead(actor,"tickets:list");
+    return Response.json(oversightView(actor,{ tickets: rows }), { headers: { "cache-control": "no-store, private" } });
   } catch (error) {
     return securityResponse(error, request);
   }
@@ -51,7 +58,7 @@ export async function POST(request: Request) {
     const actor = await requireActor(request);
     requireOperationalWriter(actor);
     await enforceRateLimit(request, actor, "tickets.create", 30, 60);
-    const payload = await request.json() as { patientAlias?: unknown; subject?: unknown; unitCode?: unknown; channel?: unknown; formKind?: unknown; form?: unknown };
+    const payload = await request.json() as { patientAlias?: unknown; subject?: unknown; unitCode?: unknown; channel?: unknown; formKind?: unknown; form?: unknown; notifyChannel?: unknown };
     const patientAlias = cleanText(payload.patientAlias, "Hasta/protokol takma adı", 3, 40).toUpperCase();
     if (!validPatientAlias(patientAlias)) throw new Error("Hasta takma adı yalnız harf, sayı, nokta, tire ve alt çizgi içerebilir.");
     // Yapılandırılmış form (hasta nakli / taburculuk): özet ve birim sunucuda formdan üretilir.
@@ -136,8 +143,24 @@ export async function POST(request: Request) {
       payload: JSON.stringify({ unit: destination.name, unitCode: destination.code, taskReference, priority: ticket.priority, masked: true }),
     });
     await appendAudit(db, { actor: actor.email, action: "ticket.created", resource: reference, detail: `unit:${destination.code}; task:${taskReference}; pii:${redaction.detected.join(",") || "none"}; urgency:${signal.level}` });
+    // Hastaya "başvurunuz alındı" bildirimi: yalnız hasta izin verdiği kanalı seçtiyse ve acil değilse.
+    // Acil sinyalde mesaj gönderilmez; görevli hastayı 112 / acil servise yönlendirir.
+    const requestType = classifyRequest(redaction.maskedText);
+    const notifyChannel = typeof payload.notifyChannel === "string" && ["sms", "whatsapp", "email"].includes(payload.notifyChannel) ? payload.notifyChannel as "sms" | "whatsapp" | "email" : null;
+    if (notifyChannel && !signal.isEmergency) {
+      await queueNotification(db, { ticketReference: reference, patientAlias, channel: notifyChannel, template: "request_received", body: renderMessage("request_received", { reference }), urgent: false, createdBy: actor.email });
+    }
+    // Şikâyet kaydı hasta hakları akışını kendiliğinden başlatır (aynı kayıt için bir kez).
+    let playbook: { reference: string; playbook: string } | null = null;
+    if (requestType.code === "complaint" && !signal.isEmergency) {
+      try { const started = await startFromEvent(db, { type: "complaint.received", eventId: reference, source: "talep-kaydi", note: `Kayıt ${reference}` }); playbook = { reference: started.reference, playbook: started.playbook }; }
+      catch (error) { console.error("complaint playbook", error); }
+    }
     await runWorkflowCycle(db, "event-worker", 10);
     return Response.json({
+      playbook,
+      requestType: { code: requestType.code, label: requestType.label },
+      patientNotified: Boolean(notifyChannel && !signal.isEmergency),
       ticket,
       destination: { unitCode: destination.code, unitName: destination.name, assignedRole: destination.assignedRole, taskReference, queueStatus: "queued" },
       automation: { emergency: signal.isEmergency, signal, redaction: { detected: redaction.detected } },
@@ -177,7 +200,10 @@ export async function PATCH(request: Request) {
     }
     // Eşzamanlı iki işlemden yalnız ilki uygulanır: güncelleme okunan durum değişmediyse yapılır.
     const claimTicket = async (values: Partial<typeof tickets.$inferInsert>) => {
-      const updated = await db.update(tickets).set(values).where(and(eq(tickets.id, ticket.id), eq(tickets.status, ticket.status))).returning({ id: tickets.id });
+      const updated = await db.update(tickets).set(values).where(and(eq(tickets.id, ticket.id), eq(tickets.status, ticket.status),
+        action === "resolve" ? sql`NOT EXISTS (SELECT 1 FROM patient_coordination WHERE ticket_reference = ${ticket.reference} AND (state != 'completed' OR notification_status != 'recorded'))` : sql`1 = 1`,
+        action === "transfer" ? sql`NOT EXISTS (SELECT 1 FROM patient_coordination WHERE ticket_reference = ${ticket.reference} AND state != 'assessment')` : sql`1 = 1`
+      )).returning({ id: tickets.id });
       if (!updated.length) throw new SecurityError(409, "Talep başka bir işlemle değişti; yenileyin.", "TICKET_CHANGED");
     };
     const now = new Date();
@@ -197,11 +223,15 @@ export async function PATCH(request: Request) {
       await claimTicket({ status: nextStatus, updatedAt: now });
       await db.update(operationalTasks).set({ status: "in_progress", updatedAt: now }).where(eq(operationalTasks.ticketReference, ticket.reference));
     } else if (action === "resolve") {
+      const [coordination] = await db.select().from(patientCoordination).where(eq(patientCoordination.ticketReference,ticket.reference)).limit(1);
+      if (coordination && (coordination.state !== "completed" || coordination.notificationStatus !== "recorded")) throw new SecurityError(409,"Koordinasyon ve hasta bilgilendirmesi tamamlanmadan talep kapatılamaz.","COORDINATION_PENDING");
       nextStatus = "Çözüldü";
       detail = `${destination.name} birimi görevi sonuçlandırdı. Kapanış denetim izine işlendi.`;
       await claimTicket({ status: nextStatus, updatedAt: now });
       await db.update(operationalTasks).set({ status: "completed", updatedAt: now }).where(eq(operationalTasks.ticketReference, ticket.reference));
     } else if (action === "transfer") {
+      const [coordination] = await db.select().from(patientCoordination).where(eq(patientCoordination.ticketReference,ticket.reference)).limit(1);
+      if (coordination && coordination.state !== "assessment") throw new SecurityError(409,"Birim değişikliği öncesinde koordinasyonda yeniden planlama açın.","REPLAN_REQUIRED");
       if (typeof payload.targetUnitCode !== "string" || !HOSPITAL_UNITS.some((unit) => unit.code === payload.targetUnitCode)) {
         return Response.json({ error: "Geçerli hedef birim seçilmelidir.", code: "INVALID_UNIT" }, { status: 400 });
       }

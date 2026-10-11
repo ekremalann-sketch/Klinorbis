@@ -1,14 +1,5 @@
-// Santral (PBX) webhook imza doğrulaması. Bağımlılıksız tutulur; davranış testleri
-// doğrudan bu modülü çalıştırır.
-//
-// v2 (önerilen, n8n ve zamanlayıcıyla aynı):  HMAC-SHA256(secret, `${timestamp}.${eventId}.${body}`)
-// legacy (geriye uyumluluk):                  HMAC-SHA256(secret, `${timestamp}.${body}`)
-//
-// Eski biçim olay kimliğini kapsamadığı için tekrar koruması olay kimliğine değil,
-// imzalanmış içerikten türetilen `replayKey` değerine dayanır: aynı timestamp+gövde
-// farklı bir event-id ile yeniden gönderilse bile aynı anahtarı üretir.
-
-export type SignatureScheme = "v2" | "legacy";
+// PBX: yalnız HMAC-SHA256(secret, timestamp.eventId.body).
+export type SignatureScheme = "v2";
 
 export async function hmacHex(secret: string, value: string) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -27,8 +18,6 @@ export async function verifyPbxSignature(input: { secret: string; timestamp: str
   const supplied = input.signature.toLowerCase();
   const v2 = await hmacHex(input.secret, `${input.timestamp}.${input.eventId}.${input.rawBody}`);
   if (constantTimeEqual(supplied, v2)) return "v2";
-  const legacy = await hmacHex(input.secret, `${input.timestamp}.${input.rawBody}`);
-  if (constantTimeEqual(supplied, legacy)) return "legacy";
   return null;
 }
 

@@ -1,5 +1,5 @@
 import { requireOperationalWriter } from "../../../../lib/security";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import {
   approvals,
@@ -9,7 +9,7 @@ import {
   operationalTasks,
   workflowJobs,
 } from "../../../../db/schema";
-import { appendAudit } from "../../../../lib/audit";
+import { auditStatements, auditHeadConflict } from "../../../../lib/audit";
 import { findUnit, HOSPITAL_UNITS } from "../../../../lib/hospital-units";
 import {
   assertBrowserMutation,
@@ -70,33 +70,36 @@ export async function POST(request: Request) {
       const [approved] = await db.select().from(approvals).where(and(eq(approvals.callReference, call.reference), eq(approvals.status, "approved"))).limit(1);
       if (pending || !approved) throw new SecurityError(409, "Yetkili insan onayı bekleniyor.", "APPROVAL_PENDING");
     }
-    const now = new Date();
+    const [task] = await db.select().from(operationalTasks).where(eq(operationalTasks.callReference, call.reference)).orderBy(desc(operationalTasks.updatedAt)).limit(1);
+    if (task?.acceptedBy && task.acceptedBy !== actor.email && actor.role !== "operations_manager") throw new SecurityError(409, "Görüşme başka bir görevlinin sorumluluğunda. Birim yöneticisine başvurun.", "CALL_OWNED");
+    if (body.action === "CALL_ACCEPTED" && task?.acceptedBy) throw new SecurityError(409, "Görev zaten üstlenildi.", "CALL_ALREADY_ACCEPTED");
+    if (body.action === "CALL_STARTED" && task?.status === "in_progress") throw new SecurityError(409, "Görüşme zaten işleme alındı.", "CALL_ALREADY_STARTED");
+    await ensureCallActionGuard(db);
+    const statements: Parameters<typeof db.batch>[0][number][] = [];
+    const now = new Date(Math.max(Date.now(), call.lastMessageAt.getTime() + 1));
     const nonce = crypto.randomUUID();
     let destination = findUnit(call.unitCode);
     let status = call.status;
     let outcome = "";
 
     if (body.action === "CALL_ACCEPTED") {
-      await db
-        .update(operationalTasks)
+      statements.push(db.update(operationalTasks)
         .set({
           status: "accepted",
           acceptedBy: actor.email,
           acceptedAt: now,
           updatedAt: now,
         })
-        .where(eq(operationalTasks.callReference, call.reference));
+        .where(eq(operationalTasks.callReference, call.reference)));
       if (call.status === "ringing" || call.status === "transferred") {
         status = call.requiresHuman ? "human_handoff" : "active";
-        await db
-          .update(callSessions)
+        statements.push(db.update(callSessions)
           .set({ status, lastMessageAt: now })
-          .where(eq(callSessions.reference, call.reference));
+          .where(eq(callSessions.reference, call.reference)));
       }
       outcome = `${actor.label} görüşme görevini kabul etti; ${destination.name} biriminde sahiplik kaydedildi.`;
     } else if (body.action === "CALL_STARTED") {
-      await db
-        .update(operationalTasks)
+      statements.push(db.update(operationalTasks)
         .set({
           status: "in_progress",
           assignedUser: actor.email,
@@ -104,18 +107,16 @@ export async function POST(request: Request) {
           acceptedAt: now,
           updatedAt: now,
         })
-        .where(eq(operationalTasks.callReference, call.reference));
+        .where(eq(operationalTasks.callReference, call.reference)));
       status = call.requiresHuman ? "human_handoff" : "active";
-      await db
-        .update(callSessions)
+      statements.push(db.update(callSessions)
         .set({ status, lastMessageAt: now })
-        .where(eq(callSessions.reference, call.reference));
+        .where(eq(callSessions.reference, call.reference)));
       outcome = `${actor.label} görüşmeyi işleme aldı; aktif sorumlu ${destination.assignedRole}.`;
     } else if (body.action === "CALLBACK_TASK") {
       destination = findUnit("CAG");
       const taskReference = `TSK-GA-${nonce.slice(0, 8).toUpperCase()}`;
-      await db
-        .insert(operationalTasks)
+      statements.push(db.insert(operationalTasks)
         .values({
           reference: taskReference,
           callReference: call.reference,
@@ -127,7 +128,7 @@ export async function POST(request: Request) {
           dueAt: new Date(now.getTime() + 5 * 60_000),
           createdAt: now,
           updatedAt: now,
-        });
+        }));
       outcome = `${taskReference} geri arama görevi ${destination.name} / ${destination.assignedRole} kuyruğuna gönderildi.`;
     } else if (body.action === "UNIT_TRANSFER") {
       if (
@@ -145,8 +146,7 @@ export async function POST(request: Request) {
       const from = destination;
       destination = findUnit(body.targetUnitCode);
       status = destination.code === "ACY" ? "human_handoff" : "transferred";
-      await db
-        .update(callSessions)
+      statements.push(db.update(callSessions)
         .set({
           unitCode: destination.code,
           assignedRole: destination.assignedRole,
@@ -154,9 +154,8 @@ export async function POST(request: Request) {
           requiresHuman: destination.code === "ACY" || call.requiresHuman,
           lastMessageAt: now,
         })
-        .where(eq(callSessions.reference, call.reference));
-      await db
-        .update(operationalTasks)
+        .where(eq(callSessions.reference, call.reference)));
+      statements.push(db.update(operationalTasks)
         .set({
           unitCode: destination.code,
           assignedRole: destination.assignedRole,
@@ -166,29 +165,27 @@ export async function POST(request: Request) {
           dueAt: new Date(now.getTime() + destination.slaMinutes * 60_000),
           updatedAt: now,
         })
-        .where(eq(operationalTasks.callReference, call.reference));
+        .where(eq(operationalTasks.callReference, call.reference)));
       outcome = `${from.name} → ${destination.name}; görüşme ${destination.assignedRole} kuyruğuna taşındı ve birim kabulü bekliyor.`;
     } else {
       status = "completed";
-      await db
-        .update(callSessions)
+      statements.push(db.update(callSessions)
         .set({ status, endedAt: now, lastMessageAt: now })
-        .where(eq(callSessions.reference, call.reference));
-      await db
-        .update(operationalTasks)
+        .where(eq(callSessions.reference, call.reference)));
+      statements.push(db.update(operationalTasks)
         .set({ status: "completed", updatedAt: now })
-        .where(eq(operationalTasks.callReference, call.reference));
+        .where(eq(operationalTasks.callReference, call.reference)));
       outcome = `Görüşme ${actor.label} tarafından sonuçlandırıldı; görev ve denetim kaydı kapatıldı.`;
     }
 
+    statements.push(db.update(callSessions).set({lastMessageAt:now}).where(eq(callSessions.reference,call.reference)));
     const [last] = await db
       .select()
       .from(callMessages)
       .where(eq(callMessages.callReference, call.reference))
       .orderBy(desc(callMessages.sequence))
       .limit(1);
-    await db
-      .insert(callMessages)
+    statements.push(db.insert(callMessages)
       .values({
         callReference: call.reference,
         sequence: (last?.sequence || 0) + 1,
@@ -197,9 +194,8 @@ export async function POST(request: Request) {
         message: outcome,
         redacted: false,
         createdAt: now,
-      });
-    await db
-      .insert(automationEvents)
+      }));
+    statements.push(db.insert(automationEvents)
       .values({
         ticketReference: call.reference,
         rule: body.action,
@@ -207,12 +203,11 @@ export async function POST(request: Request) {
         unitCode: destination.code,
         eventType: "call_action",
         actor: actor.email,
-      });
-    await db
-      .insert(workflowJobs)
+      }));
+    statements.push(db.insert(workflowJobs)
       .values({
-        jobKey: `${call.reference}:${body.action}:${nonce}`,
-        idempotencyKey: `${call.reference}:${body.action}:${nonce}`,
+        jobKey: `${call.reference}:state:${call.lastMessageAt.getTime()}`,
+        idempotencyKey: `${call.reference}:state:${call.lastMessageAt.getTime()}`,
         correlationId: nonce,
         ticketReference: call.reference,
         ruleCode: body.action,
@@ -220,14 +215,21 @@ export async function POST(request: Request) {
           unit: destination.name,
           unitCode: destination.code,
           masked: true,
+          callStateReference: call.reference,
+          expectedLastMessageAt: call.lastMessageAt.getTime(),
         }),
-      });
-    await appendAudit(db, {
+      }));
+    const jobGuard = statements.pop()!;
+    statements.unshift(jobGuard);
+    statements.push(...await auditStatements(db, [{
       actor: actor.email,
       action: `call.${body.action.toLowerCase()}`,
       resource: call.reference,
       detail: `destination:${destination.code}; status:${status}`,
-    });
+    }]));
+    const firstStatement = statements.shift();
+    if (!firstStatement) throw new Error("Empty call transaction");
+    await db.batch([firstStatement, ...statements]);
     const cycle = await runWorkflowCycle(db, "call-event-worker", 10);
     const [updated] = await db
       .select()
@@ -246,6 +248,22 @@ export async function POST(request: Request) {
       cycle,
     });
   } catch (error) {
+    let cause: unknown = error;
+    for (let i=0;i<6 && cause;i++) {
+      if (/CALL_STATE_CHANGED|UNIQUE constraint failed: workflow_jobs/.test(String(cause instanceof Error ? cause.message : cause))) return Response.json({error:"Görüşme başka bir işlemle değişti. Ekranı yenileyip tekrar deneyin.",code:"CALL_CHANGED"},{status:409});
+      cause = typeof cause === "object" && cause !== null && "cause" in cause ? (cause as {cause?:unknown}).cause : null;
+    }
+    if (auditHeadConflict(error)) return Response.json({error:"İşlem çakıştı; hiçbir değişiklik kaydedilmedi. Yeniden deneyin.",code:"AUDIT_CONFLICT"},{status:409});
     return securityResponse(error, request);
   }
+}
+
+const callGuards = new WeakMap<object, Promise<unknown>>();
+async function ensureCallActionGuard(db: ReturnType<typeof getDb>) {
+  const binding = (globalThis as typeof globalThis & {__KLINORBIS_DB?:object}).__KLINORBIS_DB!;
+  if (!callGuards.has(binding)) callGuards.set(binding, db.run(sql`CREATE TRIGGER IF NOT EXISTS workflow_call_state_guard BEFORE INSERT ON workflow_jobs
+    WHEN json_extract(NEW.payload,'$.callStateReference') IS NOT NULL
+    AND NOT EXISTS(SELECT 1 FROM call_sessions WHERE reference=json_extract(NEW.payload,'$.callStateReference') AND last_message_at=json_extract(NEW.payload,'$.expectedLastMessageAt'))
+    BEGIN SELECT RAISE(ABORT,'CALL_STATE_CHANGED'); END`).catch(error => {callGuards.delete(binding);throw error;}));
+  await callGuards.get(binding);
 }

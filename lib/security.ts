@@ -1,3 +1,5 @@
+import {auditHeadConflict} from "./audit";
+import { redactPII } from "./privacy";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { rateLimitCounters, securityEvents, staffAccounts, unitMemberships } from "../db/schema";
@@ -18,7 +20,8 @@ export class SecurityError extends Error {
 }
 
 type RuntimeSecurityEnv = {
-  allowPreviewOwner?: string;
+  auditHmacKey?: string;
+  securityLogSalt?: string;
   ownerEmail?: string;
   ownerAccountUserId?: string;
   webhookSecret?: string;
@@ -70,26 +73,23 @@ export function assertBrowserMutation(request: Request) {
 }
 
 export async function requireActor(request: Request): Promise<RequestActor> {
+  if (new URL(request.url).hostname.endsWith(".workers.dev")) throw new SecurityError(403,"Yalnız yayın adresinden erişilebilir.","UNTRUSTED_ORIGIN");
   const db = getDb();
-  const host = new URL(request.url).hostname;
-  const isAgentPreview = runtimeEnv().allowPreviewOwner === "1" && ["terminal.local", "localhost", "127.0.0.1"].includes(host) && !request.headers.has("cf-ray");
   const headerEmail = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
   const headerUserId = request.headers.get("oai-authenticated-user-id")?.trim();
   const ownerEmail = runtimeEnv().ownerEmail?.trim().toLowerCase();
   const ownerAccountUserId = runtimeEnv().ownerAccountUserId?.trim();
 
-  if (!headerEmail && !isAgentPreview) throw new SecurityError(401, "Kimlik doğrulaması gerekli.", "AUTH_REQUIRED");
-  const email = headerEmail || "agent-preview@local.invalid";
+  if (!headerEmail) throw new SecurityError(401, "Kimlik doğrulaması gerekli.", "AUTH_REQUIRED");
+  const email = headerEmail!;
   const owner = Boolean(
     (ownerEmail && email === ownerEmail) ||
-    (ownerAccountUserId && headerUserId === ownerAccountUserId) ||
-    isAgentPreview,
+    (ownerAccountUserId && headerUserId === ownerAccountUserId),
   );
 
   if (owner) {
-    // Keep authenticated reads side-effect free. Writing last-seen telemetry on
-    // every 2.5-second dashboard refresh caused D1 contention during startup.
-    return { email, label: isAgentPreview ? "Güvenli Önizleme" : "Yetkili Kullanıcı", role: "operations_manager", unitCodes: [], canSeeAllUnits: true };
+    const created=await db.insert(staffAccounts).values({email,displayLabel:"Kurum sahibi",systemRole:"operations_manager",active:true}).onConflictDoNothing().returning({email:staffAccounts.email});
+    if(created.length) await recordSecurityEvent(request,"owner_account_created","medium",email,"Platform sahibine açık personel kaydı oluşturuldu.");
   }
 
   const [account] = await db.select().from(staffAccounts).where(and(eq(staffAccounts.email, email), eq(staffAccounts.active, true))).limit(1);
@@ -137,7 +137,8 @@ export async function recordSecurityEvent(request: Request, eventType: string, s
   try {
     const db = getDb();
     const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const ipHash = await sha256(`${runtimeEnv().webhookSecret || "local-security-salt"}|${ip}`);
+    const salt = runtimeEnv().securityLogSalt;
+    const ipHash = salt ? await sha256(`${salt}|${ip}`) : null;
     await db.insert(securityEvents).values({ requestId: requestId(request), eventType, severity, actor, ipHash, path: new URL(request.url).pathname, detail: cleanLog(detail) });
   } catch {
     // Security logging must not disclose data or turn a blocked request into a success.
@@ -149,6 +150,7 @@ export function securityResponse(error: unknown, request: Request) {
     void recordSecurityEvent(request, error.code.toLowerCase(), error.status >= 500 ? "critical" : error.status >= 403 ? "high" : "medium", request.headers.get("oai-authenticated-user-email") || "anonymous", error.message);
     return Response.json({ error: error.message, code: error.code, requestId: requestId(request) }, { status: error.status });
   }
+  if(auditHeadConflict(error))return Response.json({error:"Başka bir işlem denetim kaydını güncelledi. Ekranı yenileyip tekrar deneyin.",code:"AUDIT_RETRY"},{status:409});
   const id = requestId(request);
   void recordSecurityEvent(request, "server_error", "critical", request.headers.get("oai-authenticated-user-email") || "anonymous", `Beklenmeyen hata · ${id}`);
   return Response.json({ error: "İşlem güvenli biçimde tamamlanamadı.", code: "SERVER_ERROR", requestId: id }, { status: 500 });
@@ -185,9 +187,9 @@ export function automationConnectorStatus() {
       name: "Kapasite ve Sevk Karar Motoru",
       provider: "KLINORBIS Worker + D1",
       state: "active",
-      truthLabel: "Canlı pilot karar motoru",
+      truthLabel: "Kapasite iş akışı altyapısı",
       configuration: { endpointConfigured: true, signingKeyConfigured: true },
-      detail: "Kimliksiz pilot kaynak verisini kapasite, vardiya, rezervasyon, blokaj ve alternatif kampüs kurallarıyla otomatik kabul/ret/yeniden yönlendirme kararına dönüştürür.",
+      detail: "Kapasite ve alternatifleri izler. Gerçek hasta için kesin klinik karar üretmez; kurum bağlantısı ve yetkili personel doğrulaması gerekir.",
     },
     {
       id: "n8n-self-hosted",
@@ -236,5 +238,5 @@ export async function sha256(value: string) {
 }
 
 function cleanLog(value: string) {
-  return value.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").slice(0, 500);
+  return redactPII(value).maskedText.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").slice(0, 500);
 }

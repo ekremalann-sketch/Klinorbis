@@ -1,9 +1,22 @@
 "use client";
+import ExportMenu from "./export-menu";
+
+import { attentionItems } from "../lib/attention";
+import { AutomationControls } from "./automation-controls";
+import {PatientCoordination} from "./patient-coordination";
 import { StaffManagement } from "./staff-management";
 import { FhirValidator, OperationsForms } from "./operations-forms";
 
+
+import { workspaceContentKey } from "../lib/workspace-content";
+import { ScreenHelpBox } from "./screen-help-box";
+
 import {
+  lazy,
+  Suspense,
+  Fragment,
   FormEvent,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -12,6 +25,11 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { chatGPTSignInPath, chatGPTSignOutPath } from "./auth-paths";
+
+const PatientAccess = lazy(() => import("./patient-access").then(m => ({default:m.PatientAccess})));
+const Playbooks = lazy(() => import("./playbooks").then(m => ({default:m.Playbooks})));
+const ScreenLoading = () => <div className="screen-loading" role="status"><span /><span /><span /><p>Çalışma ekranı hazırlanıyor…</p></div>;
 
 export type View =
   | "dashboard"
@@ -19,6 +37,8 @@ export type View =
   | "flow"
   | "requests"
   | "appointments"
+  | "access"
+  | "playbooks"
   | "calls"
   | "approvals"
   | "automation"
@@ -43,7 +63,20 @@ type Task = {
   acceptedBy?: string | null;
   acceptedAt?: DateValue;
   updatedAt?: DateValue;
+  sourceType?: string;
 };
+// Görevin açılacağı ekran: kayda bağlıysa kayıt, görüşmeye bağlıysa görüşme; operasyon akışı ve
+// hekim yokluğu görevleri kendi ekranlarına gider (önceden bu görevlere tıklamak boş sayfa açıyordu).
+function taskPath(task: Task) {
+  if (task.ticketReference) return `/requests/${task.ticketReference}`;
+  if (task.callReference) return `/calls/${task.callReference}`;
+  if (task.sourceType === "playbook") return "/playbooks";
+  if ((task.sourceType === "appointment" || task.sourceType === "calendar_confirmation")) return "/access";
+  return "/inbox";
+}
+function taskSource(task: Task) {
+  return task.ticketReference || task.callReference || (task.sourceType === "playbook" ? "Operasyon akışı" : (task.sourceType === "appointment" || task.sourceType === "calendar_confirmation") ? "Hasta bilgilendirme" : "Görev");
+}
 type TicketEvent = {
   id: number;
   eventType: string;
@@ -246,8 +279,11 @@ type Snapshot = {
   calls: Call[];
   events: Event[];
   approvals: Approval[];
-  jobs: { queued: number; completed: number; deadLetter: number };
+  jobs: { queued: number; completed: number; local?: number; localCompleted: number; deadLetter: number };
+  features?: { demo: boolean; ai: boolean };
+  aiSuggestion?: { text: string; createdAt: string } | null;
   automation: {
+    settings?: { demoMode: boolean; automationPaused: boolean; updatedBy: string | null; updatedAt: string | null };
     pilot: null | {
       enabled: true;
       disclosure: string;
@@ -368,11 +404,13 @@ type ApprovalDecisionResponse = ApiError & {
 };
 
 const viewPaths: Record<View, string> = {
-  dashboard: "/",
+  dashboard: "/merkez",
   inbox: "/inbox",
   flow: "/flow",
   requests: "/requests",
   appointments: "/appointments",
+  access: "/access",
+  playbooks: "/playbooks",
   calls: "/calls",
   approvals: "/approvals",
   automation: "/automation",
@@ -391,6 +429,8 @@ const titles: Record<View, string> = {
   flow: "Uçtan Uca Akış",
   requests: "Hasta Talepleri",
   appointments: "Randevu Talepleri",
+  access: "Hekim Yokluğu ve Hasta Bilgilendirme",
+  playbooks: "Operasyon Akışları",
   calls: "Çağrı ve Konuşmalar",
   approvals: "İnsan Onayları",
   automation: "Canlı Otomasyon",
@@ -410,6 +450,7 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
     { view: "flow", icon: "⇢", label: "Uçtan Uca Akış" },
     { view: "requests", icon: "◉", label: "Hasta Talepleri" },
     { view: "appointments", icon: "▣", label: "Randevu Talepleri" },
+    { view: "access", icon: "✆", label: "Hekim Yokluğu ve Bilgilendirme" },
     { view: "calls", icon: "☎", label: "Çağrı ve Konuşmalar" },
     { view: "approvals", icon: "✓", label: "İnsan Onayları" },
     {
@@ -418,6 +459,7 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
       label: "Canlı Otomasyon",
       group: "OPERASYON",
     },
+    { view: "playbooks", icon: "⇄", label: "Operasyon Akışları" },
     { view: "capacity", icon: "↔", label: "Kapasite ve Transfer" },
     { view: "integrations", icon: "⌁", label: "Entegrasyon Sağlığı" },
     { view: "units", icon: "◇", label: "Birim Çalışma Masaları" },
@@ -430,11 +472,14 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
 // Rol bazlı menü: her rol önce kendi işine ait ekranları görür (sade menü). Yetki sunucuda
 // uygulanır; menüden gizlemek güvenlik değil kolaylıktır. "Tüm ekranlar" ile tamamı açılır.
 const ROLE_VIEWS: Record<string, View[]> = {
-  unit_manager: ["dashboard", "inbox", "flow", "requests", "appointments", "calls", "approvals", "capacity", "units", "staff", "reports"],
-  clinician: ["dashboard", "inbox", "requests", "approvals", "capacity", "units", "staff"],
-  call_agent: ["dashboard", "inbox", "requests", "appointments", "calls", "units", "staff"],
-  privacy_officer: ["dashboard", "inbox", "requests", "reports", "privacy", "audit", "staff"],
-  security_officer: ["dashboard", "automation", "integrations", "security", "audit", "reports", "staff"],
+  // Her rol yalnız kendi işine ait ekranları görür; "Personel ve Yetki" herkeste "Benim işim/vardiyam" olarak durur.
+  // Diğer ekranlar "Tüm ekranları göster" altında.
+  operations_manager: ["dashboard", "inbox", "approvals", "calls", "access", "flow", "playbooks", "capacity", "automation", "units", "staff", "reports"],
+  unit_manager: ["dashboard", "inbox", "approvals", "units", "appointments", "access", "capacity", "staff"],
+  clinician: ["dashboard", "approvals", "inbox", "units", "access", "staff"],
+  call_agent: ["calls", "inbox", "appointments", "access", "staff"],
+  privacy_officer: ["privacy", "audit", "reports", "inbox", "staff"],
+  security_officer: ["security", "automation", "integrations", "audit", "reports", "staff"],
 };
 const NAV_GROUP_OF: Record<string, string> = (() => {
   let current = "";
@@ -442,10 +487,15 @@ const NAV_GROUP_OF: Record<string, string> = (() => {
   for (const item of nav) { if (item.group) current = item.group; out[item.view] = current; }
   return out;
 })();
+const MOBILE_LABELS: Partial<Record<View, string>> = {
+  dashboard: "Merkez", inbox: "İşler", calls: "Çağrı", approvals: "Onay", access: "Yokluk", units: "Birim",
+  appointments: "Randevu", flow: "Akış", privacy: "KVKK", audit: "Denetim", reports: "Rapor", security: "Güvenlik",
+  automation: "Otomasyon", integrations: "Entegr.", capacity: "Kapasite", staff: "Personel",
+};
 const roleNames: Record<string, string> = {
   operations_manager: "Operasyon Yöneticisi",
   unit_manager: "Birim Sorumlusu",
-  clinician: "Klinik Rol",
+  clinician: "Hekim / Klinik Rol",
   call_agent: "Çağrı Merkezi Görevlisi",
   privacy_officer: "KVKK Yetkilisi",
   security_officer: "Bilgi Güvenliği Yetkilisi",
@@ -501,14 +551,25 @@ const controlNames: Record<string, [string, string]> = {
   ],
 };
 
+// Alt bileşenlerden sayfa yenilemeden ekran değiştirmek için (Dashboard bu olayı dinler).
+function softGo(path: string) { window.dispatchEvent(new CustomEvent("klinorbis:go", { detail: path })); }
+
+// Panel yeniden kurulursa (ör. tarayıcıda geri) son veri hemen gösterilir; arkadan tazelenir.
+
+
 export default function Dashboard({
-  initialView = "dashboard",
-  initialReference,
+  initialView: viewProp = "dashboard",
+  initialReference: referenceProp,
 }: {
   initialView?: View;
   initialReference?: string;
 }) {
   const router = useRouter();
+  // Ekranlar arası geçiş sayfayı yeniden yüklemez: görünüm ve kayıt durumu burada tutulur, adres çubuğu
+  // history.pushState ile güncellenir. Önceden her tıklamada tüm panel yeniden kuruluyor, veri baştan
+  // alınıyor ve sayfa en üste atıyordu (özellikle Çağrı ve Konuşmalar ekranında).
+  const [initialView, setViewState] = useState<View>(viewProp);
+  const [initialReference, setReferenceState] = useState<string | undefined>(referenceProp);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [security, setSecurity] = useState<SecurityStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -518,33 +579,105 @@ export default function Dashboard({
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [query, setQuery] = useState("");
   const [showAllNav, setShowAllNav] = useState(false);
+  // Rol önizlemesi: operasyon yöneticisi "hekim / çağrı görevlisi … bu ekranı nasıl görüyor?" diye bakabilir.
+  // Yalnız menü, ana ekran ve dikkat şeridi değişir; veriler ve yetki yöneticinin kendi oturumundan gelir.
+  const [previewRole, setPreviewRole] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const knownCalls = useRef<Set<string>>(new Set());
   const initialized = useRef(false);
   const refreshInFlight = useRef(false);
+  const refreshAbort = useRef<AbortController | null>(null);
+  const firstLoadDone = useRef(false);
+  const unmounted = useRef(false);
+  // "signin": oturum yok (401) · "norole": oturum var ama rol/erişim yok (403).
+  const [authProblem, setAuthProblem] = useState<"" | "signin" | "norole">("");
+  const pollFailures = useRef(0);
+  const lastPayload = useRef("");
+  const identityRole = useRef("");
+  const lastIdentity = useRef("");
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
 
   const navigate = useCallback(
-    (view: View, reference?: string) => {
+    (view: View, reference?: string, replace = false) => {
       const base = viewPaths[view];
-      router.push(
-        reference ? `${base}/${encodeURIComponent(reference)}` : base,
-      );
+      const url = reference ? `${base}/${encodeURIComponent(reference)}` : base;
+      const sameView = view === viewRef.current;
+      if (replace) window.history.replaceState({ klinorbis: true }, "", url);
+      else window.history.pushState({ klinorbis: true }, "", url);
+      viewRef.current = view;
+      setViewState(view);
+      setReferenceState(reference);
       setMenu(false);
       setBell(false);
+      // Aynı ekranda kayıt seçmek sayfayı kaydırmaz; başka ekrana geçince başa dönülür.
+      if (!sameView) window.scrollTo({ top: 0 });
     },
-    [router],
+    [],
   );
+  const viewRef = useRef<View>(viewProp);
+  // Bildirim ve uyarılardaki adresler de aynı yoldan açılır.
+  const go = useCallback((path: string) => {
+    const [section, ref] = path.replace(/^\//, "").split("/");
+    const view = (Object.entries(viewPaths).find(([, p]) => p === `/${section ?? ""}`)?.[0] ?? (section ? null : "dashboard")) as View | null;
+    if (!view) { router.push(path); return; }
+    navigate(view, ref ? decodeURIComponent(ref) : undefined);
+  }, [navigate, router]);
+  useEffect(() => {
+    const onPop = () => {
+      const [section, ref] = window.location.pathname.replace(/^\//, "").split("/");
+      const view = (Object.entries(viewPaths).find(([, p]) => p === `/${section ?? ""}`)?.[0] ?? "dashboard") as View;
+      viewRef.current = view;
+      setViewState(view);
+      setReferenceState(ref ? decodeURIComponent(ref) : undefined);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  useEffect(() => {
+    const onGo = (event: globalThis.Event) => go(String((event as unknown as CustomEvent<string>).detail || "/"));
+    window.addEventListener("klinorbis:go", onGo);
+    return () => window.removeEventListener("klinorbis:go", onGo);
+  }, [go]);
+  useEffect(() => {
+    const onRefresh = () => void refreshRef.current?.();
+    window.addEventListener("klinorbis:refresh", onRefresh);
+    return () => window.removeEventListener("klinorbis:refresh", onRefresh);
+  }, []);
+  useEffect(() => { document.title = `${titles[initialView] ?? "Klinorbis"} | Klinorbis`; }, [initialView]);
+
+  useEffect(()=>{if(!initialReference||!["calls","requests","inbox","appointments"].includes(initialView))return;const controller=new AbortController();void fetch("/api/read-events",{method:"POST",headers:{"content-type":"application/json","x-klinorbis-request":"browser"},body:JSON.stringify({kind:initialView==="calls"?"call":"ticket",reference:initialReference}),signal:controller.signal}).catch(()=>{});return()=>controller.abort();},[initialReference,initialView]);
 
   const refresh = useCallback(
-    async (silent = false) => {
+    async (silent = false, attempt = 0): Promise<void> => {
       if (refreshInFlight.current) return;
       refreshInFlight.current = true;
+      const controller = new AbortController();
+      refreshAbort.current = controller;
+      let timedOut = false;
+      // 20 sn: D1 soğuk başlangıcı için yeterli; daha uzun beklemek ekranı "donmuş" gösterir.
+      const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
+      let retry = false;
       try {
-        const response = await fetch("/api/workspace", { cache: "no-store" });
-        const data = (await response.json()) as Snapshot & { error?: string };
-        if (!response.ok)
+        const response = await fetch("/api/workspace", { cache: "no-store", signal: controller.signal });
+        const text = await response.text();
+        let data: Snapshot & { error?: string };
+        try { data = JSON.parse(text) as Snapshot & { error?: string }; }
+        catch { throw new Error(response.ok ? "Sunucu yanıtı okunamadı." : `Sunucu geçici olarak yanıt vermiyor (${response.status}).`); }
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) { setAuthProblem(response.status === 401 ? "signin" : "norole"); setSnapshot(null); setSecurity(null); setReceipt(null); identityRole.current = ""; lastIdentity.current = ""; lastPayload.current = ""; knownCalls.current.clear(); initialized.current = false; }
           throw new Error(data.error || "Çalışma alanı okunamadı.");
+        }
+        setAuthProblem("");
+        pollFailures.current = 0;
+        firstLoadDone.current = true;
+        const identity = `${data.identity.email}|${data.identity.role}`;
+        if (identity !== lastIdentity.current) {
+          knownCalls.current.clear(); initialized.current = false; lastPayload.current = ""; setReceipt(null); setSecurity(null); lastIdentity.current = identity;
+        }
+        identityRole.current = data.identity.role;
+        const content = workspaceContentKey(data);
+        if (content === lastPayload.current) { setLoading(false); setError(""); return; }
         if (initialized.current) {
           const incoming = data.calls.find(
             (call) =>
@@ -564,22 +697,52 @@ export default function Dashboard({
         }
         knownCalls.current = new Set(data.calls.map((call) => call.reference));
         initialized.current = true;
-        setSnapshot(data);
+        lastPayload.current = content;
+        if (silent) startTransition(() => setSnapshot(data));
+        else setSnapshot(data);
         setError("");
-        if (!silent) setLoading(false);
+        setLoading(false);
       } catch (cause) {
+        const aborted = controller.signal.aborted || (cause instanceof DOMException && cause.name === "AbortError");
+        // Ekran kapanırken/yenilenirken iptal edilen istek hata değildir; kullanıcıya "signal is aborted" gösterilmez.
+        if (aborted && !timedOut) {
+          // Ekran kapandıysa veya "Yeniden bağlan" yeni bir istek başlattıysa sessizce çık.
+          if (unmounted.current || refreshAbort.current !== controller) return;
+          if (!firstLoadDone.current) {
+            if (attempt < 1) { retry = true; return; }
+            setError("Bağlantı kesildi. “Yeniden bağlan”a basın; tekrar giriş yapmanız gerekmez.");
+            setLoading(false);
+          }
+          return;
+        }
+        // İlk açılışta zaman aşımı veya ağ kesintisinde bir kez sessizce yeniden dene.
+        if (!firstLoadDone.current && attempt < 1 && !unmounted.current && (timedOut || cause instanceof TypeError)) { retry = true; return; }
+        pollFailures.current = Math.min(2, pollFailures.current + 1);
+        const raw = cause instanceof Error ? cause.message : "";
         setError(
-          cause instanceof Error
-            ? cause.message
-            : "Sunucu bağlantısı kurulamadı.",
+          timedOut ? "Sunucu 20 saniyede yanıt vermedi. Bağlantınızı kontrol edip “Yeniden bağlan”a basın; tekrar giriş yapmanız gerekmez."
+            : cause instanceof TypeError || /abort|fetch|network/i.test(raw) ? "Sunucuya ulaşılamadı. İnternet/VPN bağlantınızı kontrol edip “Yeniden bağlan”a basın."
+            : raw || "Sunucu bağlantısı kurulamadı.",
         );
-        if (!silent) setLoading(false);
+        setLoading(false);
       } finally {
-        refreshInFlight.current = false;
+        window.clearTimeout(timeout);
+        if (refreshAbort.current === controller) { refreshInFlight.current = false; refreshAbort.current = null; }
+        if (retry && !unmounted.current) window.setTimeout(() => void refresh(silent, attempt + 1), 1200);
       }
     },
     [],
   );
+  // "Yeniden bağlan": takılı kalmış isteği iptal edip temiz bir deneme başlatır (sayfa yenilemeden).
+  const reconnect = useCallback(() => {
+    refreshAbort.current?.abort();
+    refreshAbort.current = null;
+    refreshInFlight.current = false;
+    pollFailures.current = 0;
+    setError("");
+    setLoading(true);
+    void refresh(false, 0);
+  }, [refresh]);
 
   const refreshSecurity = useCallback(async () => {
     try {
@@ -592,18 +755,61 @@ export default function Dashboard({
     }
   }, []);
 
+  // Kasma önlemi: yenileme aralığı ekrana ve kullanıcının etkinliğine göre ayarlanır.
+  //  - Çağrı ve iş kutusu gibi canlı ekranlarda 15 sn, diğer ekranlarda 30 sn,
+  //  - kendi verisini ayrıca yükleyen ekranlarda (hekim yokluğu, akışlar, personel) 60 sn,
+  //  - 2 dakikadır dokunulmadıysa 60 sn, sekme gizliyse hiç; sekmeye dönünce hemen yenilenir.
+  const lastInteraction = useRef(0);
   useEffect(() => {
-    const initialTimer = window.setTimeout(() => {
-      void refresh();
-      if (initialView === "security" || initialView === "privacy")
-        void refreshSecurity();
-    }, 0);
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(true); }, 5000);
-    return () => {
-      window.clearTimeout(initialTimer);
-      window.clearInterval(timer);
+    refreshRef.current = () => refresh(true);
+    lastInteraction.current = Date.now();
+    unmounted.current = false;
+    let timer = 0;
+    let stopped = false;
+    const intervalFor = () => {
+      const view = viewRef.current;
+      if (Date.now() - lastInteraction.current > 120_000) return 60_000;
+      if (["calls", "inbox", "requests"].includes(view)) return 15_000;
+      if (["access", "playbooks", "staff"].includes(view)) return 60_000;
+      return 30_000;
     };
-  }, [initialView, refresh, refreshSecurity]);
+    const schedule = () => { window.clearTimeout(timer); if (!stopped) timer = window.setTimeout(tick, intervalFor()); };
+    const tick = async () => {
+      // İlk yükleme bitmeden periyodik yenileme başlamaz (ilk isteği iptal edip yarış yaratmasın).
+      if (document.visibilityState === "visible" && firstLoadDone.current) await refresh(true);
+      schedule();
+    };
+    const onVisible = () => { if (document.visibilityState === "visible" && firstLoadDone.current) { window.clearTimeout(timer); void refresh(true).then(schedule); } };
+    const onActivity = () => { const idle = Date.now() - lastInteraction.current > 120_000; lastInteraction.current = Date.now(); if (idle && firstLoadDone.current) { window.clearTimeout(timer); void refresh(true).then(schedule); } };
+    const first = window.setTimeout(() => void refresh().then(schedule), 0);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pointerdown", onActivity, { passive: true });
+    window.addEventListener("keydown", onActivity);
+    // Otomasyon nabzı: zamanlayıcı çalışmıyorsa panel açıkken akışların ilerlemesini sağlar (bkz. /api/automation/heartbeat).
+    const beat = async () => {
+      if (!firstLoadDone.current || document.visibilityState !== "visible" || identityRole.current !== "operations_manager") return;
+      try {
+        const r = await fetch("/api/automation/heartbeat", { method: "POST", headers: { "content-type": "application/json", "x-klinorbis-request": "browser" }, body: "{}" });
+        if (r.ok && ((await r.json()) as { ran?: boolean }).ran) void refresh(true);
+      } catch { /* nabız başarısız olursa bir sonraki denemede tekrar denenir */ }
+    };
+    const firstBeat = window.setTimeout(() => void beat(), 4000);
+    const heartbeat = window.setInterval(() => void beat(), 30_000);
+    return () => {
+      unmounted.current = true;
+      stopped = true;
+      window.clearTimeout(first);
+      window.clearTimeout(timer);
+      refreshAbort.current?.abort();
+      refreshInFlight.current = false;
+      window.clearTimeout(firstBeat);
+      window.clearInterval(heartbeat);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pointerdown", onActivity);
+      window.removeEventListener("keydown", onActivity);
+    };
+  }, [refresh, refreshSecurity]);
+  useEffect(() => { if (initialView !== "security" && initialView !== "privacy") return; const t = window.setTimeout(() => void refreshSecurity(), 0); return () => window.clearTimeout(t); }, [initialView, refreshSecurity]);
 
   const notices = useMemo(() => {
     if (!snapshot) return [];
@@ -616,8 +822,8 @@ export default function Dashboard({
         time: formatTime(approval.createdAt),
         path: approval.ticketReference
           ? `/requests/${approval.ticketReference}`
-          : `/calls/${approval.callReference}`,
-        urgent: true,
+          : approval.callReference ? `/calls/${approval.callReference}` : "/approvals",
+        urgent: Boolean(snapshot.tickets.find(t => t.reference === approval.ticketReference)?.priority === "Acil"),
       }));
     const queuedTasks = snapshot.tasks
       .filter((task) => task.status === "queued")
@@ -627,9 +833,7 @@ export default function Dashboard({
         title: `${task.assignedRole} kuyruğunda yeni görev`,
         detail: `${task.reference} · ${unitName(snapshot, task.unitCode)}`,
         time: formatTime(task.updatedAt),
-        path: task.ticketReference
-          ? `/requests/${task.ticketReference}`
-          : `/calls/${task.callReference}`,
+        path: taskPath(task),
         urgent: task.priority === "Acil",
       }));
     return [...pendingApprovals, ...queuedTasks].slice(0, 12);
@@ -723,6 +927,19 @@ export default function Dashboard({
     }
   }
 
+  async function actOnCall(reference: string, action: string, targetUnitCode?: string) {
+    if (busy) return;
+    if (action === "CALL_COMPLETED" && !window.confirm("Görüşme sonuçlandırılacak. İnsan onayı gerektiren kayıtlar onay verilmeden kapatılamaz. Devam edilsin mi?")) return;
+    setBusy(`${reference}:${action}`);
+    try {
+      const data = await secureMutation<ApiError & {outcome:string}>("/api/calls/actions", {callId:reference, action, targetUnitCode});
+      setReceipt({title:"Görüşme işlemi kaydedildi",detail:data.outcome,path:`/calls/${reference}`,actionLabel:"Görüşmeye dön"});
+      await refresh(true);
+    } catch (cause) {
+      setReceipt({title:"Görüşme işlemi uygulanmadı",detail:cause instanceof Error ? cause.message : "İşlem reddedildi.",path:`/calls/${reference}`,actionLabel:"Görüşmeye dön"});
+    } finally { setBusy(""); }
+  }
+
   async function decideApproval(
     reference: string,
     decision: "approve" | "reject",
@@ -778,7 +995,7 @@ export default function Dashboard({
           actionLabel: "Görüşmeyi aç",
         });
         await refresh(true);
-        router.push(`/calls/${data.call.reference}`);
+        go(`/calls/${data.call.reference}`);
       } else {
         const subject =
           kind === "appointment"
@@ -808,9 +1025,7 @@ export default function Dashboard({
           actionLabel: "Hedef birimi aç",
         });
         await refresh(true);
-        router.push(
-          `/${kind === "appointment" ? "appointments" : "requests"}/${data.ticket.reference}`,
-        );
+        go(`/${kind === "appointment" ? "appointments" : "requests"}/${data.ticket.reference}`);
       }
     } catch (cause) {
       setReceipt({
@@ -832,22 +1047,36 @@ export default function Dashboard({
         <b>KLINORBIS çalışma alanı güvenli biçimde açılıyor…</b>
       </main>
     );
+  if (!snapshot && authProblem === "norole")
+    return (
+      <main className="loading-screen error-screen">
+        <b>Hesabınıza rol atanmamış</b>
+        <p role="alert">{error || "Bu hesaba KLINORBIS rolü veya birimi atanmadı."}</p>
+        <p>Oturumunuz açık; tekrar giriş yapmak sorunu çözmez. Kurumunuzdaki operasyon yöneticisinden hesabınıza rol ve birim atamasını isteyin. Farklı bir hesapla çalışacaksanız önce çıkış yapın.</p>
+        {/* Çıkış üst belge gezintisi olmalı; istemci yönlendiricisi kullanılmaz. */}
+        <a className="secondary" href={chatGPTSignOutPath("/")} target="_top">Çıkış yap / hesap değiştir</a>
+        <Link href="/">Ana sayfaya dön</Link>
+      </main>
+    );
   if (!snapshot)
     return (
       <main className="loading-screen error-screen">
-        <b>Çalışma alanı açılamadı</b>
+        <b>{authProblem === "norole" ? "Bu hesapta çalışma alanı yetkisi yok" : "Çalışma alanı açılamadı"}</b>
         <p role="alert">{error}</p>
-        {/* Authentication must navigate the top-level document, not the client router. */}
-        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-        <a className="primary" href="/signin-with-chatgpt?return_to=%2Fworkspace" target="_top">Giriş yap ve çalışma alanını aç</a>
-        <p>Giriş yaptıktan sonra yetki hatası sürerse bu hesaba birim veya rol atanmamış olabilir. Gözetim rolleri kayıt değiştiremez.</p>
-        <Link href="/demo">Herkese açık demoya dön</Link>
-        <button className="primary" onClick={() => void refresh()}>
-          Yeniden bağlan
-        </button>
+        {authProblem === "signin" ? (
+          /* Authentication must navigate the top-level document, not the client router. */
+          <a className="primary" href={chatGPTSignInPath(typeof window === "undefined" ? "/workspace" : window.location.pathname)} target="_top">Giriş yap</a>
+        ) : (
+          <button className="primary" onClick={reconnect}>
+            Yeniden bağlan
+          </button>
+        )}
+        <Link href="/">Ana sayfaya dön</Link>
       </main>
     );
 
+  const realRole = snapshot.identity.role;
+  const effectiveRole = realRole === "operations_manager" && previewRole ? previewRole : realRole;
   const selectedTicket =
     initialReference &&
     ["requests", "inbox", "appointments"].includes(initialView)
@@ -876,19 +1105,19 @@ export default function Dashboard({
           <span className="brand-mark">K</span>
           <div>
             <b>KLINORBIS</b>
-            <small>HOSPITAL OPERATIONS</small>
+            <small>Hastane operasyonları</small>
           </div>
         </div>
         <nav>
           {(() => {
-            const allowed = ROLE_VIEWS[snapshot.identity.role];
+            const allowed = ROLE_VIEWS[effectiveRole];
             const list = showAllNav || !allowed ? nav : nav.filter((item) => allowed.includes(item.view) || item.view === initialView);
             return list.map((item, index) => ({ ...item, group: index === 0 || NAV_GROUP_OF[list[index - 1].view] !== NAV_GROUP_OF[item.view] ? NAV_GROUP_OF[item.view] || undefined : undefined }));
           })().map((item) => {
             const badge =
               item.view === "inbox"
                 ? snapshot.tasks.filter(
-                    (task) => !["completed", "cancelled"].includes(task.status),
+                    (task) => !["completed", "cancelled", "scheduled"].includes(task.status),
                   ).length
                 : item.view === "approvals"
                   ? snapshot.approvals.filter(
@@ -918,7 +1147,7 @@ export default function Dashboard({
               </span>
             );
           })}
-          {ROLE_VIEWS[snapshot.identity.role] && (
+          {ROLE_VIEWS[effectiveRole] && (
             <button type="button" className="nav-toggle" aria-expanded={showAllNav} onClick={() => setShowAllNav((v) => !v)}>
               {showAllNav ? "Yalnız rolümün ekranları" : "Tüm ekranları göster"}
             </button>
@@ -928,7 +1157,7 @@ export default function Dashboard({
           <span className={`pulse ${error ? "off" : ""}`} />
           <div>
             <b>{error ? "Eşitleme uyarısı" : "Sunucu akışı bağlı"}</b>
-            <small>{formatTime(snapshot.generatedAt)} · 5 sn yenileme</small>
+            <small>Son eşitleme {formatTime(snapshot.generatedAt)}</small>
           </div>
         </div>
       </aside>
@@ -953,8 +1182,18 @@ export default function Dashboard({
             </div>
           </div>
           <div className="header-actions">
+            <a className="secondary" href={chatGPTSignOutPath("/")} target="_top">Çıkış yap</a>
+            {realRole === "operations_manager" && (
+              <label className="preview-select">
+                <span className="sr-only">Rol gözünden önizle</span>
+                <select value={previewRole ?? ""} onChange={(event) => { const role = event.target.value || null; setPreviewRole(role); const home = role ? ROLE_VIEWS[role]?.[0] : "dashboard"; if (home) navigate(home); }} aria-label="Rol gözünden önizle">
+                  <option value="">Kendi görünümüm</option>
+                  {Object.entries(roleNames).filter(([key]) => key !== "operations_manager").map(([key, label]) => <option key={key} value={key}>{label} gözünden</option>)}
+                </select>
+              </label>
+            )}
             <div className="identity-chip">
-              <span className="avatar">YK</span>
+              <span className="avatar" aria-hidden="true">{initials(snapshot.identity.label)}</span>
               <div>
                 <b>{snapshot.identity.label}</b>
                 <small>
@@ -967,22 +1206,31 @@ export default function Dashboard({
               aria-label="Bildirim merkezini aç"
               onClick={() => setBell(!bell)}
             >
-              ♧{notices.length > 0 && <i>{notices.length}</i>}
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>{notices.length > 0 && <i>{notices.length}</i>}
             </button>
+            {/* Paylaşılan bilgisayarlarda oturumu kapatmak için; üst belge gezintisi gerekir. */}
+            <a className="secondary logout-link" href={chatGPTSignOutPath("/")} target="_top">Çıkış yap</a>
             {bell && (
               <NotificationPanel
                 notices={notices}
-                open={(path) => router.push(path)}
+                open={go}
                 close={() => setBell(false)}
               />
             )}
           </div>
         </header>
-        <ControlRibbon snapshot={snapshot} navigate={navigate} />
+        {previewRole && realRole === "operations_manager" && (
+          <div className="preview-banner" role="status">
+            <span><b>Önizleme:</b> {roleNames[previewRole]} gözünden görüyorsunuz. Veriler ve yetki sizin oturumunuzdan gelir.</span>
+            <button type="button" onClick={() => setPreviewRole(null)}>Önizlemeyi kapat</button>
+          </div>
+        )}
+        <ControlRibbon snapshot={snapshot} navigate={navigate} currentView={initialView} role={effectiveRole} />
+        <ScreenHelpBox key={initialView} view={initialView} />
         {receipt && (
           <ReceiptBar
             receipt={receipt}
-            go={(path) => router.push(path)}
+            go={go}
             close={() => setReceipt(null)}
           />
         )}
@@ -990,7 +1238,9 @@ export default function Dashboard({
           <div className="notice danger">Son eşitleme başarısız: {error}</div>
         )}
         {initialView === "dashboard" && (
-          <Overview
+          effectiveRole === "clinician" ? <ClinicianHome snapshot={snapshot} navigate={navigate} />
+          : effectiveRole === "unit_manager" ? <UnitManagerHome snapshot={snapshot} navigate={navigate} />
+          : <Overview
             snapshot={snapshot}
             navigate={navigate}
             create={() => setDialog("ticket")}
@@ -1024,7 +1274,7 @@ export default function Dashboard({
         {initialView === "requests" && (
           <TicketWorkspace
             title="Hasta talepleri"
-            text="Her talebin hedef birimi, görev sahibi, SLA'sı ve kalıcı işlem geçmişi görünür."
+            text="Her talebin hedef birimi, görev sahibi, hedef süresi ve kalıcı işlem geçmişi görünür."
             snapshot={snapshot}
             query={query}
             setQuery={setQuery}
@@ -1039,6 +1289,8 @@ export default function Dashboard({
             create={() => setDialog("appointment")}
           />
         )}
+        {initialView === "access" && <Suspense fallback={<ScreenLoading />}><PatientAccess /></Suspense>}
+        {initialView === "playbooks" && <Suspense fallback={<ScreenLoading />}><Playbooks /></Suspense>}
         {initialView === "calls" && (
           <CallsWorkspace
             snapshot={snapshot}
@@ -1046,6 +1298,7 @@ export default function Dashboard({
             open={(reference) => navigate("calls", reference)}
             create={() => setDialog("call")}
             sendMessage={sendCallMessage}
+            act={actOnCall}
             busy={busy}
           />
         )}
@@ -1101,7 +1354,8 @@ export default function Dashboard({
           ))}
         {initialView === "staff" && <StaffWorkspace snapshot={snapshot} />}
         {initialView === "reports" && <ReportsWorkspace snapshot={snapshot} />}
-        {initialView === "privacy" && <PrivacyWorkspace security={security} />}
+        {initialView === "privacy" && <><Link className="primary" href="/data-governance">İlgili kişi başvuruları ve saklama politikaları →</Link><PrivacyWorkspace security={security} /></>}
+        {initialView === "security" && <p className="sm-muted">Otomasyonu durdurma/başlatma kontrolü yalnız <Link href="/automation">Otomasyon</Link> ekranındadır.</p>}
         {initialView === "security" && (
           <SecurityWorkspace
             status={security}
@@ -1111,38 +1365,18 @@ export default function Dashboard({
         )}
         {initialView === "audit" && <AuditWorkspace audit={snapshot.audit} />}
       </section>
-      <nav className="mobile-bottom">
-        <button
-          className={initialView === "dashboard" ? "active" : ""}
-          onClick={() => navigate("dashboard")}
-        >
-          <span>▦</span>Merkez
-        </button>
-        <button
-          className={initialView === "inbox" ? "active" : ""}
-          onClick={() => navigate("inbox")}
-        >
-          <span>◎</span>İş Kutusu
-        </button>
-        <button
-          className="mobile-create"
-          aria-label="Yeni talep"
-          onClick={() => setDialog("ticket")}
-        >
-          <span>＋</span>
-        </button>
-        <button
-          className={initialView === "calls" ? "active" : ""}
-          onClick={() => navigate("calls")}
-        >
-          <span>☎</span>Çağrı
-        </button>
-        <button
-          className={initialView === "automation" ? "active" : ""}
-          onClick={() => navigate("automation")}
-        >
-          <span>⌘</span>Canlı
-        </button>
+      {/* Mobil alt çubuk: rolün ilk 4 ekranı (+ yazma yetkisi olan rollerde "Yeni talep"). */}
+      <nav className="mobile-bottom" aria-label="Hızlı geçiş">
+        {(ROLE_VIEWS[effectiveRole] ?? ["dashboard", "inbox", "calls", "approvals"]).slice(0, 4).map((view, index) => (
+          <Fragment key={view}>
+            {index === 2 && ["operations_manager", "unit_manager", "clinician", "call_agent"].includes(effectiveRole) && (
+              <button className="mobile-create" aria-label="Yeni talep" onClick={() => setDialog("ticket")}><span>＋</span></button>
+            )}
+            <button className={initialView === view ? "active" : ""} onClick={() => navigate(view)}>
+              <span>{nav.find((item) => item.view === view)?.icon}</span>{MOBILE_LABELS[view] ?? titles[view]}
+            </button>
+          </Fragment>
+        ))}
       </nav>
       {selectedTicket && (
         <TicketDrawer
@@ -1181,7 +1415,8 @@ function Hero({
     <div className="hero-row">
       <div>
         <h2>{title}</h2>
-        <p>{text}</p>
+        {/* Açıklama iki satırla sınırlı; tamamı üzerine gelince görünür (ekranı kaplamasın). */}
+        <p title={text}>{text}</p>
       </div>
       {button && (
         <button className="primary" onClick={onClick}>
@@ -1256,8 +1491,21 @@ function NotificationPanel({
   open: (path: string) => void;
   close: () => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Dışarı dokununca veya Esc'ye basınca kapanır (önceden yalnız × ile kapanıyordu).
+  useEffect(() => {
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      if (ref.current?.contains(target) || target.closest?.(".bell")) return;
+      close();
+    };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey); };
+  }, [close]);
   return (
-    <div className="notification-pop">
+    <div className="notification-pop" ref={ref} role="dialog" aria-label="İşlem bildirimleri">
       <div className="pop-head">
         <div>
           <b>İşlem bildirimleri</b>
@@ -1292,45 +1540,96 @@ function NotificationPanel({
   );
 }
 
-function ControlRibbon({
-  snapshot,
-  navigate,
-}: {
-  snapshot: Snapshot;
-  navigate: (view: View, reference?: string) => void;
-}) {
-  const control = snapshot.automation.controlTower;
+function ControlRibbon({ snapshot, navigate, currentView, role }: { snapshot: Snapshot; navigate:(view:View,reference?:string)=>void; currentView:View; role?:string }) {
+ const allowed=ROLE_VIEWS[role ?? snapshot.identity.role];
+ const items=attentionItems(snapshot).filter(item=>!allowed||allowed.includes(item.view as View));
+ return <section className="attention-bar" aria-label="Öncelikli işler">{items.map(item=>{
+  const content=<><span className={item.critical?"attention-mark critical":"attention-mark"} aria-hidden="true">{item.critical?"!":"•"}</span><span><small>{item.label}</small><b>{item.value}</b><em>{item.detail}</em></span></>;
+  return item.view===currentView?<div key={item.view} className="attention-item current">{content}</div>:<button type="button" className="attention-item" key={item.view} onClick={()=>navigate(item.view as View)} aria-label={`${item.label}: ${item.value}. ${item.detail}`}>{content}<span aria-hidden="true">→</span></button>;
+ })}</section>;
+}
+
+function initials(label: string) {
+  const parts = label.replace(/[^\p{L}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
+  return (parts.slice(0, 2).map((part) => part[0]).join("") || "K").toLocaleUpperCase("tr-TR");
+}
+
+// Hekim ana ekranı: kararını bekleyen onaylar, biriminin açık işleri, vardiyası ve hekim yokluğu bildirimi.
+// Sistem tanı veya tedavi önerisi üretmez; hekim yalnız operasyonel kararları (onay/ret) verir.
+function ClinicianHome({ snapshot, navigate }: { snapshot: Snapshot; navigate: (view: View, reference?: string) => void }) {
+  const pending = snapshot.approvals.filter((approval) => approval.status === "pending");
+  const open = snapshot.tasks.filter((task) => !["completed", "cancelled", "scheduled"].includes(task.status));
+  const myShifts = snapshot.shifts.filter((shift) => shift.status === "active" || shift.status === "handoff").slice(0, 4);
   return (
-    <section className="control-ribbon" aria-live="polite">
-      <button onClick={() => navigate("automation")}>
-        <span className="pulse" />
-        <span>
-          <small>7/24 KURAL MOTORU</small>
-          <b>{control?.stepLabel || "Sunucu otomasyonu eşitleniyor"}</b>
-        </span>
-        <em>{control ? `${control.step + 1}/${control.totalSteps}` : "…"}</em>
-      </button>
-      <button onClick={() => navigate("capacity")}>
-        <small>SEVK / TRANSFER</small>
-        <b>{snapshot.capacitySummary.transfersOpen} açık</b>
-        <span>{snapshot.capacitySummary.checking} kontrolde</span>
-      </button>
-      <button onClick={() => navigate("capacity")}>
-        <small>UYGUN KAYNAK</small>
-        <b>{snapshot.capacitySummary.available}</b>
-        <span>{snapshot.capacitySummary.reserved} rezerve</span>
-      </button>
-      <button onClick={() => navigate("reports")}>
-        <small>TABURCULUK</small>
-        <b>{snapshot.capacitySummary.dischargeForecast} beklenen</b>
-        <span>{snapshot.reports.filter((report) => report.status === "active").length} aktif rapor</span>
-      </button>
-      <button onClick={() => navigate("staff")}>
-        <small>VARDİYA KAPSAMI</small>
-        <b>{snapshot.shifts.filter((shift) => shift.status === "active").length} ekip</b>
-        <span>{snapshot.shifts.filter((shift) => shift.status === "handoff").length} devir</span>
-      </button>
-    </section>
+    <>
+      <Hero title="Bugün sizi bekleyenler" text="Kararınızı bekleyen onaylar ve biriminizin açık işleri. Sistem klinik öneri üretmez; karar sizindir." />
+      <section className="stats">
+        <Stat value={pending.length} label="Onayınızı bekleyen" />
+        <Stat value={open.filter((task) => task.priority === "Acil").length} label="Acil açık iş" />
+        <Stat value={open.length} label="Birimimdeki açık iş" />
+      </section>
+      <div className="ops-grid">
+        <section className="panel">
+          <div className="panel-head"><div><h3>Kararınızı bekleyen onaylar</h3><p>En eski en üstte.</p></div><button className="text-button" onClick={() => navigate("approvals")}>Onaylar →</button></div>
+          {pending.length ? (
+            <ul className="plain-list">
+              {[...pending].sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()).slice(0, 6).map((approval) => (
+                <li key={approval.reference}><button type="button" onClick={() => navigate("approvals")}><b>{approvalLabel(approval.approvalType)}</b><span>{unitName(snapshot, approval.unitCode)} · {formatTime(approval.createdAt)}</span></button></li>
+              ))}
+            </ul>
+          ) : <div className="empty">Bekleyen onay yok.</div>}
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h3>Biriminizin açık işleri</h3><p>Acil olanlar önce.</p></div><button className="text-button" onClick={() => navigate("units")}>Birim masası →</button></div>
+          <TaskList snapshot={snapshot} tasks={[...open].sort((a, b) => Number(b.priority === "Acil") - Number(a.priority === "Acil")).slice(0, 6)} open={(task) => task.ticketReference || task.callReference ? navigate(task.ticketReference ? "requests" : "calls", task.ticketReference || task.callReference || undefined) : softGo(taskPath(task))} />
+        </section>
+      </div>
+      <section className="panel quick-actions">
+        <div className="panel-head"><div><h3>Hızlı işlemler</h3></div></div>
+        <div className="quick-row">
+          <button type="button" className="secondary" onClick={() => navigate("access")}>Hekim yokluğu bildir</button>
+          <button type="button" className="secondary" onClick={() => navigate("units")}>Vardiya devri</button>
+        </div>
+        {myShifts.length > 0 && <p className="muted">Aktif vardiya: {myShifts.map((shift) => `${unitName(snapshot, shift.unitCode)} ${shift.shiftCode}`).join(" · ")}</p>}
+      </section>
+    </>
+  );
+}
+
+// Birim sorumlusu ana ekranı: her birimi için açık / geciken / onay sayıları ve devir bekleyen vardiyalar.
+// İdari işler, İK, bilgi işlem, laboratuvar … her birim aynı kartla kendi masasına açılır.
+function UnitManagerHome({ snapshot, navigate }: { snapshot: Snapshot; navigate: (view: View, reference?: string) => void }) {
+  const now = new Date(snapshot.generatedAt).getTime();
+  const codes = snapshot.identity.canSeeAllUnits ? [...new Set(snapshot.tasks.map((task) => task.unitCode))].slice(0, 12) : snapshot.identity.unitCodes;
+  const open = snapshot.tasks.filter((task) => !["completed", "cancelled", "scheduled"].includes(task.status));
+  const handoffs = snapshot.shifts.filter((shift) => shift.status === "handoff");
+  return (
+    <>
+      <Hero title="Birimlerim" text="Her birimin açık işi, gecikeni ve onay bekleyeni tek bakışta. Karta tıklayınca birim masası açılır." />
+      <section className="unit-cards">
+        {codes.map((code) => {
+          const unitTasks = open.filter((task) => task.unitCode === code);
+          const late = unitTasks.filter((task) => task.dueAt && new Date(task.dueAt).getTime() < now).length;
+          const approvalsWaiting = snapshot.approvals.filter((approval) => approval.status === "pending" && approval.unitCode === code).length;
+          return (
+            <button key={code} type="button" className={`unit-card ${late ? "late" : ""}`} onClick={() => navigate("units", code)}>
+              <b>{unitName(snapshot, code)}</b>
+              <span><strong>{unitTasks.length}</strong> açık</span>
+              <span className={late ? "danger-text" : ""}><strong>{late}</strong> gecikmiş</span>
+              <span><strong>{approvalsWaiting}</strong> onay</span>
+            </button>
+          );
+        })}
+        {!codes.length && <div className="empty">Size atanmış birim yok. Operasyon yöneticisinden birim ataması isteyin.</div>}
+      </section>
+      <FlowSummary snapshot={snapshot} navigate={navigate} />
+      {handoffs.length > 0 && (
+        <section className="panel">
+          <div className="panel-head"><div><h3>Devir bekleyen vardiyalar</h3></div><button className="text-button" onClick={() => navigate("staff")}>Personel →</button></div>
+          <ul className="plain-list">{handoffs.slice(0, 6).map((shift) => <li key={shift.reference}><span><b>{shift.staffLabel}</b> · {unitName(snapshot, shift.unitCode)} → {shift.handoffTo || "devir alacak kişi bekleniyor"}</span></li>)}</ul>
+        </section>
+      )}
+    </>
   );
 }
 
@@ -1344,7 +1643,7 @@ function Overview({
   create: () => void;
 }) {
   const openTasks = snapshot.tasks.filter(
-    (task) => !["completed", "cancelled"].includes(task.status),
+    (task) => !["completed", "cancelled", "scheduled"].includes(task.status),
   );
   const activeCalls = snapshot.calls.filter(
     (call) =>
@@ -1357,21 +1656,18 @@ function Overview({
   return (
     <>
       <Hero
-        title="Hastane ağı kendi kendine karar veren tek operasyon zincirinde"
-        text="Sistemler arası talepler; kapasite, vardiya, rezervasyon, blokaj ve alternatif kampüs verisine göre otomatik kabul edilir, reddedilir veya yeniden yönlendirilir. Klinik karar üretilmez."
+        title="Bugün hastanede ne bekliyor?"
+        text="Birimler arası işler, onaylar ve görüşmeler tek yerde. Sistem işi doğru birime taşır ve süreyi izler; klinik ve kabul/ret kararlarını yetkili personel verir."
         button="＋ Yeni talep"
         onClick={create}
       />
       <section className="stats">
-        <Stat value={openTasks.length} label="Açık operasyon işi" />
-        <Stat value={snapshot.capacitySummary.transfersOpen} label="Açık sevk / transfer" />
-        <Stat value={snapshot.capacitySummary.available} label="Uygun kaynak" sub={`${snapshot.capacitySummary.reserved} rezerve · ${snapshot.capacitySummary.blocked} bloke/temizlik`} />
-        <Stat value={snapshot.capacitySummary.dischargeForecast} label="Beklenen taburculuk" sub="Canlı pilot kapasite matrisi" />
-        <Stat value={snapshot.capacitySummary.autoAccepted} label="Otomatik kabul / alternatif" />
-        <Stat value={snapshot.capacitySummary.autoRejected} label="Gerekçeli otomatik ret" />
-        <Stat value={activeCalls.length + activePilotCalls.length} label="Aktif görüşme" sub={`${activeCalls.length} gerçek · ${activePilotCalls.length} pilot`} />
-        <Stat value={snapshot.reports.filter((report) => report.status === "active").length} label="Zamanlanmış rapor" />
+        <Stat value={openTasks.length} label="Açık iş" />
+        <Stat value={snapshot.approvals.filter((approval) => approval.status === "pending").length} label="Onay bekleyen" />
+        <Stat value={activeCalls.length + activePilotCalls.length} label="Aktif görüşme" sub={activePilotCalls.length ? `${activePilotCalls.length} eğitim` : undefined} />
+        <Stat value={snapshot.capacitySummary.available} label="Uygun yatak / kaynak" sub={`${snapshot.capacitySummary.transfersOpen} açık sevk`} />
       </section>
+      <FlowSummary snapshot={snapshot} navigate={navigate} />
       <div className="ops-grid">
         <section className="panel">
           <div className="panel-head">
@@ -1387,10 +1683,9 @@ function Overview({
             snapshot={snapshot}
             tasks={openTasks.slice(0, 7)}
             open={(task) =>
-              navigate(
-                task.ticketReference ? "requests" : "calls",
-                task.ticketReference || task.callReference || undefined,
-              )
+              task.ticketReference || task.callReference
+                ? navigate(task.ticketReference ? "requests" : "calls", task.ticketReference || task.callReference || undefined)
+                : softGo(taskPath(task))
             }
           />
         </section>
@@ -1401,29 +1696,52 @@ function Overview({
           }
         />
       </div>
-      <section className="action-grid">
-        {[
-          ["Ortak İş Kutusu", "Otomatik sahiplik ve SLA", "inbox"],
-          ["Uçtan Uca Akış", "Tüm vaka aşamaları", "flow"],
-          ["Canlı Görüşmeler", "Santralden anlık ekleme", "calls"],
-          ["İnsan Onayları", "Klinik ve hassas kararlar", "approvals"],
-          ["Birim Masaları", "Kuyruk ve görünürlük", "units"],
-          ["Otomasyon", "Worker, retry ve karantina", "automation"],
-          ["Kapasite ve Transfer", "Yatak, devir ve lojistik", "capacity"],
-          ["Personel ve Vardiya", "Kim nerede, hangi hastane ve devirde", "staff"],
-          ["Canlı Raporlar", "Kapasite, sevk, taburculuk ve otomasyon", "reports"],
-          ["Entegrasyon Sağlığı", "n8n, santral ve HBYS", "integrations"],
-          ["Siber Güvenlik", "Savunma ve olay kaydı", "security"],
-          ["Denetim İzleri", "Hash zincirli kayıt", "audit"],
-        ].map(([title, text, view]) => (
-          <button key={title} onClick={() => navigate(view as View)}>
-            <b>{title}</b>
-            <span>{text}</span>
-            <em>→</em>
-          </button>
-        ))}
-      </section>
     </>
+  );
+}
+
+// Yönetici için tek bakışta akış: aşama başına iş sayısı, darboğaz birim ve süresi geçen ilk 5 iş.
+function FlowSummary({ snapshot, navigate }: { snapshot: Snapshot; navigate: (view: View, reference?: string) => void }) {
+  const now = new Date(snapshot.generatedAt).getTime();
+  const stages: Array<[string, string, string[]]> = [
+    ["new", "Yeni", ["queued"]],
+    ["accepted", "Üstlenildi", ["accepted"]],
+    ["progress", "İşlemde", ["in_progress"]],
+    ["approval", "Onayda", ["pending_approval"]],
+  ];
+  const open = snapshot.tasks.filter((task) => !["completed", "cancelled", "scheduled"].includes(task.status));
+  const overdue = open.filter((task) => task.dueAt && new Date(task.dueAt).getTime() < now)
+    .sort((a, b) => new Date(a.dueAt as string).getTime() - new Date(b.dueAt as string).getTime());
+  const byUnit = new Map<string, { open: number; overdue: number }>();
+  open.forEach((task) => { const row = byUnit.get(task.unitCode) || { open: 0, overdue: 0 }; row.open += 1; byUnit.set(task.unitCode, row); });
+  overdue.forEach((task) => { const row = byUnit.get(task.unitCode); if (row) row.overdue += 1; });
+  const bottleneck = [...byUnit.entries()].sort((a, b) => (b[1].overdue - a[1].overdue) || (b[1].open - a[1].open))[0];
+  const pendingApprovals = snapshot.approvals.filter((approval) => approval.status === "pending").length;
+  return (
+    <section className="panel flow-summary">
+      <div className="panel-head">
+        <div><h3>Akış</h3><p>{bottleneck ? <>Darboğaz: <b>{unitName(snapshot, bottleneck[0])}</b> · {bottleneck[1].open} açık{bottleneck[1].overdue ? `, ${bottleneck[1].overdue} gecikmiş` : ""}</> : "Açık iş yok."}</p></div>
+        <button className="text-button" onClick={() => navigate("flow")}>Tüm akış →</button>
+      </div>
+      <div className="flow-stages">
+        {stages.map(([key, label, statuses]) => {
+          const count = key === "approval" ? pendingApprovals : open.filter((task) => statuses.includes(task.status)).length;
+          return <button key={key} type="button" onClick={() => navigate(key === "approval" ? "approvals" : "flow")}><b>{count}</b><span>{label}</span></button>;
+        })}
+      </div>
+      {overdue.length > 0 && (
+        <ol className="flow-overdue" aria-label="Süresi geçen ilk 5 iş">
+          {overdue.slice(0, 5).map((task) => (
+            <li key={task.reference}>
+              <button type="button" onClick={() => task.ticketReference || task.callReference ? navigate(task.ticketReference ? "requests" : "calls", task.ticketReference || task.callReference || undefined) : softGo(taskPath(task))}>
+                <span>{task.ticketReference || task.callReference || task.reference}</span>
+                <small>{unitName(snapshot, task.unitCode)} · {Math.round((now - new Date(task.dueAt as string).getTime()) / 60_000)} dk gecikme</small>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -1535,7 +1853,7 @@ function TicketTable({
                   <small>
                     {ticket.slaDueAt
                       ? `Son süre ${formatTime(ticket.slaDueAt)}`
-                      : "SLA tanımsız"}
+                      : "Hedef süre tanımsız"}
                   </small>
                 </td>
                 <td>
@@ -1591,7 +1909,7 @@ function TaskList({
             </b>
             <small>
               {unitName(snapshot, task.unitCode)} ·{" "}
-              {task.ticketReference || task.callReference}
+              {taskSource(task)}
             </small>
           </span>
           <strong>{statusLabel(task.status)}</strong>
@@ -1707,7 +2025,7 @@ function FlowWorkspace({
     (task) =>
       task.dueAt &&
       new Date(task.dueAt).getTime() < new Date(snapshot.generatedAt).getTime() &&
-      !["completed", "cancelled"].includes(task.status),
+      !["completed", "cancelled", "scheduled"].includes(task.status),
   ).length;
   return (
     <>
@@ -1721,7 +2039,7 @@ function FlowWorkspace({
           value={items.filter((item) => item.status === "queued").length}
           label="Kural kontrolünde"
         />
-        <Stat value={overdue} label="SLA riski" />
+        <Stat value={overdue} label="Süre riski" />
         <Stat
           value={
             snapshot.approvals.filter(
@@ -1797,6 +2115,7 @@ function ApprovalWorkspace({
   const pending = snapshot.approvals.filter(
     (approval) => approval.status === "pending",
   );
+  const [confirmReject, setConfirmReject] = useState("");
   // Sunucu da aynı kuralı uygular; burada yalnız yetkisiz rolde düğmeler gizlenir.
   const canDecide = ["operations_manager", "unit_manager", "clinician"].includes(
     snapshot.identity.role,
@@ -1807,7 +2126,9 @@ function ApprovalWorkspace({
   const openRelated = (approval: Approval) =>
     approval.ticketReference
       ? openTicket(approval.ticketReference)
-      : approval.callReference && openCall(approval.callReference);
+      : approval.callReference
+        ? openCall(approval.callReference)
+        : softGo(approval.approvalType === "absence_reschedule" ? "/access" : "/approvals");
   return (
     <>
       <Hero
@@ -1844,11 +2165,11 @@ function ApprovalWorkspace({
             <span className="approval-icon">!</span>
             <div>
               <small>
-                {approval.reference} · {approval.approvalType}
+                {approval.reference} · {approvalLabel(approval.approvalType)}
               </small>
               <b>{unitName(snapshot, approval.unitCode)}</b>
               <p>
-                {approval.ticketReference || approval.callReference} ·{" "}
+                {approval.ticketReference || approval.callReference || (approval.approvalType === "absence_reschedule" ? "Hekim yokluğu planı" : "Onay")} ·{" "}
                 {formatDateTime(approval.createdAt)}
               </p>
             </div>
@@ -1857,12 +2178,20 @@ function ApprovalWorkspace({
             </button>
             {canDecide ? (
               <>
-                <button
-                  disabled={Boolean(busy)}
-                  onClick={() => decide(approval.reference, "reject")}
-                >
-                  Reddet
-                </button>
+                {confirmReject === approval.reference ? (
+                  <span className="inline-confirm" role="group" aria-label="Reddetme onayı">
+                    <span>Bu onay reddedilsin mi?</span>
+                    <button className="danger" disabled={Boolean(busy)} onClick={() => { setConfirmReject(""); decide(approval.reference, "reject"); }}>Evet, reddet</button>
+                    <button type="button" className="secondary" onClick={() => setConfirmReject("")}>Vazgeç</button>
+                  </span>
+                ) : (
+                  <button
+                    disabled={Boolean(busy)}
+                    onClick={() => setConfirmReject(approval.reference)}
+                  >
+                    Reddet
+                  </button>
+                )}
                 <button
                   className="primary"
                   disabled={Boolean(busy)}
@@ -1918,10 +2247,12 @@ function CallsWorkspace({
   open,
   create,
   sendMessage,
+  act,
   busy,
 }: {
   snapshot: Snapshot;
   selected?: Call;
+  act: (reference:string, action:string, targetUnitCode?:string) => Promise<void>;
   open: (reference: string) => void;
   create: () => void;
   sendMessage: (
@@ -1932,6 +2263,7 @@ function CallsWorkspace({
   busy: string;
 }) {
   const activePilotReference = snapshot.automation.pilot?.callReference;
+  const [targetUnit, setTargetUnit] = useState("");
   const [speaker, setSpeaker] = useState<"caller" | "agent" | "clinician">(
     "agent",
   );
@@ -1945,20 +2277,33 @@ function CallsWorkspace({
   return (
     <>
       <Hero
-        title="Canlı çağrı ve konuşma çalışma masası"
-        text="Gerçek santral olayları bağlandığında otomatik açılır; bu prototipte kimliksiz pilot görüşme de sunucuda adım adım ilerler ve yeni cümleler anında ekrana düşer."
+        title="Çağrı ve konuşma çalışma masası"
+        text={snapshot.features?.demo
+          ? "Gerçek santral olayları bağlandığında otomatik açılır; eğitim modunda kimliksiz pilot görüşme de sunucuda adım adım ilerler."
+          : "İmzalı santral entegrasyonundan veya elle kaydedilen çağrılar burada açılır; ekran 5 saniyede bir yenilenir."}
         button="☎ Gelen çağrı kaydı"
         onClick={create}
       />
-      <div className="integration-strip">
-        <span className="pulse" />
-        <div>
-          <b>Canlı pilot görüşme akıyor · gerçek çağrı alıcısı hazır</b>
-          <p>
-            Pilot konuşma yaklaşık yedi saniyede bir sunucuda ilerler. HMAC imzalı kurum santrali henüz bağlı değildir; iki kaynak ekranda kesin biçimde ayrılır.
-          </p>
+      {snapshot.features?.demo && snapshot.automation.pilot ? (
+        <div className="integration-strip">
+          <span className="pulse" />
+          <div>
+            <b>Eğitim modu: kimliksiz pilot görüşme akıyor</b>
+            <p>
+              Pilot ilerlemesi otomasyonun etkinliğine bağlıdır. Pilot kayıtlar “GERÇEK HASTA DEĞİL” etiketiyle gerçek çağrılardan ayrılır.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="integration-strip">
+          <div>
+            <b>Gerçek çağrı kaynağı: imzalı santral entegrasyonu</b>
+            <p>
+              Santral bağlı değilse yeni çağrılar “Gelen çağrı kaydı” ile elle açılır. Ekran 5 saniyede bir yenilenir.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="call-layout">
         <section className="panel call-list">
           <div className="panel-head">
@@ -2023,7 +2368,7 @@ function CallsWorkspace({
                   "Görüşme sürüyor; görevli doğrulaması sonrası özet oluşacak."}
               </p>
               <small>
-                AI özeti klinik karar değildir; insan doğrulaması olmadan sonuç
+                Kural tabanlı özet klinik karar değildir; insan doğrulaması olmadan sonuç
                 kaydına dönüşmez.
               </small>
             </div>
@@ -2033,10 +2378,10 @@ function CallsWorkspace({
                 <b>{selected.task?.reference || "Görev hazırlanıyor"}</b>
               </span>
               <span>
-                <small>SİSTEM ATAMASI</small>
+                <small>ATAMA</small>
                 <b>
                   {selected.task?.acceptedBy
-                    ? selected.task.acceptedBy
+                    ? maskActor(selected.task.acceptedBy)
                     : "Kural motoru değerlendiriyor"}
                 </b>
               </span>
@@ -2044,8 +2389,17 @@ function CallsWorkspace({
                 <small>DURUM</small>
                 <b>{statusLabel(selected.task?.status)}</b>
               </span>
-              <div className="auto-owner-chip"><i /> OTOMATİK</div>
+              <div className="auto-owner-chip"><i /> {selected.task?.acceptedBy?.includes("@") ? "GÖREVLİ" : "KURAL MOTORU"}</div>
             </div>
+            {!selected.training && selected.status !== "completed" && ["operations_manager","unit_manager","clinician","call_agent"].includes(snapshot.identity.role) && <div className="call-action-bar">
+              <button disabled={Boolean(busy) || Boolean(selected.task?.acceptedBy)} onClick={() => void act(selected.reference,"CALL_ACCEPTED")}>Görevi üstlen</button>
+              <button disabled={Boolean(busy) || selected.task?.status === "in_progress"} onClick={() => void act(selected.reference,"CALL_STARTED")}>İşleme al</button>
+              <button disabled={Boolean(busy)} onClick={() => void act(selected.reference,"CALLBACK_TASK")}>Geri arama görevi aç</button>
+              <label>Aktarılacak birim *<select value={targetUnit} onChange={e => setTargetUnit(e.target.value)}><option value="">Birim seçin</option>{snapshot.units.filter(u => u.code !== selected.unitCode).map(u => <option key={u.code} value={u.code}>{u.name}</option>)}</select></label>
+              <button disabled={Boolean(busy) || !targetUnit} onClick={() => void act(selected.reference,"UNIT_TRANSFER",targetUnit)}>Birime aktar</button>
+              <button disabled={Boolean(busy)} onClick={() => void act(selected.reference,"CALL_COMPLETED")}>Sonuçlandır</button>
+            </div>}
+            <p className="sm-muted">Son 100 konuşma satırı gösterilir. Önceki satırlar kalıcı kayıtta korunur.</p>
             <div className="messages" aria-live="polite">
               {selected.messages.map((message) => (
                 <div
@@ -2053,7 +2407,7 @@ function CallsWorkspace({
                   className={`message ${message.speakerType}`}
                 >
                   <div className="message-meta">
-                    <b>{message.speakerLabel}</b>
+                    <b>{message.speakerLabel === "AI güvenlik yardımcısı" ? "Kural tabanlı güvenlik kontrolü" : message.speakerLabel}</b>
                     <time>{formatTime(message.createdAt)}</time>
                   </div>
                   <p>{message.message}</p>
@@ -2117,6 +2471,7 @@ function CallsWorkspace({
   );
 }
 
+
 function AutomationWorkspace({
   snapshot,
   security,
@@ -2132,9 +2487,9 @@ function AutomationWorkspace({
   const agentDegraded = snapshot.automation.agent.state === "degraded";
   const rules = [
     "Sistem talebi → kapasite + vardiya + blokaj kontrolü",
-    "Kaynak uygunsa → otomatik ön kabul + rezervasyon",
-    "Kaynak yoksa → gerekçeli ret + alternatif kampüs taraması",
-    "Alternatif uygunsa → otomatik yeniden yönlendirme",
+    "Kaynak uygunsa → ön kabul önerisi; kesin kabul koordinatörde",
+    "Kaynak yoksa → gerekçeli öneri + alternatif kampüs listesi",
+    "Alternatif varsa → yönlendirme önerisi; kararı insan verir",
     "Kabul → transport + hedef birim + devir takibi",
     "Acil sinyal → normal akışı durdur → insan devri",
     "Santral olayı → HMAC + replay kontrolü",
@@ -2145,9 +2500,10 @@ function AutomationWorkspace({
   return (
     <>
       <Hero
-        title="Canlı otomasyon komuta merkezi"
-        text="Kapasite, sevk, taburculuk, vardiya ve görüşme motorları kullanıcı düğmesine ihtiyaç duymadan sürekli ilerler. Her kararın girdisi, hedefi, sonucu ve gerekçesi görünür."
+        title="Otomasyon"
+        text="Sistem işleri doğru birime taşır, süreleri izler ve hatırlatır. Klinik ve kabul/ret kararları her zaman yetkili personeldedir. Gerekirse tek tuşla durdurabilirsiniz."
       />
+      <AutomationControls />
       {control && (
         <section className="control-live-card" aria-live="polite">
           <div className="pilot-live-head">
@@ -2207,24 +2563,34 @@ function AutomationWorkspace({
             <b>{agentRunning ? "Otomasyon ajanı çalışıyor" : agentDegraded ? "Otomasyon ajanının son turu başarısız" : "Otomasyon ajanı zamanlayıcı bağlantısı bekliyor"}</b>
             <small>
               {snapshot.automation.agent.lastRunAt
-                ? `Son ajan turu ${formatTime(snapshot.automation.agent.lastRunAt)} · ${snapshot.automation.agent.lastCycleStatus || "durum bekleniyor"} · son başarılı ${formatTime(snapshot.automation.agent.lastSuccessfulRunAt)}`
+                ? `Son ajan turu ${formatTime(snapshot.automation.agent.lastRunAt)} · ${cycleStatusLabel(snapshot.automation.agent.lastCycleStatus)} · son başarılı ${formatTime(snapshot.automation.agent.lastSuccessfulRunAt)}`
                 : "Henüz doğrulanmış ajan çalıştırması yok"}
             </small>
           </div>
-          <span className={`continuous-badge ${agentRunning ? "" : "waiting"}`}><i /> {agentRunning ? "KULLANICI TETİĞİ YOK · AKTİF" : "n8n / ZAMANLAYICI BAĞLANTISI BEKLİYOR"}</span>
+          <span className={`continuous-badge ${agentRunning ? "" : "waiting"}`}><i /> {agentRunning ? "ZAMANLAYICIYLA AKTİF" : "ZAMANLAYICI BAĞLANTISI BEKLİYOR"}</span>
         </div>
         <Stat value={snapshot.jobs.queued} label="Kuyrukta" />
-        <Stat value={snapshot.jobs.completed} label="Tamamlanan" />
+        <Stat value={snapshot.jobs.completed} label="Harici kabul edilen" />
+        <Stat value={snapshot.jobs.localCompleted} label="Yalnız yerel kayıt" />
         <Stat value={snapshot.jobs.deadLetter} label="Karantina" />
       </div>
+      {snapshot.features?.ai && (
+        <section className="panel ai-suggestion" aria-labelledby="ai-suggestion-title">
+          <div className="panel-head"><div><h3 id="ai-suggestion-title">Yapay zekâ önerisi (onay gerektirir)</h3><p>Yalnız birim bazlı toplam sayılardan üretilir; hasta adı veya serbest metin gönderilmez. Öneri hiçbir işlemi kendiliğinden yapmaz; en fazla 15 dakikada bir güncellenir.</p></div></div>
+          {snapshot.aiSuggestion
+            ? <><p className="ai-suggestion-text">{snapshot.aiSuggestion.text}</p><small>Üretildi: {formatTime(snapshot.aiSuggestion.createdAt)} · Uygulamadan önce sorumlu yönetici değerlendirmelidir.</small></>
+            : <p>Henüz öneri yok. Zamanlanmış otomasyon turu çalıştığında ilk öneri burada görünür.</p>}
+        </section>
+      )}
       <div className="automation-layout">
         <section className="panel rule-cards">
           <div className="panel-head">
             <div>
-              <h3>Kodda etkin iş kuralları</h3>
-              <p>Her kartın arkasında kalıcı kayıt ve API işlemi vardır.</p>
+              <h3>Teknik ayrıntılar</h3>
+              <p>Her kart kalıcı bir kayda bağlıdır; yapılan işlem geçmişte görünür.</p>
             </div>
           </div>
+          <details><summary>İşleyiş kurallarını göster</summary>
           {rules.map((rule, index) => (
             <div key={rule}>
               <span>{String(index + 1).padStart(2, "0")}</span>
@@ -2232,9 +2598,10 @@ function AutomationWorkspace({
                 <b>{rule}</b>
                 <small>Sunucu kontrolü · denetim izi zorunlu</small>
               </div>
-              <i>ETKİN</i>
+              <i>KURAL</i>
             </div>
           ))}
+          </details>
         </section>
         <LiveFeed events={snapshot.events} openRecord={openRecord} />
       </div>
@@ -2244,9 +2611,9 @@ function AutomationWorkspace({
             <h3>Otomasyon ve entegrasyon motorları</h3>
             <p>Bağlı, hazır ve yapılandırılmamış durumlar birbirinden ayrılır.</p>
           </div>
-          <a className="secondary button-link" href="/integrations/klinorbis-n8n-workflows.json" download>
+          <Link className="secondary button-link" href="/integrations/klinorbis-n8n-workflows.json" download>
             n8n akış paketini indir
-          </a>
+          </Link>
         </div>
         <div className="connector-grid">
           {snapshot.automation.connectors.map((connector) => (
@@ -2276,8 +2643,8 @@ function LiveFeed({ events, openRecord }: { events: Event[]; openRecord: (refere
     <section className="panel live-panel">
       <div className="panel-head">
         <div>
-          <h3>Sunucu olay akışı</h3>
-          <p>D1 automation_events · pilot olaylar açıkça etiketlidir</p>
+          <h3>Otomasyon olay akışı</h3>
+          <p>Sistemin yaptığı her otomatik adım; eğitim kayıtları ayrıca etiketlenir.</p>
         </div>
         <span className="live">
           <i /> CANLI
@@ -2366,7 +2733,7 @@ function CapacityWorkspace({
       </section>
       <div className="capacity-command-grid">
         <section className="panel capacity-matrix">
-          <div className="panel-head"><div><h3>Canlı kaynak matrisi</h3><p>Bir satıra dokununca ilgili birimin çalışma masası açılır.</p></div><span className="live"><i /> 2,5 SN</span></div>
+          <div className="panel-head"><div><h3>Canlı kaynak matrisi</h3><p>Bir satıra dokununca ilgili birimin çalışma masası açılır.</p></div><span className="live"><i /> SON EŞİTLEME</span></div>
           <div className="capacity-head"><span>HASTANE / BİRİM</span><span>KAYNAK</span><span>DOLU</span><span>REZ.</span><span>BLOKE</span><span>UYGUN</span><span>TAHMİN</span><span>DURUM</span></div>
           {capacity.map((row) => (
             <button key={`${row.facilityCode}-${row.unitCode}-${row.resourceCode}`} onClick={() => openUnit(row.unitCode)}>
@@ -2392,7 +2759,7 @@ function CapacityWorkspace({
       </div>
       <div className="legal-note">
         <b>Veri gerçeği ve klinik sınır</b>
-        <p>Bu sayılar kimliksiz pilot kapasite verisidir; gerçek HBYS/RTLS bağlantısı değildir. Motor yalnız operasyonel kaynak ön kabulü, ret ve alternatif kampüs kararı verir. Teşhis, tedavi veya klinik uygunluk kararı üretmez.</p>
+        <p>Kimliksiz eğitim kapasite verisi; HBYS/RTLS bağlantısı değildir. Motor yalnız operasyonel kaynak ön kabulü, ret ve alternatif kampüs kararı verir. Teşhis, tedavi veya klinik uygunluk kararı üretmez.</p>
       </div>
     </>
   );
@@ -2435,7 +2802,7 @@ function IntegrationWorkspace({
             {connector.id === "klinorbis-worker" && <button onClick={openAutomation}>Canlı çalıştırmaları aç →</button>}
             {connector.id === "capacity-orchestrator" && <button onClick={openCapacity}>Kapasite kararlarını aç →</button>}
             {connector.id === "n8n-self-hosted" && (
-              <a className="button-link" href="/integrations/klinorbis-n8n-workflows.json" download>n8n akış sözleşmesini indir →</a>
+              <Link className="button-link" href="/integrations/klinorbis-n8n-workflows.json" download>Entegrasyon akış dosyasını indir →</Link>
             )}
             {connector.id === "hospital-pbx" && <button onClick={openCalls}>Çağrı alıcı ekranını aç →</button>}
             {connector.id === "hbys" && <button onClick={openAppointments}>Randevu doğrulama ekranını aç →</button>}
@@ -2443,11 +2810,11 @@ function IntegrationWorkspace({
         ))}
       </div>
       <section className="panel integration-contract">
-        <div className="panel-head"><div><h3>n8n güvenli bağlantı sözleşmesi</h3><p>Ana iş kuralları KLINORBIS’te kalır; n8n yalnız orkestrasyon ve kurum adaptörüdür.</p></div></div>
+        <div className="panel-head"><div><h3>Kurum sistemleriyle güvenli bağlantı</h3><p>İş kuralları Klinorbis’te kalır; entegrasyon katmanı (n8n) yalnız kurum sistemleriyle mesaj taşır.</p></div></div>
         <ol>
-          <li><b>Olay:</b><span>KLINORBIS yalnız kimliksiz olay metadatasını self-hosted n8n’e gönderir.</span></li>
+          <li><b>Olay:</b><span>Klinorbis dışarıya yalnız kimlik içermeyen olay bilgisini gönderir; kurumun kendi sunucusundaki entegrasyon katmanına iletilir.</span></li>
           <li><b>İmza:</b><span>Her callback HMAC-SHA256, olay kimliği ve beş dakikalık replay penceresiyle doğrulanır.</span></li>
-          <li><b>İdempotency:</b><span>Aynı olay kimliği ikinci kez işlem üretmez.</span></li>
+          <li><b>Tekrar koruması:</b><span>Aynı olay kimliği ikinci kez işlem üretmez.</span></li>
           <li><b>İnsan kapısı:</b><span>Klinik, acil, veri aktarımı ve hak doğuran işlem insan kararı olmadan tamamlanmaz.</span></li>
           <li><b>Hata:</b><span>Retry bittiğinde iş karantinaya alınır; başarılı gibi gösterilmez.</span></li>
         </ol>
@@ -2560,7 +2927,7 @@ function UnitWorkspace({
         <Stat
           value={
             tasks.filter(
-              (task) => !["completed", "cancelled"].includes(task.status),
+              (task) => !["completed", "cancelled", "scheduled"].includes(task.status),
             ).length
           }
           label="Açık görev"
@@ -2613,7 +2980,9 @@ function UnitWorkspace({
             open={(task) =>
               task.ticketReference
                 ? openTicket(task.ticketReference)
-                : task.callReference && openCall(task.callReference)
+                : task.callReference
+                  ? openCall(task.callReference)
+                  : softGo(taskPath(task))
             }
           />
         </section>
@@ -2693,13 +3062,15 @@ function UnitWorkspace({
                 onClick={() =>
                   approval.ticketReference
                     ? openTicket(approval.ticketReference)
-                    : approval.callReference && openCall(approval.callReference)
+                    : approval.callReference
+                      ? openCall(approval.callReference)
+                      : softGo(approval.approvalType === "absence_reschedule" ? "/access" : "/approvals")
                 }
               >
                 <span className="approval-icon">!</span>
                 <span>
                   <b>{approval.reference}</b>
-                  <small>{approval.approvalType} · karar bekliyor</small>
+                  <small>{approvalLabel(approval.approvalType)} · karar bekliyor</small>
                 </span>
                 <em>→</em>
               </button>
@@ -2713,13 +3084,13 @@ function UnitWorkspace({
           <div className="panel-head">
             <div>
               <h3>Yetkili görünürlük</h3>
-              <p>Rol seçimi tarayıcıdan yapılamaz.</p>
+              <p>Rol yalnız yetkili yönetici tarafından atanır.</p>
             </div>
           </div>
           <div className="member-list">
             {members.map((member) => (
               <div key={member.accountKey}>
-                <span className="avatar">YK</span>
+                <span className="avatar">{member.displayLabel.trim().slice(0,2).toLocaleUpperCase("tr-TR")}</span>
                 <div>
                   <b>{member.displayLabel}</b>
                   <small>
@@ -2756,8 +3127,10 @@ function StaffWorkspace({ snapshot }: { snapshot: Snapshot }) {
         text="Her çalışan kendi rolü ve birimiyle çalışır. Operasyon yöneticisi personeli ekler ve yetkilendirir; birim görevlileri vardiya devrini birbirine yapar."
       />
       <StaffManagement />
-      <h3 className="sm-section-title">Pilot vardiya panosu (sentetik)</h3>
-      <p className="sm-muted">Aşağıdaki pano otomasyonun sentetik pilot verisidir; gerçek devirler yukarıdaki “Vardiya devri” bölümündedir.</p>
+      {/* Sentetik pilot panosu yalnız eğitim/demo modu açıkken; gerçek devirler "Vardiya devri" bölümündedir. */}
+      {snapshot.features?.demo && <>
+      <h3 className="sm-section-title">Eğitim vardiya panosu</h3>
+      <p className="sm-muted">Bu pano eğitim modundaki örnek verilerdir; gerçek devirler “Vardiya devri” bölümündedir.</p>
       <section className="stats">
         <Stat value={shifts.length} label="Vardiya kapsamı" />
         <Stat value={shifts.filter((shift) => shift.status === "active").length} label="Aktif ekip" />
@@ -2771,7 +3144,7 @@ function StaffWorkspace({ snapshot }: { snapshot: Snapshot }) {
       <section className="panel shift-board">
         <div className="panel-head">
           <div>
-            <h3>Canlı vardiya panosu</h3>
+            <h3>Pilot vardiya panosu</h3>
             <p>Kim nerede, hangi hastane ve birimde, hangi devir durumunda</p>
           </div>
           <span className="live pilot"><i /> SENTETİK PİLOT</span>
@@ -2788,12 +3161,14 @@ function StaffWorkspace({ snapshot }: { snapshot: Snapshot }) {
         ))}
         {!shifts.length && <div className="empty">Yetki kapsamınızda vardiya kaydı yok.</div>}
       </section>
-      <section className="staff-table panel identity-board">
+      </>}
+      {/* Operasyon yöneticisi personeli "Personel ekle ve yetkilendir" tablosunda görür; liste iki kez gösterilmez. */}
+      {snapshot.identity.role !== "operations_manager" && <section className="staff-table panel identity-board">
         <div className="panel-head"><div><h3>Sunucu hesapları ve birim üyelikleri</h3><p>{snapshot.staff.length} etkin hesap · tarayıcıdan rol taklidi yapılamaz</p></div></div>
         {snapshot.staff.map((staff) => (
-          <div key={staff.accountKey}><span className="avatar">YK</span><span><b>{staff.displayLabel}</b><small>{roleNames[staff.systemRole] || staff.systemRole} · {staff.memberships.length ? staff.memberships.map((m) => `${m.unitCode}/${m.unitRole}`).join(", ") : "Yönetim kapsamı veya birim üyeliği yok"}</small></span><em>{staff.lastSeenAt ? `Son erişim ${formatTime(staff.lastSeenAt)}` : "Henüz giriş yok"}</em><span className="state-pill active">Sunucu rolü</span></div>
+          <div key={staff.accountKey}><span className="avatar">{staff.displayLabel.trim().slice(0,2).toLocaleUpperCase("tr-TR")}</span><span><b>{staff.displayLabel}</b><small>{roleNames[staff.systemRole] || staff.systemRole} · {staff.memberships.length ? staff.memberships.map((m) => `${m.unitCode}/${m.unitRole}`).join(", ") : "Yönetim kapsamı veya birim üyeliği yok"}</small></span><em>{staff.lastSeenAt ? `Son erişim ${formatTime(staff.lastSeenAt)}` : "Henüz giriş yok"}</em><span className="state-pill active">Atanmış rol</span></div>
         ))}
-      </section>
+      </section>}
       <div className="legal-note"><b>Yetki modeli</b><p>Site erişimi tek başına kayıt erişimi vermez. Her talep, çağrı, kapasite satırı, vardiya ve rapor sunucuda hastane/birim üyeliğine göre filtrelenir.</p></div>
     </>
   );
@@ -2835,7 +3210,7 @@ function ReportsWorkspace({ snapshot }: { snapshot: Snapshot }) {
       </section>
       {selected && (
         <section className="panel report-detail">
-          <div className="panel-head"><div><h3>{selected.title}</h3><p>{selected.assignedRole} rolüne görevli · sonraki çalışma {formatTime(selected.nextRunAt)}</p></div><a className="secondary button-link" href={`/api/reports/export?report=${encodeURIComponent(selected.reportCode)}`} download>Yetkili CSV indir</a></div>
+          <div className="panel-head"><div><h3>{selected.title}</h3><p>{selected.assignedRole} rolüne görevli · sonraki çalışma {formatTime(selected.nextRunAt)}</p></div><ExportMenu><a className="secondary button-link" href={`/api/reports/export?report=${encodeURIComponent(selected.reportCode)}`} download>CSV indir</a></ExportMenu></div>
           <div className="report-kpi-grid">
             {Object.entries(selected.result).slice(0, 12).map(([key, value]) => <span key={key}><small>{reportMetricLabel(key)}</small><b>{formatMetricValue(value)}</b></span>)}
             {!Object.keys(selected.result).length && <div className="empty">İlk zamanlanmış rapor çevrimi hazırlanıyor.</div>}
@@ -2866,7 +3241,7 @@ function ReportsWorkspace({ snapshot }: { snapshot: Snapshot }) {
           <p><b>Sevk:</b> transfer_requests; kabul, ret, alternatif hedef ve karar gerekçesi.</p>
           <p><b>Vardiya:</b> staff_shifts; hastane, birim, vardiya ve devir durumu.</p>
           <p><b>Otomasyon:</b> workflow_jobs, retry, karantina ve audit olayları.</p>
-          <p><b>Kapsam:</b> Sunucu rolü ve birim üyeliği; CSV dışa aktarma ayrıca denetim izine yazılır.</p>
+          <p><b>Kapsam:</b> Atanmış rol ve birim üyeliği; CSV dışa aktarma işlem geçmişine yazılır.</p>
         </section>
       </div>
     </>
@@ -3070,6 +3445,9 @@ function TicketDrawer({
   const canOperate =
     ["operations_manager", "unit_manager", "clinician", "call_agent"].includes(snapshot.identity.role) &&
     ticket.status !== "Çözüldü";
+  const pendingApproval=snapshot.approvals.some(a=>a.ticketReference===ticket.reference&&a.status==="pending");
+  const nextAction: "accept"|"start"|"resolve"=ticket.status==="İşlemde"?"resolve":["Kabul edildi","Personele aktarıldı"].includes(ticket.status)?"start":"accept";
+  const nextLabel={accept:"Görevi üstlen",start:"İşleme al",resolve:"Görevi sonuçlandır"}[nextAction];
   const [targetUnit, setTargetUnit] = useState("");
   const working = busy.startsWith(`${ticket.reference}:`);
   const transfer = snapshot.transfers.find((item) => item.ticketReference === ticket.reference);
@@ -3077,7 +3455,7 @@ function TicketDrawer({
     ? snapshot.capacity.find((row) => row.facilityCode === transfer.targetFacilityCode && row.unitCode === transfer.requestedUnitCode && row.resourceCode === transfer.resourceCode)
     : undefined;
   return (
-    <div className="drawer-backdrop" onMouseDown={close}>
+    <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
       <aside
         className="ticket-drawer"
         onMouseDown={(event) => event.stopPropagation()}
@@ -3123,7 +3501,7 @@ function TicketDrawer({
           <div className="automatic-decision">
             <span className={`decision-icon ${transfer?.status || ticket.task?.status || "checking"}`}>⌘</span>
             <div>
-              <small>KULLANICI KABULÜ GEREKTİRMEYEN OPERASYON KARARI</small>
+              <small>OPERASYON YÖNLENDİRMESİ VE GÖREV DURUMU</small>
               <b>{transfer ? transferStatus(transfer.status) : statusLabel(ticket.task?.status)}</b>
               <p>{transfer?.decisionDetail || `${ticket.unit} kural motoru tarafından seçildi; görev ve SLA sunucuda otomatik açıldı.`}</p>
             </div>
@@ -3138,17 +3516,14 @@ function TicketDrawer({
               <span><small>İSTENEN</small><b>{transfer.requestedCount} · {transfer.resourceLabel}</b></span>
               <span><small>UYGUN</small><b>{targetCapacity?.available ?? "—"}</b></span>
             </div>
-            <p className="muted">Kapasite yetersizse motor uygun alternatif kampüsü tarar; alternatif de yoksa gerekçeli ret üretir. Klinik uygunluk kararı bu motorun kapsamı dışındadır.</p>
+            <p className="muted">Kapasite ve alternatifler kurum kaynağıyla doğrulanmalıdır. Klinik uygunluk ve gerçek hasta sevki yetkili personelin kararıyla yürütülür.</p>
           </section>
         )}
         {canOperate ? (
           <section aria-labelledby={`actions-${ticket.reference}`}>
             <h3 id={`actions-${ticket.reference}`}>Birim işlemleri</h3>
-            <div className="drawer-actions">
-              <button type="button" disabled={working || ticket.status === "Kabul edildi"} onClick={() => act(ticket.reference, "accept")}>Görevi üstlen</button>
-              <button type="button" disabled={working || ticket.status === "İşlemde"} onClick={() => act(ticket.reference, "start")}>İşleme al</button>
-              <button type="button" className="primary" disabled={working} onClick={() => act(ticket.reference, "resolve")}>Görevi sonuçlandır</button>
-            </div>
+            <div className="drawer-actions"><button type="button" className="primary" disabled={working||pendingApproval} onClick={()=>act(ticket.reference,nextAction)}>{nextLabel}</button></div>
+            {pendingApproval&&<p role="status">Önce bekleyen insan onayını sonuçlandırın. <Link href="/approvals">Onay kutusunu aç</Link></p>}
             <form
               className="drawer-transfer"
               onSubmit={(event) => {
@@ -3177,6 +3552,7 @@ function TicketDrawer({
             </p>
           </section>
         )}
+        <PatientCoordination key={ticket.reference} reference={ticket.reference} role={snapshot.identity.role} closed={ticket.status === "Çözüldü"} />
         <section>
           <h3>Kalıcı işlem geçmişi</h3>
           <div className="drawer-timeline">
@@ -3216,6 +3592,7 @@ function TicketDrawer({
     </div>
   );
 }
+const Star = () => <b className="field-star" aria-hidden="true"> *</b>;
 function CreateDialog({
   kind,
   units,
@@ -3230,19 +3607,40 @@ function CreateDialog({
   submit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const clinical = units.filter((unit) => unit.kind === "clinical");
+  // Yazılmış veri yanlışlıkla arka plana tıklayınca / Esc ile kaybolmasın: form kirliyse önce onay istenir.
+  const [dirty, setDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const requestClose = useCallback(() => { if (dirty) setConfirmDiscard(true); else close(); }, [dirty, close]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") requestClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [requestClose]);
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
+    <div className="modal-backdrop">
       <form
         className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={kind === "call" ? "Gelen çağrı kaydı" : kind === "appointment" ? "Randevu talebi" : "Yeni hasta talebi"}
         onSubmit={submit}
-        onMouseDown={(event) => event.stopPropagation()}
+        onInput={() => setDirty(true)}
+        onChange={() => setDirty(true)}
       >
         <div>
           <span className="brand-mark">K</span>
-          <button type="button" onClick={close}>
+          <button type="button" aria-label="Kapat" onClick={requestClose}>
             ×
           </button>
         </div>
+        {confirmDiscard && (
+          <div className="inline-confirm" role="alertdialog" aria-label="Girilen bilgiler silinsin mi?">
+            <span>Girdiğiniz bilgiler kaydedilmedi. Pencere kapatılsın mı?</span>
+            <button type="button" className="danger" onClick={close}>Evet, kapat</button>
+            <button type="button" className="secondary" onClick={() => setConfirmDiscard(false)}>Forma dön</button>
+          </div>
+        )}
+        <p className="sm-muted"><b className="field-star" aria-hidden="true">*</b> zorunlu alan</p>
         <input type="hidden" name="kind" value={kind} />
         <h2>
           {kind === "call"
@@ -3256,18 +3654,20 @@ function CreateDialog({
           denetim izine yazılır.
         </p>
         <label>
-          Hasta/protokol takma adı
+          Hasta/protokol takma adı<Star />
           <input
             name="patientAlias"
             required
             minLength={3}
             maxLength={40}
             placeholder="HST-0001"
+            pattern="(?:HST|PAT|TRN|DEMO|TEST)-(?:[A-Z0-9]{1,12}-)*[0-9]{1,6}"
+            title="Ad yerine HST-0001 gibi kurum kayıt kodu kullanın."
           />
         </label>
         {kind === "call" ? (
           <label>
-            Arayanın ilk ifadesi
+            Arayanın ilk ifadesi<Star />
             <textarea
               name="openingMessage"
               required
@@ -3279,8 +3679,9 @@ function CreateDialog({
         ) : kind === "appointment" ? (
           <>
             <label>
-              Klinik branş
-              <select name="branch" required>
+              Klinik branş<Star />
+              <select name="branch" required defaultValue="">
+                <option value="" disabled>Seçin</option>
                 {clinical.map((unit) => (
                   <option key={unit.code} value={unit.name}>
                     {unit.name}
@@ -3289,14 +3690,14 @@ function CreateDialog({
               </select>
             </label>
             <label>
-              Tercih edilen tarih
+              Tercih edilen tarih<Star />
               <input name="date" type="date" required />
             </label>
           </>
         ) : (
           <>
             <label>
-              Talep özeti
+              Talep özeti<Star />
               <textarea
                 name="subject"
                 required
@@ -3306,8 +3707,9 @@ function CreateDialog({
               />
             </label>
             <label>
-              İlk hedef birim
-              <select name="unitCode" required>
+              İlk hedef birim<Star />
+              <select name="unitCode" required defaultValue="">
+                <option value="" disabled>Seçin</option>
                 {units.map((unit) => (
                   <option value={unit.code} key={unit.code}>
                     {unit.code} · {unit.name}
@@ -3318,7 +3720,7 @@ function CreateDialog({
           </>
         )}
         <div className="form-security-note">
-          Kimlik alanları maskelenir; acil olasılık sinyalinde normal otomasyon
+          Ad, kimlik numarası ve gereksiz sağlık bilgisi yazmayın. Maskeleme tüm kişisel verileri tespit etme garantisi değildir; acil olasılık sinyalinde normal otomasyon
           durur ve insan devri açılır.
         </div>
         <button className="primary" disabled={busy}>
@@ -3406,7 +3808,7 @@ function statusLabel(status?: string | null) {
     (
       {
         queued: "Kural kontrolünde",
-        accepted: "Otomatik kabul / atama",
+        accepted: "Kabul edildi / atandı",
         in_progress: "Sistemler arası işlemde",
         completed: "Tamamlandı",
         cancelled: "İptal",
@@ -3453,8 +3855,14 @@ function eventTitle(eventType: string) {
     )[eventType] || eventType
   );
 }
+function approvalLabel(type: string) {
+  return ({ absence_reschedule: "Hekim yokluğu · randevu yeniden planlama", clinical_handoff: "Klinik devir onayı" } as Record<string, string>)[type] || type;
+}
+function cycleStatusLabel(status?: string | null) {
+  return ({ completed: "başarılı", running: "sürüyor", failed: "başarısız" } as Record<string, string>)[status || ""] || "durum bekleniyor";
+}
 function maskActor(actor: string) {
   if (!actor.includes("@")) return actor;
   const [name, domain] = actor.split("@");
-  return `${name.slice(0, 2)}***@${domain}`;
+  return `${name.slice(0, 2)}***@${(domain || "").split(".")[0]}`;
 }

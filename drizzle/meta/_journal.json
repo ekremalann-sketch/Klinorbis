@@ -43,6 +43,41 @@
       "when": 1790459867314,
       "tag": "0005_dry_hiroim",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791198167770,
+      "tag": "0006_lame_scourge",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791207572640,
+      "tag": "0007_ambiguous_thing",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791268118800,
+      "tag": "0008_dizzy_darwin",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791268271259,
+      "tag": "0009_fluffy_agent_zero",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791291564044,
+      "tag": "0010_productive_angel",
+      "breakpoints": true
     }
   ]
 }

@@ -135,7 +135,7 @@ export async function POST(request: Request) {
           callReference: call.reference,
           sequence: nextSequence + 1,
           speakerType: "assistant",
-          speakerLabel: "AI güvenlik yardımcısı",
+          speakerLabel: "Kural tabanlı güvenlik kontrolü",
           message: `Acil olasılık sinyali: ${signal.matched}. Klinik karar üretme; normal akışı durdur ve yetkili sağlık personeline devret.`,
           redacted: false,
           createdAt: new Date(now.getTime() + 1),

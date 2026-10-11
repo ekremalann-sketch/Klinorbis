@@ -307,3 +307,161 @@ export const shiftHandoffs = sqliteTable("shift_handoffs", {
   // Aynı kişinin aynı birimde aynı anda yalnız bir bekleyen devri olabilir (çift tıklama/yarış).
   uniqueIndex("shift_handoffs_one_pending").on(table.fromEmail, table.unitCode).where(sql`status = 'pending'`),
 ]);
+
+// Patient coordination uses aliases only; delivery is recorded by staff, never simulated.
+export const patientCoordination = sqliteTable("patient_coordination", {
+ ticketReference:text("ticket_reference").primaryKey().references(()=>tickets.reference),
+ version:integer("version").notNull().default(1),
+ state:text("state").notNull().default("assessment"),
+ providerAlias:text("provider_alias").notNull().default(""),
+ availability:text("availability").notNull().default("unconfirmed"),
+ plannedAt:text("planned_at").notNull().default(""),
+ alternative:text("alternative").notNull().default(""),
+ contactChannel:text("contact_channel").notNull().default("Telefon"),
+ notificationStatus:text("notification_status").notNull().default("pending"),
+ requestedBy:text("requested_by").notNull(),
+ approvedBy:text("approved_by"),
+ history:text("history").notNull().default("[]"),
+ updatedAt:integer("updated_at",{mode:"timestamp_ms"}).notNull().$defaultFn(()=>new Date()),
+});
+
+
+// ————— Randevu ve hasta iletişimi —————
+// Hekim ve randevu satırları kurumun HBYS/MHRS takviminden imzalı entegrasyonla gelir
+// (`/api/integrations/schedule`). `training = true` satırlar eğitim senaryosudur ve ekranda öyle etiketlenir.
+// Hekimler takma kodla tutulur (ör. "KRD-H01"); ad-soyad yalnız HBYS'de kalır.
+export const physicians = sqliteTable("physicians", {
+  code: text("code").primaryKey(),
+  displayLabel: text("display_label").notNull(),
+  unitCode: text("unit_code").notNull(),
+  facilityCode: text("facility_code").notNull(),
+  dailyCapacity: integer("daily_capacity").notNull().default(20),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  training: integer("training", { mode: "boolean" }).notNull().default(true),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("physicians_unit").on(table.unitCode, table.facilityCode)]);
+
+export const appointments = sqliteTable("appointments", {
+  reference: text("reference").primaryKey(),
+  patientAlias: text("patient_alias").notNull(),
+  physicianCode: text("physician_code").notNull(),
+  unitCode: text("unit_code").notNull(),
+  facilityCode: text("facility_code").notNull(),
+  startsAt: integer("starts_at", { mode: "timestamp_ms" }).notNull(),
+  // scheduled → (hekim yokluğu) needs_action → offered → rescheduled | cancelled ; confirmed ; completed ; no_show
+  status: text("status").notNull().default("scheduled"),
+  clinicalPriority: integer("clinical_priority", { mode: "boolean" }).notNull().default(false),
+  allowOtherPhysician: integer("allow_other_physician", { mode: "boolean" }).notNull().default(false),
+  preferredChannel: text("preferred_channel"),
+  consentChannels: text("consent_channels").notNull().default("[]"),
+  contactMasked: text("contact_masked"),
+  source: text("source").notNull().default("HBYS"),
+  version: integer("version").notNull().default(1),
+  training: integer("training", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("appointments_physician_day").on(table.physicianCode, table.startsAt),
+  index("appointments_unit_status").on(table.unitCode, table.status),
+]);
+
+export const physicianAbsences = sqliteTable("physician_absences", {
+  reference: text("reference").primaryKey(),
+  physicianCode: text("physician_code").notNull(),
+  unitCode: text("unit_code").notNull(),
+  day: text("day").notNull(),
+  reason: text("reason").notNull(),
+  // planned (onay bekliyor) → approved (bildirimler kuyrukta) → closed ; rejected (plan yeniden yapılır)
+  status: text("status").notNull().default("planned"),
+  affectedCount: integer("affected_count").notNull().default(0),
+  reportedBy: text("reported_by").notNull(),
+  decidedBy: text("decided_by"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
+}, (table) => [
+  // Aynı hekim için aynı güne ikinci açık kayıt açılamaz.
+  uniqueIndex("physician_absences_open").on(table.physicianCode, table.day).where(sql`status in ('planned','approved')`),
+]);
+
+export const appointmentChanges = sqliteTable("appointment_changes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  absenceReference: text("absence_reference").notNull(),
+  appointmentReference: text("appointment_reference").notNull(),
+  option: text("option").notNull(),
+  proposedPhysicianCode: text("proposed_physician_code"),
+  proposedFacilityCode: text("proposed_facility_code"),
+  proposedStartsAt: integer("proposed_starts_at", { mode: "timestamp_ms" }),
+  reason: text("reason").notNull(),
+  // proposed → offered → accepted | declined | unreachable | cancelled ; review (hekim kararı bekler)
+  status: text("status").notNull().default("proposed"),
+  attempts: integer("attempts").notNull().default(0),
+  respondedBy: text("responded_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("appointment_changes_once").on(table.absenceReference, table.appointmentReference),
+  // Aynı hekim + aynı saat, eşzamanlı iki farklı plana önerilemez (veritabanı düzeyinde son kilit).
+  uniqueIndex("appointment_changes_slot_once").on(table.proposedPhysicianCode, table.proposedStartsAt)
+    .where(sql`proposed_starts_at is not null and status in ('proposed','offered','accepted')`),
+]);
+
+export const patientNotifications = sqliteTable("patient_notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reference: text("reference").notNull().unique(),
+  appointmentReference: text("appointment_reference"),
+  ticketReference: text("ticket_reference"),
+  patientAlias: text("patient_alias").notNull(),
+  channel: text("channel").notNull(),
+  template: text("template").notNull(),
+  body: text("body").notNull(),
+  // queued → sent → delivered | failed ; call_task (telefonla aranacak) ; held (sessiz saat)
+  status: text("status").notNull().default("queued"),
+  provider: text("provider").notNull().default("not_configured"),
+  attempts: integer("attempts").notNull().default(0),
+  sendAfter: integer("send_after", { mode: "timestamp_ms" }).notNull(),
+  sentAt: integer("sent_at", { mode: "timestamp_ms" }),
+  lastError: text("last_error"),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("patient_notifications_status").on(table.status, table.sendAfter)]);
+
+// Operasyon akışları (playbook): bir akış birimden birime sırayla ilerler; her adım bir operasyon görevi açar.
+// active → done | cancelled. Onay adımını akışı başlatan kişi geçiremez.
+export const playbookRuns = sqliteTable("playbook_runs", {
+  reference: text("reference").primaryKey(),
+  playbookCode: text("playbook_code").notNull(),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("active"),
+  currentStep: integer("current_step").notNull().default(0),
+  stepCount: integer("step_count").notNull(),
+  note: text("note"),
+  parentReference: text("parent_reference"),
+  startedBy: text("started_by").notNull(),
+  version: integer("version").notNull().default(1),
+  mutationToken: text("mutation_token"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+  // Olaydan başlatılan akışlarda olay kimliği (aynı olay ikinci kez akış açmaz).
+  triggerEvent: text("trigger_event"),
+}, (table) => [
+  uniqueIndex("playbook_runs_trigger_once").on(table.triggerEvent).where(sql`trigger_event is not null`),
+  // Bir akış kapanınca aynı bağlı akış iki kez açılmaz (çift tıklama, yarış).
+  uniqueIndex("playbook_runs_chain_once").on(table.parentReference, table.playbookCode).where(sql`parent_reference is not null`),
+]);
+
+export const playbookSteps = sqliteTable("playbook_steps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  runReference: text("run_reference").notNull(),
+  stepIndex: integer("step_index").notNull(),
+  unitCode: text("unit_code").notNull(),
+  task: text("task").notNull(),
+  approval: integer("approval", { mode: "boolean" }).notNull().default(false),
+  taskReference: text("task_reference").notNull(),
+  completedBy: text("completed_by"),
+  note: text("note"),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  // Gecikmeli adım: bu zamandan önce görev "scheduled" bekler (ör. taburcudan 48 saat sonra arama).
+  activateAt: integer("activate_at", { mode: "timestamp_ms" }),
+  dueAt: integer("due_at", { mode: "timestamp_ms" }),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+}, (table) => [uniqueIndex("playbook_steps_once").on(table.runReference, table.stepIndex)]);

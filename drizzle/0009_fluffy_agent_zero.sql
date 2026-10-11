@@ -1,0 +1,1 @@
+ALTER TABLE `playbook_runs` ADD `mutation_token` text;

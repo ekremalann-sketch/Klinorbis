@@ -1,5 +1,9 @@
+import { recordRead } from "../../../lib/read-audit";
+import { oversightView } from "../../../lib/oversight-view";
+import { demoEnabled } from "../../../lib/automation-policy";
+import { sql } from "drizzle-orm";
 import { requireOperationalWriter } from "../../../lib/security";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { automationEvents, callMessages, callSessions, operationalTasks } from "../../../db/schema";
 import { appendAudit } from "../../../lib/audit";
@@ -17,13 +21,14 @@ export async function GET(request: Request) {
     const db = getDb();
     await ensureOperationalSeed(db);
     const rows = actor.canSeeAllUnits
-      ? await db.select().from(callSessions).orderBy(desc(callSessions.lastMessageAt)).limit(50)
+      ? await db.select().from(callSessions).where(demoEnabled() ? undefined : sql`training = 0`).orderBy(desc(callSessions.lastMessageAt)).limit(50)
       : actor.unitCodes.length
-        ? await db.select().from(callSessions).where(inArray(callSessions.unitCode, actor.unitCodes)).orderBy(desc(callSessions.lastMessageAt)).limit(50)
+        ? await db.select().from(callSessions).where(and(inArray(callSessions.unitCode, actor.unitCodes), demoEnabled() ? undefined : sql`training = 0`)).orderBy(desc(callSessions.lastMessageAt)).limit(50)
         : [];
     const references = rows.map((row) => row.reference);
     const messages = references.length ? await db.select().from(callMessages).where(inArray(callMessages.callReference, references)) : [];
-    return Response.json({ calls: rows.map((row) => ({ ...row, messages: messages.filter((message) => message.callReference === row.reference).sort((a, b) => a.sequence - b.sequence) })) }, { headers: { "cache-control": "no-store, private" } });
+    await recordRead(actor,"calls:list");
+    return Response.json(oversightView(actor,{ calls: rows.map((row) => ({ ...row, messages: messages.filter((message) => message.callReference === row.reference).sort((a, b) => a.sequence - b.sequence) })) }), { headers: { "cache-control": "no-store, private" } });
   } catch (error) {
     return securityResponse(error, request);
   }
@@ -64,7 +69,7 @@ export async function POST(request: Request) {
     await db.insert(callMessages).values([
       { callReference: reference, sequence: 1, speakerType: "system", speakerLabel: "Sistem", message: "Gelen çağrı güvenli oturuma alındı; görüntülenen kimlik alanları maskelendi.", redacted: true, createdAt: now },
       { callReference: reference, sequence: 2, speakerType: "caller", speakerLabel: "Arayan", message: redaction.maskedText, redacted: redaction.detected.length > 0, createdAt: new Date(now.getTime() + 1) },
-      { callReference: reference, sequence: 3, speakerType: "assistant", speakerLabel: "AI güvenlik yardımcısı", message: signal.isEmergency ? `Acil olasılık sinyali: ${signal.matched}. Klinik karar üretme; normal otomasyonu durdur ve insan devri aç.` : `${unit.name} yönlendirmesi önerildi. Klinik karar yok; görevli doğrulaması gerekli.`, redacted: false, createdAt: new Date(now.getTime() + 2) },
+      { callReference: reference, sequence: 3, speakerType: "assistant", speakerLabel: "Kural tabanlı güvenlik kontrolü", message: signal.isEmergency ? `Acil olasılık sinyali: ${signal.matched}. Klinik karar üretme; normal otomasyonu durdur ve insan devri aç.` : `${unit.name} yönlendirmesi önerildi. Klinik karar yok; görevli doğrulaması gerekli.`, redacted: false, createdAt: new Date(now.getTime() + 2) },
     ]);
     await db.insert(operationalTasks).values({ reference: taskReference, callReference: reference, unitCode: unit.code, assignedRole: unit.assignedRole, sourceType: "call", status: "queued", priority: signal.isEmergency ? "Acil" : "Normal", dueAt: new Date(now.getTime() + unit.slaMinutes * 60_000), createdAt: now, updatedAt: now });
     await db.insert(automationEvents).values({ ticketReference: reference, rule: signal.isEmergency ? "Acil çağrı insan devri" : "Gelen çağrı görevlendirmesi", outcome: `${unit.name} · ${taskReference}`, unitCode: unit.code, eventType: "call_opened", actor: actor.email });

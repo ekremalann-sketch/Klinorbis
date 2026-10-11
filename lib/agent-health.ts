@@ -1,10 +1,13 @@
+import { demoEnabled } from "./automation-policy";
+import { sql } from "drizzle-orm";
 import { and, desc, eq } from "drizzle-orm";
 import type { getDb } from "../db";
 import { integrationEvents, workflowJobs } from "../db/schema";
 
 type Db = ReturnType<typeof getDb>;
 
-const HEARTBEAT_WINDOW_SECONDS = 180;
+// Cron her 5 dakikada bir çalışır; bir turun gecikmesi "durdu" sayılmasın diye pencere 6,5 dk.
+const HEARTBEAT_WINDOW_SECONDS = 390;
 
 export async function getAutomationAgentStatus(db: Db) {
   const [latestRows, successfulRows, jobRows] = await Promise.all([
@@ -18,7 +21,7 @@ export async function getAutomationAgentStatus(db: Db) {
       .where(and(eq(integrationEvents.source, "klinorbis-agent"), eq(integrationEvents.status, "completed")))
       .orderBy(desc(integrationEvents.receivedAt))
       .limit(1),
-    db.select({ status: workflowJobs.status }).from(workflowJobs),
+    db.select({ status: workflowJobs.status }).from(workflowJobs).where(demoEnabled() ? undefined : sql`coalesce(ticket_reference, '') not in (select reference from tickets where channel = 'Canlı Pilot' or reference like 'S2S-%')`),
   ]);
 
   const latest = latestRows[0];
@@ -49,6 +52,7 @@ export async function getAutomationAgentStatus(db: Db) {
     jobs: {
       queued: jobRows.filter((row) => row.status === "queued" || row.status === "running").length,
       completed: jobRows.filter((row) => row.status === "completed").length,
+    local: jobRows.filter((row) => row.status === "completed_local").length,
       deadLetter: jobRows.filter((row) => row.status === "dead_letter").length,
     },
   };

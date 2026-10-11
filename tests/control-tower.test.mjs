@@ -75,8 +75,9 @@ test("the operator UI exposes live counts, scoped reports and no manual capacity
   assert.match(operations, /scopeType: actor\.canSeeAllUnits \? row\.scopeType : "unit"/);
   assert.match(exportRoute, /requireActor/);
   assert.match(exportRoute, /actor\.unitCodes/);
-  assert.match(exportRoute, /visibleTicketReferences/);
-  assert.match(exportRoute, /inArray\(workflowJobs\.ticketReference, visibleTicketReferences\)/);
+  // Scope enforcement is exercised with 205 real rows in modern-security.test.mjs.
+  assert.match(exportRoute, /REPORT_SCOPE_DENIED/);
+
   assert.match(exportRoute, /report\.export/);
 });
 

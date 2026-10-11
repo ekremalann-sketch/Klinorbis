@@ -14,6 +14,9 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
+  // Otomasyon ajanını sekmeden bağımsız çalıştırır: worker/index.ts scheduled() → runAutomationAgent.
+  // Durdurma anahtarı (automationStopped) her turda uygulanır.
+  triggers: { crons: ["*/5 * * * *"] },
   d1_databases: d1
     ? [
         {

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 test("n8n payload minimisation fails closed for nested keys and detected PII", async () => {
@@ -80,7 +81,7 @@ test("monitor treats authenticated JSON 401 responses as waiting, not system fai
   await once(server, "listening");
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  const child = spawn(process.execPath, [new URL("../scripts/klinorbis-monitor.mjs", import.meta.url).pathname, "--base", `http://127.0.0.1:${address.port}`], {
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../scripts/klinorbis-monitor.mjs", import.meta.url)), "--base", `http://127.0.0.1:${address.port}`], {
     env: { ...process.env, KLINORBIS_N8N_SHARED_SECRET: "", KLINORBIS_SITES_AUTH_TOKEN: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });

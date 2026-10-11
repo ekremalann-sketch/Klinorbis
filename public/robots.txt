@@ -1,8 +1,12 @@
 User-agent: *
 Allow: /$
 Allow: /en
+Allow: /hakkimizda$
 Allow: /demo
 Allow: /og/
+Allow: /gizlilik$
+Allow: /aydinlatma$
+Allow: /cerezler$
 Disallow: /
 
 Sitemap: https://klinorbis.ekremalan.chatgpt.site/sitemap.xml

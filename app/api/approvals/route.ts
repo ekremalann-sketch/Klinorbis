@@ -6,9 +6,11 @@ import {
   callSessions,
   operationalTasks,
   ticketEvents,
+  physicianAbsences,
   tickets,
 } from "../../../db/schema";
 import { redactPII } from "../../../lib/privacy";
+import { absenceDecisionStatements } from "../../../lib/patient-access-store";
 import { appendAudit } from "../../../lib/audit";
 import {
   assertBrowserMutation,
@@ -74,6 +76,15 @@ export async function POST(request: Request) {
         },
         { status: 409 },
       );
+    // Hekim yokluğu planı: bildiren kişi, rolü ne olursa olsun, kendi planını onaylayamaz.
+    const absenceReference = approval.approvalType === "absence_reschedule" ? approval.reference.replace(/^ONAY-/, "") : null;
+    if (absenceReference) {
+      const [absence] = await db.select().from(physicianAbsences).where(eq(physicianAbsences.reference, absenceReference)).limit(1);
+      if (!absence || absence.status !== "planned") throw new SecurityError(409, "Yokluk planı onay bekleyen durumda değil.", "APPROVAL_STATE_CHANGED");
+      if (absence.reportedBy === actor.email) {
+        throw new SecurityError(403, "Yokluğu bildiren kişi yeniden planlamayı onaylayamaz; birimde başka bir yetkili onaylamalı.", "SELF_APPROVAL_BLOCKED");
+      }
+    }
     if (approval.ticketReference) {
       const [related] = await db.select().from(tickets).where(eq(tickets.reference, approval.ticketReference)).limit(1);
       if (!related || related.status !== "Personele aktarıldı") throw new SecurityError(409, "İlgili talep onay bekleyen durumda değil.", "APPROVAL_STATE_CHANGED");
@@ -106,6 +117,13 @@ export async function POST(request: Request) {
         db.update(operationalTasks).set({ status: body.decision === "approve" ? "accepted" : "queued", acceptedBy: body.decision === "approve" ? actor.email : null, acceptedAt: body.decision === "approve" ? now : null, updatedAt: now }).where(and(eq(operationalTasks.callReference, callReference), claimedDecision, sql`exists (select 1 from call_sessions where reference = ${callReference} and status != 'completed')`)),
         db.update(callSessions).set({ lastMessageAt: now }).where(and(eq(callSessions.reference, callReference), ne(callSessions.status, "completed"), claimedDecision)),
       ]);
+      if (!claimed.length) throw new SecurityError(409, "Onay başka bir işlemle değişti.", "ALREADY_DECIDED");
+    } else if (absenceReference) {
+      // Onay kaydı ile yokluk planının uygulanması (öneriler, bildirimler, arama görevleri, denetim izi) tek işlemdir.
+      const { statements } = await absenceDecisionStatements(db, actor, absenceReference, body.decision === "approve" ? "approve" : "reject");
+      let claimed: unknown[] = [];
+      try { [claimed] = await db.batch([claim, ...statements] as Parameters<typeof db.batch>[0]) as [unknown[]]; }
+      catch (error) { if (/UNIQUE|constraint/i.test(`${String(error)} ${String((error as { cause?: unknown })?.cause ?? "")}`)) throw new SecurityError(409, "Onay başka bir işlemle değişti.", "ALREADY_DECIDED"); throw error; }
       if (!claimed.length) throw new SecurityError(409, "Onay başka bir işlemle değişti.", "ALREADY_DECIDED");
     } else {
       const claimed = await claim;

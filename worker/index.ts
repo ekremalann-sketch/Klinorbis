@@ -8,11 +8,17 @@ import { runAutomationAgent } from "../lib/agent-runtime";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  KLINORBIS_LOG_SALT?: string;
+  KLINORBIS_AUDIT_HMAC_KEY?: string;
+  KLINORBIS_DEMO_ENABLED?: string;
   KLINORBIS_OWNER_EMAIL?: string;
   KLINORBIS_OWNER_ACCOUNT_USER_ID?: string;
   KLINORBIS_WEBHOOK_SECRET?: string;
   KLINORBIS_N8N_WEBHOOK_URL?: string;
   KLINORBIS_N8N_SHARED_SECRET?: string;
+  KLINORBIS_AI_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  KLINORBIS_AI_MODEL?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -35,15 +41,11 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    (globalThis as typeof globalThis & { __KLINORBIS_DB?: D1Database }).__KLINORBIS_DB = env.DB;
-    (globalThis as typeof globalThis & { __KLINORBIS_SECURITY_ENV?: { ownerEmail?: string; ownerAccountUserId?: string; webhookSecret?: string; n8nWebhookUrl?: string; n8nSharedSecret?: string } }).__KLINORBIS_SECURITY_ENV = {
-      ownerEmail: env.KLINORBIS_OWNER_EMAIL,
-      ownerAccountUserId: env.KLINORBIS_OWNER_ACCOUNT_USER_ID,
-      webhookSecret: env.KLINORBIS_WEBHOOK_SECRET,
-      n8nWebhookUrl: env.KLINORBIS_N8N_WEBHOOK_URL,
-      n8nSharedSecret: env.KLINORBIS_N8N_SHARED_SECRET,
-    };
+    setRuntime(env);
     const url = new URL(request.url);
+    if (!['klinorbis.ekremalan.chatgpt.site','localhost','127.0.0.1','terminal.local'].includes(url.hostname)) {
+      return new Response("Bu erişim adresi desteklenmiyor.",{status:403,headers:{"cache-control":"no-store"}});
+    }
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
@@ -61,18 +63,30 @@ const worker = {
     return withSecurityHeaders(response, request);
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    (globalThis as typeof globalThis & { __KLINORBIS_DB?: D1Database }).__KLINORBIS_DB = env.DB;
-    (globalThis as typeof globalThis & { __KLINORBIS_SECURITY_ENV?: { ownerEmail?: string; ownerAccountUserId?: string; webhookSecret?: string; n8nWebhookUrl?: string; n8nSharedSecret?: string } }).__KLINORBIS_SECURITY_ENV = {
-      ownerEmail: env.KLINORBIS_OWNER_EMAIL,
-      ownerAccountUserId: env.KLINORBIS_OWNER_ACCOUNT_USER_ID,
-      webhookSecret: env.KLINORBIS_WEBHOOK_SECRET,
-      n8nWebhookUrl: env.KLINORBIS_N8N_WEBHOOK_URL,
-      n8nSharedSecret: env.KLINORBIS_N8N_SHARED_SECRET,
-    };
+    setRuntime(env);
+    // Cron tetikleyicisi (vite.config.ts → triggers.crons). Durdurma anahtarı runAutomationAgent içinde uygulanır;
+    // hata yakalanır ki zamanlanmış tur çökse bile sonraki tur engellenmesin.
     const db = drizzle(env.DB, { schema });
-    ctx.waitUntil(runAutomationAgent(db, "scheduled-worker").then(() => undefined));
+    ctx.waitUntil(runAutomationAgent(db, "scheduled-worker").then(() => undefined, (error) => { console.error("Zamanlanmış otomasyon turu başarısız", error instanceof Error ? error.message : "bilinmeyen hata"); }));
   },
 };
+
+function setRuntime(env: Env) {
+  (globalThis as typeof globalThis & { __KLINORBIS_DB?: D1Database }).__KLINORBIS_DB = env.DB;
+  (globalThis as typeof globalThis & { __KLINORBIS_SECURITY_ENV?: Record<string, string | undefined> }).__KLINORBIS_SECURITY_ENV = {
+    securityLogSalt: env.KLINORBIS_LOG_SALT,
+    auditHmacKey: env.KLINORBIS_AUDIT_HMAC_KEY,
+    ownerEmail: env.KLINORBIS_OWNER_EMAIL,
+    ownerAccountUserId: env.KLINORBIS_OWNER_ACCOUNT_USER_ID,
+    webhookSecret: env.KLINORBIS_WEBHOOK_SECRET,
+    n8nWebhookUrl: env.KLINORBIS_N8N_WEBHOOK_URL,
+    n8nSharedSecret: env.KLINORBIS_N8N_SHARED_SECRET,
+    aiApiKey: env.KLINORBIS_AI_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
+    aiModel: env.KLINORBIS_AI_MODEL,
+  };
+  (globalThis as typeof globalThis & { __KLINORBIS_DEMO_ENABLED?: string }).__KLINORBIS_DEMO_ENABLED = env.KLINORBIS_DEMO_ENABLED;
+}
 
 async function withSecurityHeaders(response: Response, request: Request) {
   const headers = new Headers(response.headers);

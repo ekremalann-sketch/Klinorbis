@@ -1,4 +1,6 @@
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { demoEnabled } from "../../../../lib/automation-policy";
+import { redactPII } from "../../../../lib/privacy";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import {
   capacitySnapshots,
@@ -19,6 +21,7 @@ export async function GET(request: Request) {
     const actor = await requireActor(request);
     await enforceRateLimit(request, actor, "reports.export", 20, 60);
     const reportCode = new URL(request.url).searchParams.get("report") || "NETWORK_SUMMARY";
+    if (["privacy_officer","security_officer"].includes(actor.role) && reportCode!=="NETWORK_SUMMARY") return Response.json({error:"Gözetim rolleri yalnız kimliksiz ağ özetini dışa aktarabilir."},{status:403});
     const db = getDb();
     const [assignment] = await db.select().from(reportAssignments).where(eq(reportAssignments.reportCode, reportCode)).limit(1);
     if (!assignment) return Response.json({ error: "Rapor tanımı bulunamadı.", code: "NOT_FOUND" }, { status: 404 });
@@ -30,33 +33,15 @@ export async function GET(request: Request) {
     }
 
     const unitCodes = actor.canSeeAllUnits ? null : actor.unitCodes;
-    const visibleTicketReferences = unitCodes?.length
-      ? (await db
-          .select({ reference: tickets.reference })
-          .from(tickets)
-          .where(inArray(tickets.unitCode, unitCodes)))
-          .map((row) => row.reference)
-      : null;
+    const real = !demoEnabled();
     const [capacity, transfers, shifts, jobs] = await Promise.all([
-      unitCodes?.length
-        ? db.select().from(capacitySnapshots).where(inArray(capacitySnapshots.unitCode, unitCodes)).orderBy(asc(capacitySnapshots.facilityCode), asc(capacitySnapshots.unitCode))
-        : db.select().from(capacitySnapshots).orderBy(asc(capacitySnapshots.facilityCode), asc(capacitySnapshots.unitCode)),
-      unitCodes?.length
-        ? db.select().from(transferRequests).where(inArray(transferRequests.requestedUnitCode, unitCodes)).orderBy(desc(transferRequests.updatedAt)).limit(500)
-        : db.select().from(transferRequests).orderBy(desc(transferRequests.updatedAt)).limit(500),
-      unitCodes?.length
-        ? db.select().from(staffShifts).where(inArray(staffShifts.unitCode, unitCodes)).orderBy(asc(staffShifts.facilityCode), asc(staffShifts.unitCode))
-        : db.select().from(staffShifts).orderBy(asc(staffShifts.facilityCode), asc(staffShifts.unitCode)),
-      visibleTicketReferences
-        ? visibleTicketReferences.length
-          ? db
-              .select()
-              .from(workflowJobs)
-              .where(inArray(workflowJobs.ticketReference, visibleTicketReferences))
-              .orderBy(desc(workflowJobs.createdAt))
-              .limit(500)
-          : Promise.resolve([])
-        : db.select().from(workflowJobs).orderBy(desc(workflowJobs.createdAt)).limit(500),
+      db.select().from(capacitySnapshots).where(and(unitCodes?.length ? inArray(capacitySnapshots.unitCode, unitCodes) : undefined, real ? sql`facility_code not in (select code from facilities where name like '%Pilot%')` : undefined)).orderBy(asc(capacitySnapshots.facilityCode), asc(capacitySnapshots.unitCode)),
+      db.select().from(transferRequests).where(and(unitCodes?.length ? inArray(transferRequests.requestedUnitCode, unitCodes) : undefined, real ? eq(transferRequests.training, false) : undefined)).orderBy(desc(transferRequests.updatedAt)).limit(500),
+      db.select().from(staffShifts).where(and(unitCodes?.length ? inArray(staffShifts.unitCode, unitCodes) : undefined, real ? sql`facility_code not in (select code from facilities where name like '%Pilot%')` : undefined)).orderBy(asc(staffShifts.facilityCode), asc(staffShifts.unitCode)),
+      db.select().from(workflowJobs).where(and(
+        unitCodes?.length ? inArray(workflowJobs.ticketReference, db.select({reference:tickets.reference}).from(tickets).where(inArray(tickets.unitCode, unitCodes))) : undefined,
+        real ? sql`coalesce(ticket_reference, '') not in (select reference from tickets where channel = 'Canlı Pilot' or reference like 'S2S-%')` : undefined,
+      )).orderBy(desc(workflowJobs.createdAt)).limit(500),
     ]);
 
     const csv = buildCsv(reportCode, capacity, transfers, shifts, jobs);
@@ -65,7 +50,7 @@ export async function GET(request: Request) {
     return new Response(`\uFEFF${csv.content}`, {
       headers: {
         "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="klinorbis-${reportCode.toLocaleLowerCase("tr-TR")}-${date}.csv"`,
+        "content-disposition": `attachment; filename="klinorbis-${reportCode.toLowerCase()}-${date}.csv"`,
         "cache-control": "no-store, private",
         "x-content-type-options": "nosniff",
       },
@@ -130,7 +115,7 @@ function csvRows(headers: Array<string>, rows: Array<Array<unknown>>) {
 }
 
 function csvCell(value: unknown) {
-  const raw = String(value ?? "").replace(/\r?\n/g, " ");
+  const raw = redactPII(String(value ?? "")).maskedText.replace(/\r?\n/g, " ");
   const text = typeof value === "string" && /^[\s]*[=+\-@\t\r]/.test(raw) ? "'" + raw : raw;
   return /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }

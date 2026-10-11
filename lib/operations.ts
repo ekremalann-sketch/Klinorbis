@@ -1,4 +1,6 @@
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { demoEnabled } from "./automation-policy";
+import { aiConfigured, latestAiSuggestion } from "./ai-monitor";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import {
   approvals,
@@ -43,6 +45,7 @@ export async function ensureOperationalSeed(db: Db) {
       slaMinutes: unit.slaMinutes,
     }))).onConflictDoNothing();
   }
+  if (!demoEnabled()) return;
   await ensurePilotBaseline(db);
   await ensureControlTowerBaseline(db);
 
@@ -65,7 +68,7 @@ export async function ensureOperationalSeed(db: Db) {
     [1, "system", "Sistem", "Gelen çağrı güvenli oturuma alındı. Telefon numarası görüşme ekranında maskelendi."],
     [2, "agent", "Çağrı görevlisi", "KLINORBIS Hasta İletişim Merkezine hoş geldiniz. Acil bir durumdaysanız 112'yi arayın. Görüşmeye devam etmeden önce kimliğinizi asgari bilgilerle doğrulayacağım."],
     [3, "caller", "Arayan", "Bugün başlayan göğüs ağrım var. Hangi bölüme başvurmam gerektiğini öğrenmek istiyorum."],
-    [4, "assistant", "AI güvenlik yardımcısı", "Acil olasılık sinyali: göğüs ağrısı. Klinik karar üretme; normal randevu otomasyonunu durdur; yetkili sağlık personeline devir öner."],
+    [4, "assistant", "Kural tabanlı güvenlik kontrolü", "Acil olasılık sinyali: göğüs ağrısı. Klinik karar üretme; normal randevu otomasyonunu durdur; yetkili sağlık personeline devir öner."],
     [5, "system", "Otomasyon", "Normal randevu akışı durduruldu. ACY kuyruğunda yüksek öncelikli TSK-TRN-2401 görevi ve insan onayı açıldı."],
     [6, "agent", "Çağrı görevlisi", "Geçmiş olsun. Bu görüşmeyi şimdi yetkili sağlık personeline aktarıyorum. Şikâyetiniz artarsa veya nefes darlığı, bayılma gibi bir durum olursa beklemeden 112'yi arayın."],
     [7, "clinician", "Klinik triyaj rolü", "Görüşmeyi devraldım. Önce bulunduğunuz ortamın güvenli olduğunu ve acil yardım çağırabilecek birinin yanınızda olup olmadığını doğrulayalım."],
@@ -122,20 +125,20 @@ export async function ensureTicketTasks(db: Db) {
 export async function workspaceSnapshot(db: Db, actor: RequestActor) {
   // This endpoint is deliberately read-only. Seed, orchestration and queue
   // writes run in the automation agent so workspace startup cannot be blocked.
-  const pilot = actor.canSeeAllUnits ? currentPilotHeartbeat() : null;
-  const controlTower = actor.canSeeAllUnits ? currentControlTowerHeartbeat() : null;
+  const pilot = actor.canSeeAllUnits && demoEnabled() ? currentPilotHeartbeat() : null;
+  const controlTower = actor.canSeeAllUnits && demoEnabled() ? currentControlTowerHeartbeat() : null;
   const unitCodes = actor.canSeeAllUnits ? HOSPITAL_UNITS.map((unit) => unit.code) : actor.unitCodes;
   if (!unitCodes.length) return emptySnapshot(actor);
 
   const staticUnits = HOSPITAL_UNITS.filter((unit) => unitCodes.includes(unit.code)).map((unit) => ({ ...unit, active: true }));
   const [persistedUnitRows, ticketRows, taskRows, callRows, eventRows, approvalRows, jobRows, recentSecurity, staffRows, membershipRows, auditRows, facilityRows, capacityRows, transferRows, shiftRows, reportRows, agentStatus] = await Promise.all([
     safeQuery(db.select().from(hospitalUnits).where(and(eq(hospitalUnits.active, true), inArray(hospitalUnits.code, unitCodes))).orderBy(asc(hospitalUnits.name)), staticUnits),
-    safeQuery(db.select().from(tickets).where(inArray(tickets.unitCode, unitCodes)).orderBy(desc(tickets.updatedAt)).limit(200), []),
-    safeQuery(db.select().from(operationalTasks).where(inArray(operationalTasks.unitCode, unitCodes)).orderBy(desc(operationalTasks.updatedAt)).limit(200), []),
-    safeQuery(db.select().from(callSessions).where(inArray(callSessions.unitCode, unitCodes)).orderBy(desc(callSessions.lastMessageAt)).limit(50), []),
-    safeQuery(db.select().from(automationEvents).where(inArray(automationEvents.unitCode, unitCodes)).orderBy(desc(automationEvents.createdAt)).limit(80), []),
-    safeQuery(db.select().from(approvals).where(inArray(approvals.unitCode, unitCodes)).orderBy(desc(approvals.createdAt)).limit(50), []),
-    safeQuery(db.select().from(workflowJobs).orderBy(desc(workflowJobs.createdAt)).limit(100), []),
+    safeQuery(db.select().from(tickets).where(and(inArray(tickets.unitCode, unitCodes), demoEnabled() ? undefined : sql`channel != 'Canlı Pilot' and reference not like 'S2S-%'`)).orderBy(desc(tickets.updatedAt)).limit(200), []),
+    safeQuery(db.select().from(operationalTasks).where(and(inArray(operationalTasks.unitCode, unitCodes), demoEnabled() ? undefined : sql`source_type not like 'pilot_%' and coalesce(ticket_reference, '') not in (select reference from tickets where channel = 'Canlı Pilot' or reference like 'S2S-%') and coalesce(call_reference, '') not in (select reference from call_sessions where training = 1)`)).orderBy(desc(operationalTasks.updatedAt)).limit(200), []),
+    safeQuery(db.select().from(callSessions).where(and(inArray(callSessions.unitCode, unitCodes), demoEnabled() ? undefined : sql`training = 0`)).orderBy(desc(callSessions.lastMessageAt)).limit(50), []),
+    safeQuery(db.select().from(automationEvents).where(and(inArray(automationEvents.unitCode, unitCodes), demoEnabled() ? undefined : sql`ticket_reference not in (select reference from tickets where channel = 'Canlı Pilot' or reference like 'S2S-%')`)).orderBy(desc(automationEvents.createdAt)).limit(80), []),
+    safeQuery(db.select().from(approvals).where(and(inArray(approvals.unitCode, unitCodes), demoEnabled() ? undefined : sql`requested_by != 'pilot-orchestrator' and coalesce(ticket_reference, '') not in (select reference from tickets where channel = 'Canlı Pilot' or reference like 'S2S-%') and coalesce(call_reference, '') not in (select reference from call_sessions where training = 1)`)).orderBy(desc(approvals.createdAt)).limit(50), []),
+    safeQuery(db.select().from(workflowJobs).where(demoEnabled() ? undefined : sql`coalesce(ticket_reference, '') not in (select reference from tickets where channel = 'Canlı Pilot' or reference like 'S2S-%')`).orderBy(desc(workflowJobs.createdAt)).limit(100), []),
     actor.role === "security_officer" || actor.role === "operations_manager"
       ? safeQuery(db.select().from(securityEvents).orderBy(desc(securityEvents.createdAt)).limit(25), [])
       : Promise.resolve([]),
@@ -148,10 +151,10 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
     actor.role === "operations_manager" || actor.role === "privacy_officer" || actor.role === "security_officer"
       ? safeQuery(db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(100), [])
       : Promise.resolve([]),
-    safeQuery(db.select().from(facilities).where(eq(facilities.status, "operational")).orderBy(asc(facilities.name)), []),
-    safeQuery(db.select().from(capacitySnapshots).where(inArray(capacitySnapshots.unitCode, unitCodes)).orderBy(asc(capacitySnapshots.facilityCode), asc(capacitySnapshots.unitCode)), []),
-    safeQuery(db.select().from(transferRequests).where(inArray(transferRequests.requestedUnitCode, unitCodes)).orderBy(desc(transferRequests.updatedAt)).limit(120), []),
-    safeQuery(db.select().from(staffShifts).where(inArray(staffShifts.unitCode, unitCodes)).orderBy(asc(staffShifts.facilityCode), asc(staffShifts.unitCode)), []),
+    safeQuery(db.select().from(facilities).where(and(eq(facilities.status, "operational"), demoEnabled() ? undefined : sql`name not like '%Pilot%'`)).orderBy(asc(facilities.name)), []),
+    safeQuery(db.select().from(capacitySnapshots).where(and(inArray(capacitySnapshots.unitCode, unitCodes), demoEnabled() ? undefined : sql`facility_code not in (select code from facilities where name like '%Pilot%')`)).orderBy(asc(capacitySnapshots.facilityCode), asc(capacitySnapshots.unitCode)), []),
+    safeQuery(db.select().from(transferRequests).where(and(inArray(transferRequests.requestedUnitCode, unitCodes), demoEnabled() ? undefined : sql`training = 0`)).orderBy(desc(transferRequests.updatedAt)).limit(120), []),
+    safeQuery(db.select().from(staffShifts).where(and(inArray(staffShifts.unitCode, unitCodes), demoEnabled() ? undefined : sql`facility_code not in (select code from facilities where name like '%Pilot%')`)).orderBy(asc(staffShifts.facilityCode), asc(staffShifts.unitCode)), []),
     safeQuery(db.select().from(reportAssignments).orderBy(asc(reportAssignments.title)), []),
     safeQuery<Awaited<ReturnType<typeof getAutomationAgentStatus>>>(getAutomationAgentStatus(db), {
       state: "waiting" as const,
@@ -163,12 +166,12 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
       heartbeatWindowSeconds: 180,
       latestSource: null,
       latestEventType: null,
-      jobs: { queued: 0, completed: 0, deadLetter: 0 },
+      jobs: { queued: 0, completed: 0, local: 0, deadLetter: 0 },
     }),
   ]);
   const callReferences = callRows.map((call) => call.reference);
   const messageRows = callReferences.length
-    ? await safeQuery(db.select().from(callMessages).where(inArray(callMessages.callReference, callReferences)).orderBy(asc(callMessages.sequence)), [])
+    ? await safeQuery(db.select().from(callMessages).where(and(inArray(callMessages.callReference, callReferences), sql`id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY call_reference ORDER BY sequence DESC, id DESC) AS rn FROM call_messages) WHERE rn <= 100)`)).orderBy(asc(callMessages.sequence)), [])
     : [];
   const ticketReferences = ticketRows.map((ticket) => ticket.reference);
   const visibleTicketReferences = new Set(ticketReferences);
@@ -180,7 +183,7 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
     : [];
 
   const queueByUnit = new Map<string, number>();
-  taskRows.filter((task) => !["completed", "cancelled"].includes(task.status)).forEach((task) => queueByUnit.set(task.unitCode, (queueByUnit.get(task.unitCode) || 0) + 1));
+  taskRows.filter((task) => !["completed", "cancelled", "scheduled"].includes(task.status)).forEach((task) => queueByUnit.set(task.unitCode, (queueByUnit.get(task.unitCode) || 0) + 1));
   const persistedUnits = new Map(persistedUnitRows.map((unit) => [unit.code, unit]));
   const unitRows = staticUnits.map((unit) => ({ ...unit, ...(persistedUnits.get(unit.code) || {}) }));
   const visibleFacilityCodes = new Set(capacityRows.map((row) => row.facilityCode));
@@ -208,12 +211,16 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
     transfersOpen: capacitySummary.transfersOpen,
     autoAccepted: capacitySummary.autoAccepted,
     autoRejected: capacitySummary.autoRejected,
-    activeTasks: taskRows.filter((item) => !["completed", "cancelled"].includes(item.status)).length,
+    activeTasks: taskRows.filter((item) => !["completed", "cancelled", "scheduled"].includes(item.status)).length,
     activeShifts: shiftRows.filter((item) => item.status === "active").length,
     handoffs: shiftRows.filter((item) => item.status === "handoff").length,
   };
+  const aiSuggestion = actor.canSeeAllUnits ? await safeQuery(latestAiSuggestion(db), null) : null;
   return {
     generatedAt: new Date().toISOString(),
+    // İstemci "canlı / yapay zekâ" ifadelerini yalnız gerçekten açık olan özellikler için gösterir.
+    features: { demo: demoEnabled(), ai: aiConfigured() },
+    aiSuggestion,
     identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: actor.unitCodes, canSeeAllUnits: actor.canSeeAllUnits },
     units: unitRows.map((unit) => ({ ...unit, queue: queueByUnit.get(unit.code) || 0, assignedRole: findUnit(unit.code).assignedRole })),
     tickets: ticketRows.map((ticket) => ({ ...ticket, task: taskRows.find((task) => task.ticketReference === ticket.reference) || null, history: historyRows.filter((event) => event.ticketReference === ticket.reference).reverse() })),
@@ -277,6 +284,7 @@ function summarizeJobs(rows: Array<{ status: string }>) {
   return {
     queued: rows.filter((row) => row.status === "queued" || row.status === "running").length,
     completed: rows.filter((row) => row.status === "completed").length,
+    localCompleted: rows.filter((row) => ["local_completed", "completed_local"].includes(row.status)).length,
     deadLetter: rows.filter((row) => row.status === "dead_letter").length,
   };
 }
@@ -296,10 +304,14 @@ function safeJsonObject(value: string) {
 }
 
 function emptySnapshot(actor: RequestActor) {
+  const aiSuggestion = null;
   return {
     generatedAt: new Date().toISOString(),
+    // İstemci "canlı / yapay zekâ" ifadelerini yalnız gerçekten açık olan özellikler için gösterir.
+    features: { demo: demoEnabled(), ai: aiConfigured() },
+    aiSuggestion,
     identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: [], canSeeAllUnits: false },
-    units: [], tickets: [], tasks: [], calls: [], events: [], approvals: [], jobs: { queued: 0, completed: 0, deadLetter: 0 },
+    units: [], tickets: [], tasks: [], calls: [], events: [], approvals: [], jobs: { queued: 0, completed: 0, localCompleted: 0, deadLetter: 0 },
     automation: { pilot: null, controlTower: null, agent: { state: "waiting", lastRunAt: null, lastSuccessfulRunAt: null, lastRunSucceeded: false, lastCycleStatus: null, lastActor: null, ageSeconds: null, heartbeatWindowSeconds: 180, trigger: "scheduled-worker-or-signed-n8n-webhook" }, connectors: automationConnectorStatus() }, facilities: [], capacity: [],
     capacitySummary: { total: 0, occupied: 0, reserved: 0, available: 0, blocked: 0, dischargeForecast: 0, incoming: 0, outgoing: 0, transfersOpen: 0, autoAccepted: 0, autoRejected: 0, checking: 0 },
     transfers: [], shifts: [], reports: [], security: [], staff: [], audit: [],

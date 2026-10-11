@@ -10,8 +10,8 @@ test("rol menüsü: her rol Personel ve Yetki'yi (Benim işim) ve ana ekranını
   const views = [...src.slice(src.indexOf("const nav:"), src.indexOf("const ROLE_VIEWS")).matchAll(/view: "([a-z]+)"/g)].map((m) => m[1]);
   const block = src.slice(src.indexOf("const ROLE_VIEWS"), src.indexOf("const NAV_GROUP_OF"));
   const roles = [...block.matchAll(/(\w+): \[([^\]]+)\]/g)].map((m) => [m[1], [...m[2].matchAll(/"([a-z]+)"/g)].map((x) => x[1])]);
-  assert.equal(roles.length, 5);
-  const homes = { unit_manager: "inbox", clinician: "approvals", call_agent: "calls", privacy_officer: "privacy", security_officer: "security" };
+  assert.equal(roles.length, 6);
+  const homes = { operations_manager: "dashboard", unit_manager: "inbox", clinician: "approvals", call_agent: "calls", privacy_officer: "privacy", security_officer: "security" };
   for (const [role, list] of roles) {
     assert.ok(list.includes("staff"), `${role}: Personel ve Yetki`);
     assert.ok(list.includes(homes[role]), `${role}: ana ekran ${homes[role]}`);

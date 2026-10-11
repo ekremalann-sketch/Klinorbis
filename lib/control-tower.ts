@@ -1,3 +1,4 @@
+import { demoEnabled } from "./automation-policy";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import {
@@ -19,10 +20,10 @@ import { findUnit } from "./hospital-units";
 type Db = ReturnType<typeof getDb>;
 
 export const PILOT_FACILITIES = [
-  { code: "F01", name: "Merkez Eğitim Kampüsü · Pilot", campusType: "3. basamak eğitim kampüsü", city: "İzmir", totalBeds: 620 },
-  { code: "F02", name: "Şehir Hastanesi Kampüsü · Pilot", campusType: "bölgesel şehir kampüsü", city: "İzmir", totalBeds: 900 },
-  { code: "F03", name: "Kadın ve Çocuk Kampüsü · Pilot", campusType: "kadın-doğum ve çocuk kampüsü", city: "İzmir", totalBeds: 380 },
-  { code: "F04", name: "FTR ve Rehabilitasyon Kampüsü · Pilot", campusType: "rehabilitasyon kampüsü", city: "İzmir", totalBeds: 180 },
+  { code: "F01", name: "Örnek Kampüs A · Pilot", campusType: "3. basamak eğitim kampüsü (kurgusal)", city: "Örnek Şehir", totalBeds: 620 },
+  { code: "F02", name: "Örnek Kampüs B · Pilot", campusType: "bölgesel kampüs (kurgusal)", city: "Örnek Şehir", totalBeds: 900 },
+  { code: "F03", name: "Örnek Kampüs C · Pilot", campusType: "kadın-doğum ve çocuk kampüsü (kurgusal)", city: "Örnek Şehir", totalBeds: 380 },
+  { code: "F04", name: "Örnek Kampüs D · Pilot", campusType: "rehabilitasyon kampüsü (kurgusal)", city: "Örnek Şehir", totalBeds: 180 },
 ] as const;
 
 const CAPACITY_SEED = [
@@ -76,7 +77,7 @@ const REPORT_SEED = [
 
 const TRANSFER_BASELINE = [
   ["XFR-PILOT-001", "KRM-PİLOT-01", "Kurum-A", "F01", "YOG", "ICU_BED", "Yoğun bakım yatağı", "Acil", "auto_accepted", "capacity_available", "Kapasite ön kabulü otomatik verildi; klinik uygunluk kararı ayrı yetkili süreçtedir."],
-  ["XFR-PILOT-002", "KRM-PİLOT-02", "Kurum-B", "F03", "NEO", "NICU_BED", "Yenidoğan yoğun bakım yatağı", "Acil", "auto_rejected", "capacity_unavailable", "Güvenli kullanılabilir kaynak yok; kabul verilmedi ve alternatif ağı tarandı."],
+  ["XFR-PILOT-002", "KRM-PİLOT-02", "Kurum-B", "F03", "NEO", "NICU_BED", "Yenidoğan yoğun bakım yatağı", "Acil", "auto_rejected", "capacity_unavailable", "Güvenli kullanılabilir kaynak görünmüyor; koordinatöre alternatif listesi sunuldu (eğitim senaryosu)."],
   ["XFR-PILOT-003", "KRM-PİLOT-03", "Kurum-C", "F02", "ORT", "WARD_BED", "Ortopedi servis yatağı", "Yüksek", "scheduled", "capacity_available", "Kapasite ayrıldı; transport ve varış penceresi otomatik planlandı."],
   ["XFR-PILOT-004", "KRM-PİLOT-04", "Kurum-D", "F01", "KVC", "WARD_BED", "Kalp-damar cerrahisi yatağı", "Yüksek", "checking", null, "Kaynak, personel ve blokaj verileri kontrol ediliyor."],
   ["XFR-PILOT-005", "KRM-PİLOT-05", "Kurum-E", "F02", "YOG", "ICU_BED", "Yoğun bakım yatağı", "Acil", "auto_rerouted", "alternate_capacity", "İlk hedef dolu; uygun kaynak bulunan alternatif kampüse otomatik yönlendirildi."],
@@ -110,7 +111,7 @@ const CYCLE_MS = STEP_MS * STEP_COUNT;
 const REPORT_INTERVAL_MS = 20_000;
 
 export type ControlTowerHeartbeat = {
-  enabled: true;
+  enabled: boolean;
   disclosure: "Kimliksiz sistemler arası pilot verisi";
   runReference: string;
   transferReference: string;
@@ -127,9 +128,14 @@ export type ControlTowerHeartbeat = {
 };
 
 export async function ensureControlTowerBaseline(db: Db, at = new Date()) {
+  if (!demoEnabled()) return;
   const seedState = globalThis as typeof globalThis & { __KLINORBIS_CONTROL_TOWER_SEEDED?: boolean };
   if (seedState.__KLINORBIS_CONTROL_TOWER_SEEDED) return;
-  await db.insert(facilities).values(PILOT_FACILITIES.map((facility) => ({ ...facility, training: true, updatedAt: at }))).onConflictDoNothing();
+  // Eski sürümlerde gerçek kurumu andıran kampüs adları vardı; kurgusal adlarla güncellenir.
+  for (const facility of PILOT_FACILITIES) {
+    await db.insert(facilities).values({ ...facility, training: true, updatedAt: at })
+      .onConflictDoUpdate({ target: facilities.code, set: { name: facility.name, city: facility.city, campusType: facility.campusType }, setWhere: sql`${facilities.training} = 1` });
+  }
   const capacitySeedRows = CAPACITY_SEED.map(([facilityCode, unitCode, resourceCode, resourceLabel, total, occupied, reserved, blocked, cleaning, staffed, dischargeForecast]) => ({
     facilityCode, unitCode, resourceCode, resourceLabel, total, occupied, reserved, blocked, cleaning, staffed,
     dischargeForecast, incoming: 0, outgoing: 0, status: capacityState({ total, occupied, reserved, blocked, cleaning, staffed }), training: true, updatedAt: at,
@@ -194,6 +200,7 @@ export async function ensureControlTowerBaseline(db: Db, at = new Date()) {
 }
 
 export async function advanceControlTower(db: Db, at = new Date()): Promise<ControlTowerHeartbeat> {
+  if (!demoEnabled()) return { ...currentControlTowerHeartbeat(at), enabled: false };
   await ensureControlTowerBaseline(db, at);
   const cycle = Math.floor(at.getTime() / CYCLE_MS);
   const cycleStartedAt = cycle * CYCLE_MS;
@@ -211,7 +218,7 @@ export async function advanceControlTower(db: Db, at = new Date()): Promise<Cont
   await refreshShiftTelemetry(db, at);
 
   return {
-    enabled: true,
+    enabled: demoEnabled(),
     disclosure: "Kimliksiz sistemler arası pilot verisi",
     runReference, transferReference, ticketReference, scenarioCode: scenario.code,
     sourceFacilityCode: scenario.sourceFacilityCode, targetFacilityCode: scenario.targetFacilityCode, unitCode: scenario.unitCode,
@@ -227,7 +234,7 @@ export function currentControlTowerHeartbeat(at = new Date()): ControlTowerHeart
   const step = Math.min(STEP_COUNT - 1, Math.floor((at.getTime() - cycleStartedAt) / STEP_MS));
   const suffix = Math.abs(cycle).toString(36).toUpperCase().padStart(7, "0");
   return {
-    enabled: true,
+    enabled: demoEnabled(),
     disclosure: "Kimliksiz sistemler arası pilot verisi",
     runReference: `CTL-${scenario.code}-${suffix}`,
     transferReference: `XFR-${suffix}`,
@@ -491,7 +498,7 @@ function transferTaskStatus(status: string) {
 function transferTicketStatus(status: string) {
   const labels: Record<string, string> = {
     received: "Sistem talebi alındı", checking: "Otomatik kontrol", auto_accepted: "Otomatik kabul",
-    auto_rejected: "Kapasite yok", auto_rerouted: "Alternatife otomatik aktarıldı", scheduled: "Otomatik planlandı",
+    auto_rejected: "Kapasite yok · koordinatör kararı", auto_rerouted: "Alternatif önerildi", scheduled: "Otomatik planlandı",
     transport_assigned: "Transport atandı", in_transit: "Sevk başladı", completed: "Çözüldü",
   };
   return labels[status] || status;
@@ -500,7 +507,7 @@ function transferTicketStatus(status: string) {
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
     received: "Sistem talebi alındı", checking: "Otomatik kontrol sürüyor", auto_accepted: "Kapasite ön kabulü verildi",
-    auto_rejected: "Kapasite olmadığı için kabul edilmedi", auto_rerouted: "Alternatif kampüse yönlendirildi",
+    auto_rejected: "Kapasite görünmüyor; kabul/ret kararı koordinatörde", auto_rerouted: "Alternatif kampüs önerildi (eğitim senaryosu)",
     scheduled: "Transfer planlandı", transport_assigned: "Transport atandı", in_transit: "Sevk sürüyor", completed: "Devir tamamlandı",
   };
   return labels[status] || status;

@@ -4,8 +4,8 @@ export type RoleKey = "operations_manager" | "unit_manager" | "clinician" | "cal
 export const ROLE_MAP: Record<RoleKey, { title: string; home: string; homePath: string; does: string[]; cannot: string[] }> = {
   operations_manager: {
     title: "Operasyon Yöneticisi",
-    home: "Ortak İş Kutusu (tüm birimler) · Personel ve Yetki", homePath: "/inbox",
-    does: ["Tüm birimleri ve hastaneleri görür", "Personel ekler, rol ve birim atar, pasife alır", "İnsan onayı verir, devirleri izler ve iptal eder", "Otomasyonu başlatır, güvenlik olaylarını görür"],
+    home: "Operasyon Merkezi (dikkat şeridi, akışlar, birimler)", homePath: "/merkez",
+    does: ["Tüm birimleri ve hastaneleri görür", "Personel ekler, rol ve birim atar, pasife alır", "İnsan onayı verir, devirleri izler ve iptal eder", "Otomasyonu durdurur/başlatır, güvenlik olaylarını görür"],
     cannot: ["Kendi hesabını pasife alamaz veya rolünü düşüremez"],
   },
   unit_manager: {
@@ -35,7 +35,7 @@ export const ROLE_MAP: Record<RoleKey, { title: string; home: string; homePath: 
   security_officer: {
     title: "Bilgi Güvenliği Yetkilisi",
     home: "Siber Güvenlik Merkezi", homePath: "/security",
-    does: ["Güvenlik olaylarını ve webhook durumunu izler", "Otomasyonu durdurup yeniden çalıştırabilir", "Denetim izini okur"],
+    does: ["Güvenlik olaylarını ve webhook durumunu izler", "Otomasyonu acil durdurma anahtarıyla durdurur ve yeniden başlatır", "Denetim izini okur"],
     cannot: ["Talep, onay veya devir üzerinde işlem yapamaz (görev ayrılığı)"],
   },
 };

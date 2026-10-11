@@ -2,6 +2,7 @@
 // Yapılandırılmış operasyon formları (hasta nakli, taburculuk) ve FHIR R4 kapasite doğrulayıcı.
 // Tüm doğrulama sunucuda yapılır; bu bileşen yalnız formu toplar ve sonucu gösterir.
 import { useState, type FormEvent } from "react";
+import Field from "./field";
 
 const DISCHARGE_ITEMS = [
   ["epikriz", "Epikriz / çıkış özeti hazır"], ["recete", "Reçete ve ilaç teslimi planlandı"], ["egitim", "Hasta/yakın bilgilendirmesi yapıldı"],
@@ -41,11 +42,11 @@ export function OperationsForms() {
         <button role="tab" aria-selected={kind === "discharge"} className={kind === "discharge" ? "active" : ""} onClick={() => setKind("discharge")}>Taburculuk</button>
       </div>
       <form className="of-form" onSubmit={submit} key={kind}>
-        <label>Hasta / protokol takma adı<input name="patientAlias" required minLength={3} maxLength={40} pattern="[A-Za-zÇĞİÖŞÜçğıöşü0-9._\-]+" placeholder="ör. HST-2026-041" /></label>
+        <Field label="Hasta / protokol takma adı" required><input name="patientAlias" required minLength={3} maxLength={40} pattern="[A-Za-zÇĞİÖŞÜçğıöşü0-9._\-]+" placeholder="ör. HST-2026-041" /></Field>
         {kind === "transport" ? <>
-          <label>Alınacak yer<input name="from" required minLength={2} maxLength={80} placeholder="ör. Radyoloji" /></label>
-          <label>Götürülecek yer<input name="to" required minLength={2} maxLength={80} placeholder="ör. Kardiyoloji 3. kat" /></label>
-          <label>Taşıma şekli<select name="mobility" required defaultValue=""><option value="" disabled>Seçin</option>{["Yürüyerek", "Tekerlekli sandalye", "Sedye", "Yatakla"].map((m) => <option key={m}>{m}</option>)}</select></label>
+          <Field label="Alınacak yer" required><input name="from" required minLength={2} maxLength={80} placeholder="ör. Radyoloji" /></Field>
+          <Field label="Götürülecek yer" required><input name="to" required minLength={2} maxLength={80} placeholder="ör. Kardiyoloji 3. kat" /></Field>
+          <Field label="Taşıma şekli" required><select name="mobility" required defaultValue=""><option value="" disabled>Seçin</option>{["Yürüyerek", "Tekerlekli sandalye", "Sedye", "Yatakla"].map((m) => <option key={m}>{m}</option>)}</select></Field>
           <label>Öncelik<select name="priority" defaultValue="Normal"><option>Normal</option><option>Yüksek</option></select></label>
           <label>Saat (boşsa hemen)<input name="when" type="time" /></label>
           <fieldset className="of-wide of-checks"><legend>Gerekli ekipman / eşlik</legend>
@@ -54,8 +55,8 @@ export function OperationsForms() {
             <label className="of-check"><input type="checkbox" name="escort" />Refakatçi personel</label>
           </fieldset>
         </> : <>
-          <label>Servis / oda<input name="ward" required minLength={2} maxLength={60} placeholder="ör. Dahiliye 4B / 12" /></label>
-          <label>Planlanan taburculuk tarihi<input name="plannedDate" type="date" required /></label>
+          <Field label="Servis / oda" required><input name="ward" required minLength={2} maxLength={60} placeholder="ör. Dahiliye 4B / 12" /></Field>
+          <Field label="Planlanan taburculuk tarihi" required><input name="plannedDate" type="date" required /></Field>
           <fieldset className="of-wide of-checks"><legend>Tamamlanan adımlar (işaretlenmeyenler açık engel olarak birime iletilir)</legend>
             {DISCHARGE_ITEMS.map(([id, label]) => <label key={id} className="of-check"><input type="checkbox" name="done" value={id} />{label}</label>)}
           </fieldset>
@@ -80,7 +81,7 @@ export function FhirValidator() {
     const r = await fetch("/api/integrations/fhir", { cache: "no-store" });
     const d = await r.json() as { sample?: unknown; error?: string };
     if (!r.ok) { setMessage(d.error || "Örnek alınamadı."); return; }
-    setText(JSON.stringify(d.sample, null, 2)); setReport(null); setMessage("Sentetik örnek yüklendi.");
+    setText(JSON.stringify(d.sample, null, 2)); setReport(null); setMessage("Örnek veriyle doldurndi.");
   }
   async function run() {
     setBusy(true); setMessage("");
@@ -94,7 +95,7 @@ export function FhirValidator() {
   return (
     <section className="panel of-panel" aria-labelledby="fhir-title">
       <div className="panel-head"><div><h3 id="fhir-title">FHIR R4 kapasite doğrulayıcı (test)</h3><p>HBYS&apos;nin göndereceği <code>Bundle</code> (Location, yatak durumu HL7 v2-0116) yapıştırılır; yataklar birimlere eşlenir. <b>Canlı bağlantı değildir, hiçbir veri saklanmaz</b>; entegrasyon öncesi eşleme ve veri kalitesi testi içindir.</p></div>
-        <button type="button" className="of-secondary" onClick={() => void loadSample()}>Sentetik örnek yükle</button></div>
+        <button type="button" className="of-secondary" onClick={() => void loadSample()}>Örnek veriyle doldur</button></div>
       <label className="of-code">FHIR Bundle (JSON)<textarea value={text} onChange={(e) => setText(e.target.value)} rows={10} spellCheck={false} placeholder='{"resourceType":"Bundle","type":"collection","entry":[…]}' /></label>
       <div className="of-actions"><button type="button" disabled={busy || !text.trim()} onClick={() => void run()}>{busy ? "Doğrulanıyor…" : "Doğrula"}</button></div>
       {message && <p className="of-message" role="status">{message}</p>}

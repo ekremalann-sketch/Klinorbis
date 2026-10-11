@@ -6,7 +6,7 @@ async function render(path) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("seo", `${process.pid}-${path}`);
   const { default: worker } = await import(workerUrl.href);
-  const response = await worker.fetch(new Request(`https://klinorbis.example${path}`, { headers: { accept: "text/html" } }),
+  const response = await worker.fetch(new Request(`https://klinorbis.ekremalan.chatgpt.site${path}`, { headers: { accept: "text/html" } }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
   return response.text();
 }
@@ -33,7 +33,7 @@ test("robots, sitemap ve security.txt yalnız herkese açık sayfaları duyurur"
   const [robots, sitemap, security] = await Promise.all(["robots.txt", "sitemap.xml", ".well-known/security.txt"].map((f) => readFile(new URL(`../public/${f}`, import.meta.url), "utf8")));
   assert.match(robots, /Disallow: \//);
   assert.match(robots, /Allow: \/demo/);
-  assert.equal((sitemap.match(/<loc>/g) || []).length, 4);
+  assert.equal((sitemap.match(/<loc>/g) || []).length, 8);
   assert.ok(!/inbox|requests|api/.test(sitemap));
   assert.match(security, /^Contact: https:/m);
   assert.ok(new Date(security.match(/^Expires: (.+)$/m)[1]) > new Date());
