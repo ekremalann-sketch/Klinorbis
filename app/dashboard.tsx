@@ -9,6 +9,7 @@ import { FhirValidator, OperationsForms } from "./operations-forms";
 
 
 import { workspaceContentKey } from "../lib/workspace-content";
+import { filterInboxTasks } from "../lib/inbox";
 import { ScreenHelpBox } from "./screen-help-box";
 
 import {
@@ -1247,14 +1248,7 @@ export default function Dashboard({
           />
         )}
         {initialView === "inbox" && (
-          <TicketWorkspace
-            title="Ortak iş kutusu"
-            text="Yetkili olduğunuz birimlerdeki gerçek görevler; kabul, aktarım ve sonuç aynı kayıt zincirindedir."
-            snapshot={snapshot}
-            query={query}
-            setQuery={setQuery}
-            open={(reference) => navigate("inbox", reference)}
-          />
+          <InboxWorkspace snapshot={snapshot} query={query} setQuery={setQuery} open={(task) => softGo(taskPath(task))} />
         )}
         {initialView === "flow" && (
           <FlowWorkspace
@@ -1887,6 +1881,20 @@ function TicketTable({
     </div>
   );
 }
+function InboxWorkspace({ snapshot, query, setQuery, open }: { snapshot: Snapshot; query: string; setQuery: (value: string) => void; open: (task: Task) => void }) {
+  const [scope, setScope] = useState<"open" | "mine" | "urgent" | "scheduled" | "all">("open");
+  const searchable = snapshot.tasks.map(task => ({ ...task, searchText: `${unitName(snapshot, task.unitCode)} ${taskSource(task)}` }));
+  const rows = filterInboxTasks(searchable, scope, snapshot.identity.email ?? "", query);
+  const filters = [["open", "Açık"], ["mine", "Benim üstlendiklerim"], ["urgent", "Acil / yüksek"], ["scheduled", "Zamanı beklenen"], ["all", "Tümü"]] as const;
+  return <><Hero title="Ortak iş kutusu" text="Talep, çağrı, operasyon akışı ve hasta bilgilendirme görevleri aynı kuyrukta. Görevi açınca kendi işlem ekranına geçersiniz." />
+    <label>Görev ara<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Referans, birim veya sorumlu rol" /></label>
+    <div className="quick-row" role="group" aria-label="Görev filtresi">{filters.map(([key, label]) => <button key={key} type="button" aria-pressed={scope === key} onClick={() => setScope(key)}>{label} {filterInboxTasks(searchable, key, snapshot.identity.email ?? "", "").length}</button>)}</div>
+    <p role="status">{rows.length} görev · {scope === "scheduled" ? "Bu işler zamanı gelmeden işleme alınmaz." : "Acil ve yüksek öncelik, ardından en erken hedef süre önce gösterilir."}</p>
+    <TaskList snapshot={snapshot} tasks={rows} open={open} />
+    {!rows.length && <p>Bu filtrede görev yok. Tümü filtresini veya arama ifadesini kontrol edin.</p>}
+  </>;
+}
+
 function TaskList({
   snapshot,
   tasks,
