@@ -2364,7 +2364,7 @@ function CallsWorkspace({
             <div className="summary-box">
               <b>Yapılandırılmış görüşme özeti</b>
               <p>
-                {selected.summary ||
+                {selected.status === "completed" && (!selected.summary || selected.summary.startsWith("Görüşme sürüyor")) ? "Görüşme sonuçlandırıldı. Görevli notları ve kapanış kaydı aşağıdaki konuşma geçmişindedir." : selected.summary ||
                   "Görüşme sürüyor; görevli doğrulaması sonrası özet oluşacak."}
               </p>
               <small>
@@ -3187,7 +3187,7 @@ function ReportsWorkspace({ snapshot }: { snapshot: Snapshot }) {
     <>
       <Hero
         title="Canlı, görevli ve dışa aktarılabilir operasyon raporları"
-        text="Raporlar zamanlanmış sunucu göreviyle otomatik yenilenir; hastane, birim, kapasite, sevk, taburculuk, vardiya ve otomasyon verisini yetki kapsamına göre gösterir."
+        text={snapshot.features?.demo ? "Eğitim raporları zamanlanmış gösterim çevriminden gelir; kurgusal veriler kullanır." : "Rapor özeti ekran yenilemesinde güncel sunucu kayıtlarından hesaplanır. CSV, indirme anındaki yetkili veriyi içerir; eğitim raporu sonuçları canlı değer olarak gösterilmez."}
       />
       <section className="stats">
         <Stat value={`${occupancy}%`} label="Kaynak kullanımı" />
@@ -3197,7 +3197,7 @@ function ReportsWorkspace({ snapshot }: { snapshot: Snapshot }) {
         <Stat value={snapshot.tasks.length} label="Görev kaydı" />
         <Stat value={completed} label="Tamamlanan görev" />
         <Stat value={snapshot.jobs.deadLetter} label="Karantina" />
-        <Stat value={snapshot.reports.filter((report) => report.status === "active").length} label="Aktif rapor görevi" />
+        <Stat value={snapshot.reports.filter((report) => report.status === "active").length} label={snapshot.features?.demo ? "Aktif rapor görevi" : "Kullanılabilir rapor türü"} />
       </section>
       <section className="report-assignment-grid">
         {snapshot.reports.map((report) => (
@@ -3210,7 +3210,7 @@ function ReportsWorkspace({ snapshot }: { snapshot: Snapshot }) {
       </section>
       {selected && (
         <section className="panel report-detail">
-          <div className="panel-head"><div><h3>{selected.title}</h3><p>{selected.assignedRole} rolüne görevli · sonraki çalışma {formatTime(selected.nextRunAt)}</p></div><ExportMenu><a className="secondary button-link" href={`/api/reports/export?report=${encodeURIComponent(selected.reportCode)}`} download>CSV indir</a></ExportMenu></div>
+          <div className="panel-head"><div><h3>{selected.title}</h3><p>{selected.assignedRole} · {snapshot.features?.demo ? `sonraki çalışma ${formatTime(selected.nextRunAt)}` : `anlık görünüm ${formatTime(selected.lastRunAt)}`}</p></div><ExportMenu><a className="secondary button-link" href={`/api/reports/export?report=${encodeURIComponent(selected.reportCode)}`} download>CSV indir</a></ExportMenu></div>
           <div className="report-kpi-grid">
             {Object.entries(selected.result).slice(0, 12).map(([key, value]) => <span key={key}><small>{reportMetricLabel(key)}</small><b>{formatMetricValue(value)}</b></span>)}
             {!Object.keys(selected.result).length && <div className="empty">İlk zamanlanmış rapor çevrimi hazırlanıyor.</div>}

@@ -255,7 +255,9 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
       .map((row) => ({
         ...row,
         scopeType: actor.canSeeAllUnits ? row.scopeType : "unit",
-        result: actor.canSeeAllUnits ? safeJsonObject(row.resultJson) : reportResult,
+        // A prior training snapshot must never appear as current live data.
+        result: actor.canSeeAllUnits && demoEnabled() ? safeJsonObject(row.resultJson) : reportResult,
+        ...(!demoEnabled() ? { schedule: "Ekran yenilemesinde anlık", lastRunAt: new Date(reportResult.generatedAt), nextRunAt: null } : {}),
       })),
     security: recentSecurity,
     staff: staffRows.map((account) => ({
