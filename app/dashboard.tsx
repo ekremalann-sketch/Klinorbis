@@ -2743,7 +2743,7 @@ function CapacityWorkspace({
               <em className={`capacity-state ${capacityStatus(row)}`}>{capacityStatusLabel(row)}</em>
             </button>
           ))}
-          {!capacity.length && <div className="empty">Yetki kapsamınızda kapasite kaydı yok.</div>}
+          {!capacity.length && <div className="empty"><b>Kapasite verisi henüz yok</b><p>Bu kapsamda kaynak kaydı alınmadı. Sıfır değeri hastanenin dolu olduğunu göstermez. Gerçek kapasite için kurumun kaynak entegrasyonu ve personelli kapasite tanımları tamamlanmalıdır.</p><Link href="/demo">Kurgusal kapasite akışını demo üzerinden dene →</Link></div>}
         </section>
         <section className="panel transfer-decisions">
           <div className="panel-head"><div><h3>Otomatik kabul / ret / alternatif kararları</h3><p>Her kararın gerekçesi ve hedef hastanesi görünür.</p></div><span>{transfers.length}</span></div>
@@ -2759,7 +2759,7 @@ function CapacityWorkspace({
       </div>
       <div className="legal-note">
         <b>Veri gerçeği ve klinik sınır</b>
-        <p>Kimliksiz eğitim kapasite verisi; HBYS/RTLS bağlantısı değildir. Motor yalnız operasyonel kaynak ön kabulü, ret ve alternatif kampüs kararı verir. Teşhis, tedavi veya klinik uygunluk kararı üretmez.</p>
+        <p>{snapshot.features?.demo ? "Eğitim modu etkin; kurgusal kapasite kayıtları gerçek kurum verisinden ayrı değerlendirilmelidir." : "Canlı mod: yalnız sunucuda kayıtlı kaynaklar gösterilir. Kurum entegrasyonu doğrulanmadan HBYS/RTLS bağlantısı veya güncel fiziksel kapasite varsayılmamalıdır."} Motor yalnız operasyonel kaynak ön kabulü, ret ve alternatif kampüs kararı verir. Teşhis, tedavi veya klinik uygunluk kararı üretmez.</p>
       </div>
     </>
   );
@@ -3450,6 +3450,7 @@ function TicketDrawer({
   const nextLabel={accept:"Görevi üstlen",start:"İşleme al",resolve:"Görevi sonuçlandır"}[nextAction];
   const [targetUnit, setTargetUnit] = useState("");
   const working = busy.startsWith(`${ticket.reference}:`);
+  const transferTarget = targetUnit !== ticket.unitCode && snapshot.units.some(unit => unit.code === targetUnit) ? targetUnit : "";
   const transfer = snapshot.transfers.find((item) => item.ticketReference === ticket.reference);
   const targetCapacity = transfer
     ? snapshot.capacity.find((row) => row.facilityCode === transfer.targetFacilityCode && row.unitCode === transfer.requestedUnitCode && row.resourceCode === transfer.resourceCode)
@@ -3528,17 +3529,17 @@ function TicketDrawer({
               className="drawer-transfer"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (targetUnit) act(ticket.reference, "transfer", targetUnit);
+                if (transferTarget) act(ticket.reference, "transfer", transferTarget);
               }}
             >
               <label htmlFor={`transfer-${ticket.reference}`}>Başka birime aktar</label>
-              <select id={`transfer-${ticket.reference}`} value={targetUnit} onChange={(event) => setTargetUnit(event.target.value)} required>
+              <select id={`transfer-${ticket.reference}`} value={transferTarget} onChange={(event) => setTargetUnit(event.target.value)} required>
                 <option value="">Hedef birim seçin</option>
                 {snapshot.units.filter((unit) => unit.code !== ticket.unitCode).map((unit) => (
                   <option key={unit.code} value={unit.code}>{unit.name}</option>
                 ))}
               </select>
-              <button type="submit" disabled={working || !targetUnit}>Aktar</button>
+              <button type="submit" disabled={working || !transferTarget}>Aktar</button>
             </form>
             {working && <p className="muted" role="status">İşleniyor…</p>}
           </section>

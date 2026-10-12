@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import SalesSandbox from "./sales-sandbox";
 
 const views = {
   overview: {
@@ -45,6 +46,7 @@ export default function PublicDemo(){
       <Link className="demo-back" href="/en/demo" hrefLang="en">English demo</Link>
     </aside>
     <section className="demo-main"><div className="workspace-demo-entry"><p>Bu demo örnekleri gösterir. Talep oluşturmak ve başka birime aktarmak için yetkili çalışma alanını açın.</p><Link href="/workspace">Talep yönetimini aç</Link></div>
+      <SalesSandbox />
       <header className="demo-topbar"><div><span>Kontrol merkezi · Örnek senaryo</span><h1>{current.title}</h1></div><div className="demo-status">Sentetik veriler</div></header>
       <div className="demo-kpis">{current.cards.map(([label,value,note])=><article key={label}><small>{label}</small><strong>{value}</strong><span>{note}</span></article>)}</div>
       <div className="demo-grid">

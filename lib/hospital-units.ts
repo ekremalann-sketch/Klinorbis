@@ -101,8 +101,9 @@ export const HOSPITAL_UNITS: HospitalUnitSeed[] = [
 
 export function findUnit(value?: string | null) {
   if (!value) return HOSPITAL_UNITS.find((unit) => unit.code === "HIL")!;
+  const code = value.trim().toUpperCase();
   const normalized = value.toLocaleLowerCase("tr-TR").trim();
-  return HOSPITAL_UNITS.find((unit) => unit.code.toLowerCase() === normalized || unit.name.toLocaleLowerCase("tr-TR") === normalized)
+  return HOSPITAL_UNITS.find((unit) => unit.code === code || unit.name.toLocaleLowerCase("tr-TR") === normalized)
     ?? HOSPITAL_UNITS.find((unit) => unit.code === "HIL")!;
 }
 
