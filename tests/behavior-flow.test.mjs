@@ -85,17 +85,19 @@ await test("7) çözülmüş talep yeniden işlenemez (çift gönderim/eski sekm
   assert.equal(events, 1);
 });
 let emergency;
-await test("8) acil olasılık sinyali: otomasyon durur, ACY'de insan onayı açılır; yetkili klinisyen onaylar", async () => {
-  const r = await ticketsRoute.POST(call("POST", "/api/tickets", "agent", { patientAlias: "HST-SENTETIK-02", unitCode: "ACY", subject: "Yetkili personelin seçtiği klinik devir (sentetik senaryo)" }));
+await test("8) acil ifade: otomatik bildirim durur, 112 bilgilendirmesi ve görevli incelemesi açılır; birim/öncelik puanlanmaz", async () => {
+  const r = await ticketsRoute.POST(call("POST", "/api/tickets", "agent", { patientAlias: "HST-SENTETIK-02", subject: "Arayan kişi göğüs ağrısı tarif ediyor (sentetik senaryo)" }));
   assert.equal(r.status, 201);
-  emergency = (await r.json()).ticket.reference;
- sqlite.prepare("UPDATE tickets SET human_approval_required=1,status='Personele aktarıldı' WHERE reference=?").run(emergency);
- sqlite.prepare("INSERT INTO approvals(reference,ticket_reference,unit_code,approval_type,status,requested_by,created_at) VALUES(?,?,'ACY','clinical_handoff','pending','explicit-test-authority',?)").run('ONAY-'+emergency,emergency,Date.now());
-  assert.equal(ticket(emergency).unit_code, "ACY");
+  const body = await r.json();
+  emergency = body.ticket.reference;
+  assert.notEqual(ticket(emergency).unit_code, "ACY");
+  assert.equal(sqlite.prepare("SELECT priority FROM tickets WHERE reference = ?").get(emergency).priority, "Normal");
+  assert.match(body.automation.emergencyNotice, /112/);
   const approval = sqlite.prepare("SELECT reference, status FROM approvals WHERE ticket_reference = ?").get(emergency);
   assert.equal(approval.status, "pending");
   assert.equal((await approvalsRoute.POST(call("POST", "/api/approvals", "agent", { reference: approval.reference, decision: "approve" }))).status, 403);
-  assert.equal((await approvalsRoute.POST(call("POST", "/api/approvals", "clin", { reference: approval.reference, decision: "approve" }))).status, 200);
+  assert.equal((await approvalsRoute.POST(call("POST", "/api/approvals", "clin", { reference: approval.reference, decision: "approve" }))).status, 403, "başka birimin klinisyeni karar veremez");
+  assert.equal((await approvalsRoute.POST(call("POST", "/api/approvals", "ops", { reference: approval.reference, decision: "approve" }))).status, 200, "görevli incelemesini birim/operasyon yöneticisi kapatır");
   assert.deepEqual([ticket(emergency).status, task(emergency).status], ["Kabul edildi", "accepted"]);
 });
 await test("9) çalışma alanı: birim kullanıcısı yalnız kendi biriminin talep, görev, vardiya ve onaylarını görür", async () => {

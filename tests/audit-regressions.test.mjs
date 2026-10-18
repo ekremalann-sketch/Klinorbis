@@ -17,7 +17,7 @@ await test('privacy officer cannot create operations or unmasked call messages',
 await test('pending approval prevents ticket completion; late approval never reopens a closed ticket',async()=>{
  const {sqlite}=await fixture();
  const tickets=await loadRoute('app/api/tickets/route.ts');const approvals=await loadRoute('app/api/approvals/route.ts');
- const response=await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ACIL-01',subject:'gogus agrisi var'},OWNER));assert.equal(response.status,201);const {ticket}=await response.json();
+ const response=await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ACIL-01',subject:'İdari görev onayı gerekli'},OWNER));assert.equal(response.status,201);const {ticket}=await response.json();
  sqlite.prepare("UPDATE tickets SET human_approval_required=1,status='Personele aktarıldı' WHERE reference=?").run(ticket.reference);
  sqlite.prepare("INSERT INTO approvals(reference,ticket_reference,unit_code,approval_type,status,requested_by,created_at) VALUES(?,?,'HIL','clinical_handoff','pending','explicit-test-authority',?)").run('ONAY-'+ticket.reference,ticket.reference,Date.now());
 
@@ -29,7 +29,7 @@ await test('pending approval prevents ticket completion; late approval never reo
 });
 await test('valid approval atomically updates the pending ticket and task',async()=>{
  const {sqlite}=await fixture();const tickets=await loadRoute('app/api/tickets/route.ts');const approval=await loadRoute('app/api/approvals/route.ts');
- const {ticket}=await (await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ONAY-01',subject:'nefes alamiyorum'},OWNER))).json();
+ const {ticket}=await (await tickets.POST(browserJson('/api/tickets',{patientAlias:'DEMO-ONAY-01',subject:'İdari görev onayı gerekli'},OWNER))).json();
  sqlite.prepare("UPDATE tickets SET human_approval_required=1,status='Personele aktarıldı' WHERE reference=?").run(ticket.reference);
  sqlite.prepare("INSERT INTO approvals(reference,ticket_reference,unit_code,approval_type,status,requested_by,created_at) VALUES(?,?,'HIL','clinical_handoff','pending','explicit-test-authority',?)").run('ONAY-'+ticket.reference,ticket.reference,Date.now());
 

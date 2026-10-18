@@ -5048,5 +5048,6 @@ label:not(.required-field):not(:has(.field-star)):has(> :is(input, select, texta
 .mg-money{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 14px}.mg-money p{margin:4px 0}
 .mg-assume{display:flex;flex-wrap:wrap;gap:12px}.mg-assume label{display:flex;flex-direction:column;gap:3px;font-size:13px;font-weight:650}
 @media print{.weekly .mg-assume,.weekly .mg-head button,.pa-tabs{display:none!important}}
+.profile-banner{margin:0 0 8px;font-size:12.5px;font-weight:650;color:#7a2e0e;background:#fff4e5;border:1px solid #f5c98b;border-radius:10px;padding:5px 12px}
 
 .sim-label{position:sticky;top:0;z-index:5;max-width:100%;border-radius:12px}

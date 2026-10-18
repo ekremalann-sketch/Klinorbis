@@ -4,7 +4,7 @@ import { approvals, automationEvents, callMessages, callSessions, integrationEve
 import { appendAudit } from "../../../../lib/audit";
 import { findUnit, HOSPITAL_UNITS } from "../../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../../lib/operations";
-import { redactPII, urgencySignal, validPatientAlias } from "../../../../lib/privacy";
+import { EMERGENCY_NOTICE_TEXT, emergencyWordsNotice, redactPII, validPatientAlias } from "../../../../lib/privacy";
 import { cleanText, getWebhookSecret, recordSecurityEvent, securityResponse, sha256 } from "../../../../lib/security";
 import { replayKey, verifyPbxSignature } from "../../../../lib/webhook-signature";
 
@@ -84,22 +84,22 @@ export async function POST(request: Request) {
       if (!call) return Response.json({ error: "Önce call.started olayı gönderilmelidir.", code: "CALL_NOT_FOUND" }, { status: 409 });
       const text = cleanText(payload.text, "Konuşma metni", 1, 4_000);
       const redaction = redactPII(text);
-      const signal = urgencySignal(redaction.maskedText);
-      destination = signal.isEmergency ? findUnit("ACY") : findUnit(call.unitCode);
+      const signal = emergencyWordsNotice(redaction.maskedText); // ADR-003: puan/yönlendirme yok
+      destination = findUnit(call.unitCode);
       const [last] = await db.select().from(callMessages).where(eq(callMessages.callReference, callReference)).orderBy(desc(callMessages.sequence)).limit(1);
       const sequence = (last?.sequence || 0) + 1;
       const speakerType = typeof payload.speakerType === "string" && ["caller", "agent", "clinician"].includes(payload.speakerType) ? payload.speakerType : "caller";
       const speakerLabel = speakerType === "caller" ? "Arayan" : speakerType === "clinician" ? "Klinik rol" : "Çağrı görevlisi";
       await db.insert(callMessages).values({ callReference, sequence, speakerType, speakerLabel, message: redaction.maskedText, redacted: redaction.detected.length > 0, createdAt: new Date() });
-      if (signal.isEmergency) {
-        await db.insert(approvals).values({ reference: `ONAY-${callReference}-ACIL`, callReference, unitCode: "ACY", approvalType: "clinical_handoff", requestedBy: `integration:${source}`, status: "pending", createdAt: new Date() }).onConflictDoNothing();
-        await db.update(callSessions).set({ status: "human_handoff", unitCode: destination.code, assignedRole: destination.assignedRole, requiresHuman: true, lastMessageAt: new Date(), summary: "Acil olasılık sinyali algılandı; otomatik işlem durduruldu ve klinik insan devri açıldı." }).where(eq(callSessions.reference, callReference));
-        await db.update(operationalTasks).set({ unitCode: destination.code, assignedRole: destination.assignedRole, status: "queued", priority: "Acil", dueAt: new Date(Date.now() + 2 * 60_000), updatedAt: new Date() }).where(eq(operationalTasks.callReference, callReference));
-        await db.insert(callMessages).values({ callReference, sequence: sequence + 1, speakerType: "assistant", speakerLabel: "Kural tabanlı güvenlik kontrolü", message: `Acil olasılık sinyali: ${signal.matched}. Normal otomasyon durduruldu; ${destination.assignedRole} devri açıldı.`, redacted: false, createdAt: new Date() });
+      if (signal.notice) {
+        await db.insert(approvals).values({ reference: `ONAY-${callReference}-112`, callReference, unitCode: destination.code, approvalType: "staff_review", requestedBy: `integration:${source}`, status: "pending", createdAt: new Date() }).onConflictDoNothing();
+        await db.update(callSessions).set({ status: "human_handoff", unitCode: destination.code, assignedRole: destination.assignedRole, requiresHuman: true, lastMessageAt: new Date(), summary: "Metinde acil durum ifadesi geçti; arayana 112 bilgilendirmesi yapılmalı. Otomatik akış durduruldu, görüşmeyi görevli sürdürür. Klinik değerlendirme yapılmadı." }).where(eq(callSessions.reference, callReference));
+        await db.update(operationalTasks).set({ status: "queued", updatedAt: new Date() }).where(eq(operationalTasks.callReference, callReference));
+        await db.insert(callMessages).values({ callReference, sequence: sequence + 1, speakerType: "assistant", speakerLabel: "Kural tabanlı güvenlik kontrolü", message: `${EMERGENCY_NOTICE_TEXT} Otomatik işlem durduruldu; ${destination.assignedRole} devraldı.`, redacted: false, createdAt: new Date() });
       } else {
         await db.update(callSessions).set({ status: call.requiresHuman ? "human_handoff" : "active", lastMessageAt: new Date() }).where(eq(callSessions.reference, callReference));
       }
-      outcome = signal.isEmergency ? `${destination.name} insan devri açıldı.` : `Konuşma satırı güvenli biçimde eklendi.`;
+      outcome = signal.notice ? `${destination.name}: 112 bilgilendirmesi ve görevli devri.` : `Konuşma satırı güvenli biçimde eklendi.`;
     } else if (eventType === "call.ended") {
       await db.update(callSessions).set({ status: "completed", endedAt: new Date(), lastMessageAt: new Date() }).where(eq(callSessions.reference, callReference));
       await db.update(operationalTasks).set({ status: "completed", updatedAt: new Date() }).where(eq(operationalTasks.callReference, callReference));

@@ -15,9 +15,9 @@ await test('Yetkisiz durdurma reddedilir; durdurma kalıcıdır ve denetim kayd�
  assert.equal(sqlite.prepare("select count(*) n from audit_logs where action='automation.pause'").get().n,1);
  assert.equal((await control.POST(browserJson('/api/automation/control',{paused:false},owner))).status,200);
 });
-await test('Belirti metni klinik aciliyet veya klinik yönlendirme üretmez',async()=>{
- const {urgencySignal}=await loadRoute('lib/privacy.ts');for(const text of ['kalp krizi geçiriyor','zehirlenme şüphesi','anafilaksi başladı','çocukta havale var','ciddi yanık var'])assert.equal(urgencySignal(text).isEmergency,false,text);
- assert.equal(urgencySignal('kalp krizi yok').isEmergency,false);
+await test('Genişletilmiş acil sinyaller insan incelemesine aktarılır, olumsuzlama korunur',async()=>{
+ const {emergencyWordsNotice}=await loadRoute('lib/privacy.ts');for(const text of ['kalp krizi geçiriyor','zehirlenme şüphesi','anafilaksi başladı','çocukta havale var','ciddi yanık var'])assert.equal(emergencyWordsNotice(text).notice,true,text);
+ assert.equal(emergencyWordsNotice('kalp krizi yok').notice,false);
 });
 await test('Eski eğitim kayıtları üretim listelerine ve sayaçlarına girmez',async()=>{
  globalThis.__KLINORBIS_DEMO_ENABLED='1';globalThis.__KLINORBIS_OPERATIONAL_SEEDED=false;

@@ -9,7 +9,7 @@ import { automationEvents, callMessages, callSessions, operationalTasks } from "
 import { appendAudit } from "../../../lib/audit";
 import { findUnit } from "../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../lib/operations";
-import { redactPII, urgencySignal, validPatientAlias } from "../../../lib/privacy";
+import { EMERGENCY_NOTICE_TEXT, emergencyWordsNotice, redactPII, validPatientAlias } from "../../../lib/privacy";
 import { assertBrowserMutation, assertJsonRequest, cleanText, enforceRateLimit, requireActor, securityResponse } from "../../../lib/security";
 
 export const dynamic = "force-dynamic";
@@ -46,8 +46,9 @@ export async function POST(request: Request) {
     if (!validPatientAlias(patientAlias)) return Response.json({ error: "Takma ad kimlik bilgisi içeremez.", code: "ALIAS_INVALID" }, { status: 422 });
     const openingMessage = cleanText(body.openingMessage, "Gelen konuşma", 3, 2_000);
     const redaction = redactPII(openingMessage);
-    const signal = urgencySignal(redaction.maskedText);
-    const unit = signal.isEmergency ? findUnit("ACY") : findUnit("CAG");
+    // ADR-003: aciliyet puanı/klinik yönlendirme yok; acil ifade yalnız 112 bilgilendirmesi ve görevli devri açar.
+    const signal = emergencyWordsNotice(redaction.maskedText);
+    const unit = findUnit("CAG");
     const now = new Date();
     const reference = `CAG-${now.getTime().toString(36).slice(-7).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
     const taskReference = `TSK-${reference}`;
@@ -57,22 +58,22 @@ export async function POST(request: Request) {
       reference,
       patientAlias,
       source: "Görevli tarafından kaydedilen gelen çağrı",
-      status: signal.isEmergency ? "human_handoff" : "active",
+      status: signal.notice ? "human_handoff" : "active",
       unitCode: unit.code,
       assignedRole: unit.assignedRole,
-      summary: signal.isEmergency ? "Acil olasılık sinyali nedeniyle otomatik akış durduruldu; yetkili sağlık personeli devri bekleniyor." : "Görüşme sürüyor; sonuç özeti görevli onayından sonra oluşturulacak.",
+      summary: signal.notice ? "Metinde acil durum ifadesi geçti; arayana 112 bilgilendirmesi yapılmalı. Otomatik akış durduruldu, görüşmeyi görevli sürdürür. Klinik değerlendirme yapılmadı." : "Görüşme sürüyor; sonuç özeti görevli onayından sonra oluşturulacak.",
       training: false,
-      requiresHuman: signal.isEmergency,
+      requiresHuman: signal.notice,
       startedAt: now,
       lastMessageAt: now,
     });
     await db.insert(callMessages).values([
       { callReference: reference, sequence: 1, speakerType: "system", speakerLabel: "Sistem", message: "Gelen çağrı güvenli oturuma alındı; görüntülenen kimlik alanları maskelendi.", redacted: true, createdAt: now },
       { callReference: reference, sequence: 2, speakerType: "caller", speakerLabel: "Arayan", message: redaction.maskedText, redacted: redaction.detected.length > 0, createdAt: new Date(now.getTime() + 1) },
-      { callReference: reference, sequence: 3, speakerType: "assistant", speakerLabel: "Kural tabanlı güvenlik kontrolü", message: signal.isEmergency ? `Acil olasılık sinyali: ${signal.matched}. Klinik karar üretme; normal otomasyonu durdur ve insan devri aç.` : `${unit.name} yönlendirmesi önerildi. Klinik karar yok; görevli doğrulaması gerekli.`, redacted: false, createdAt: new Date(now.getTime() + 2) },
+      { callReference: reference, sequence: 3, speakerType: "assistant", speakerLabel: "Kural tabanlı güvenlik kontrolü", message: signal.notice ? `${EMERGENCY_NOTICE_TEXT} Otomatik akış durduruldu; görevli devraldı.` : `${unit.name} kuyruğuna alındı. Klinik karar yok; görevli doğrulaması gerekli.`, redacted: false, createdAt: new Date(now.getTime() + 2) },
     ]);
-    await db.insert(operationalTasks).values({ reference: taskReference, callReference: reference, unitCode: unit.code, assignedRole: unit.assignedRole, sourceType: "call", status: "queued", priority: signal.isEmergency ? "Acil" : "Normal", dueAt: new Date(now.getTime() + unit.slaMinutes * 60_000), createdAt: now, updatedAt: now });
-    await db.insert(automationEvents).values({ ticketReference: reference, rule: signal.isEmergency ? "Acil çağrı insan devri" : "Gelen çağrı görevlendirmesi", outcome: `${unit.name} · ${taskReference}`, unitCode: unit.code, eventType: "call_opened", actor: actor.email });
+    await db.insert(operationalTasks).values({ reference: taskReference, callReference: reference, unitCode: unit.code, assignedRole: unit.assignedRole, sourceType: "call", status: "queued", priority: "Normal", dueAt: new Date(now.getTime() + unit.slaMinutes * 60_000), createdAt: now, updatedAt: now });
+    await db.insert(automationEvents).values({ ticketReference: reference, rule: signal.notice ? "112 bilgilendirmesi ve görevli devri" : "Gelen çağrı görevlendirmesi", outcome: `${unit.name} · ${taskReference}`, unitCode: unit.code, eventType: "call_opened", actor: actor.email });
     await appendAudit(db, { actor: actor.email, action: "call.opened", resource: reference, detail: `unit:${unit.code}; task:${taskReference}; pii:${redaction.detected.join(",") || "none"}` });
     const [call] = await db.select().from(callSessions).where(eq(callSessions.reference, reference)).limit(1);
     const messages = await db.select().from(callMessages).where(eq(callMessages.callReference, reference));

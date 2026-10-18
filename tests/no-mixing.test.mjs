@@ -4,19 +4,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+// fileURLToPath: Windows'ta da doğru yol (URL.pathname "/C:/..." üretip boş tarama yapıyordu).
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 function walk(dir, out = []) {
   if (!existsSync(dir)) return out;
   for (const name of readdirSync(dir)) {
     if (["node_modules", ".git", "dist", ".next", "build"].includes(name)) continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(tsx?|css|json)$/.test(name)) out.push(full);
+    else if (/\.(tsx?|css|json|sql|mjs)$/.test(name)) out.push(full);
   }
   return out;
 }
-const files = ["app", "lib", "worker", "db"].flatMap((d) => walk(join(ROOT, d)));
+const files = ["app", "lib", "worker", "db", "core"].flatMap((d) => walk(join(ROOT, d)));
+
+test("tarama gerçekten dosya buldu (boş tarama yanlış güven vermesin)", () => {
+  assert.ok(files.length >= 100, `taranan dosya: ${files.length}`);
+  assert.ok(files.some((f) => f.endsWith("dashboard.tsx")));
+});
 
 test("Klinorbis kaynağında Teksanor adı ve saha servis modülleri geçmez", () => {
   const offenders = files.filter((file) => /teksanor|servis masası|iş emri modülü|teksanor_session/i.test(readFileSync(file, "utf8")));

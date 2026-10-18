@@ -168,17 +168,18 @@ test("webhook: saniye hassasiyetli (10 haneli) zaman damgası v2 kabul edilir; e
   assert.equal((await route.POST(pbxRequest({ body: ended, eventId: "evt-seconds-02", timestamp: seconds, scheme: "legacy" }))).status, 401);
 });
 
-test("webhook: belirti metni acil puan veya klinik yönlendirme üretmez", async () => {
+test("webhook: acil ifade 112 bilgilendirmesi ve görevli incelemesi açar (klinik yönlendirme yok), onaysız santral kapanışı reddedilir", async () => {
   const { route, count } = await webhookFixture();
   await route.POST(pbxRequest({ body: started, eventId: "evt-flow-0001" }));
   const urgent = { eventType: "transcript.final", callReference: "CALL-TEST-0001", text: "Arayan göğüs ağrısı tarif ediyor (sentetik)", speakerType: "caller" };
   const r = await route.POST(pbxRequest({ body: urgent, eventId: "evt-flow-0002" }));
   assert.equal(r.status, 202);
-  assert.equal((await r.json()).destination.unitCode, "CAG");
-  assert.equal(count("call_sessions", "reference = 'CALL-TEST-0001' AND status = 'human_handoff' AND requires_human = 1"), 0);
+  assert.notEqual((await r.json()).destination.unitCode, "ACY", "ADR-003: belirtiden klinik birime yönlendirme yapılmaz");
+  assert.equal(count("operational_tasks", "call_reference = 'CALL-TEST-0001' AND priority = 'Acil'"), 0, "öncelik puanı üretilmez");
+  assert.equal(count("call_sessions", "reference = 'CALL-TEST-0001' AND status = 'human_handoff' AND requires_human = 1"), 1);
   const closed = await route.POST(pbxRequest({ body: { eventType: "call.ended", callReference: "CALL-TEST-0001" }, eventId: "evt-flow-0003" }));
-  assert.equal(closed.status, 202);
-  assert.equal(count("approvals", "call_reference = 'CALL-TEST-0001' AND status = 'pending'"), 0);
-  assert.equal(count("operational_tasks", "call_reference = 'CALL-TEST-0001' AND status = 'completed'"), 1);
-  assert.equal(count("audit_logs", "actor = 'integration:test-pbx'"), 3);
+  assert.equal(closed.status, 409);
+  assert.equal(count("approvals", "call_reference = 'CALL-TEST-0001' AND status = 'pending'"), 1);
+  assert.equal(count("operational_tasks", "call_reference = 'CALL-TEST-0001' AND status = 'completed'"), 0);
+  assert.equal(count("audit_logs", "actor = 'integration:test-pbx'"), 2);
 });

@@ -8,7 +8,7 @@ import { patientCoordination, approvals, automationEvents, operationalTasks, tic
 import { appendAudit } from "../../../lib/audit";
 import { findUnit, HOSPITAL_UNITS, recommendUnit } from "../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../lib/operations";
-import { redactPII, urgencySignal, validPatientAlias } from "../../../lib/privacy";
+import { EMERGENCY_NOTICE_TEXT, emergencyWordsNotice, redactPII, validPatientAlias } from "../../../lib/privacy";
 import {
   assertBrowserMutation,
   assertJsonRequest,
@@ -67,8 +67,10 @@ export async function POST(request: Request) {
     const channel = structured ? "Portal" : typeof payload.channel === "string" && ["Web", "Telefon", "Çağrı", "Portal", "WhatsApp", "HBYS"].includes(payload.channel) ? payload.channel : "Web";
     const requestedCode = structured ? structured.unitCode : typeof payload.unitCode === "string" && HOSPITAL_UNITS.some((unit) => unit.code === payload.unitCode) ? payload.unitCode : null;
     const redaction = redactPII(subject);
-    const signal = urgencySignal(redaction.maskedText);
-    const destination = signal.isEmergency ? findUnit("ACY") : recommendUnit(redaction.maskedText, requestedCode);
+    // ADR-003: belirtiden puan/triyaj yok. Acil ifade yalnız 112 bilgilendirmesi ve görevli incelemesi açar;
+    // birim idari kurala göre (talep türü/seçilen birim), öncelik yalnız personelin formda seçtiğiyle belirlenir.
+    const signal = emergencyWordsNotice(redaction.maskedText);
+    const destination = recommendUnit(redaction.maskedText, requestedCode);
     const now = new Date();
     const reference = `KLI-${now.getTime().toString(36).slice(-7).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
     const taskReference = `TSK-${reference}`;
@@ -80,13 +82,13 @@ export async function POST(request: Request) {
       subject: redaction.maskedText,
       maskedSubject: redaction.maskedText,
       detectedPii: JSON.stringify(redaction.detected),
-      urgencyLevel: signal.level,
-      humanApprovalRequired: signal.isEmergency,
+      urgencyLevel: 2, // hesaplanmaz; klinik öncelik yalnız yetkili kaynaktan gelir
+      humanApprovalRequired: signal.notice,
       unit: destination.name,
       unitCode: destination.code,
       assignedRole: destination.assignedRole,
-      priority: signal.isEmergency ? "Acil" : signal.level === 4 || structured?.priority === "Yüksek" ? "Yüksek" : "Normal",
-      status: signal.isEmergency ? "Personele aktarıldı" : "Yeni",
+      priority: structured?.priority === "Yüksek" ? "Yüksek" : "Normal",
+      status: signal.notice ? "Personele aktarıldı" : "Yeni",
       channel,
       createdAt: now,
       updatedAt: now,
@@ -106,20 +108,20 @@ export async function POST(request: Request) {
     });
     await db.insert(ticketEvents).values({
       ticketReference: reference,
-      eventType: signal.isEmergency ? "emergency_handoff" : "routed",
+      eventType: signal.notice ? "automation_paused" : "routed",
       actor: actor.email,
       toUnitCode: destination.code,
-      detail: signal.isEmergency
-        ? `Normal otomasyon durduruldu; ${destination.name} / ${destination.assignedRole} kuyruğunda insan onayı açıldı.`
+      detail: signal.notice
+        ? `Metinde acil durum ifadesi geçtiği için otomatik bildirim durduruldu ve 112 bilgilendirmesi gösterildi; ${destination.name} kuyruğunda görevli incelemesi açıldı. Klinik değerlendirme yapılmadı.`
         : `${destination.name} birim kuyruğunda ${taskReference} görevi oluşturuldu; hedef rol: ${destination.assignedRole}.`,
       createdAt: now,
     });
-    if (signal.isEmergency) {
+    if (signal.notice) {
       await db.insert(approvals).values({
         reference: `ONAY-${reference}`,
         ticketReference: reference,
         unitCode: destination.code,
-        approvalType: "clinical_handoff",
+        approvalType: "staff_review",
         requestedBy: actor.email,
         status: "pending",
         createdAt: now,
@@ -127,7 +129,7 @@ export async function POST(request: Request) {
     }
     await db.insert(automationEvents).values({
       ticketReference: reference,
-      rule: signal.isEmergency ? "Acil insan devri" : "Güvenli birim yönlendirmesi",
+      rule: signal.notice ? "Otomasyon durdu: görevli incelemesi" : "Güvenli birim yönlendirmesi",
       outcome: `${destination.code} · ${destination.name} · ${taskReference}`,
       unitCode: destination.code,
       eventType: "routing",
@@ -139,20 +141,20 @@ export async function POST(request: Request) {
       idempotencyKey: `${reference}:initial-routing:v2`,
       correlationId,
       ticketReference: reference,
-      ruleCode: signal.isEmergency ? "EMERGENCY_HANDOFF" : "UNIT_ASSIGNMENT",
+      ruleCode: signal.notice ? "STAFF_REVIEW" : "UNIT_ASSIGNMENT",
       payload: JSON.stringify({ unit: destination.name, unitCode: destination.code, taskReference, priority: ticket.priority, masked: true }),
     });
-    await appendAudit(db, { actor: actor.email, action: "ticket.created", resource: reference, detail: `unit:${destination.code}; task:${taskReference}; pii:${redaction.detected.join(",") || "none"}; urgency:${signal.level}` });
-    // Hastaya "başvurunuz alındı" bildirimi: yalnız hasta izin verdiği kanalı seçtiyse ve acil değilse.
-    // Acil sinyalde mesaj gönderilmez; görevli hastayı 112 / acil servise yönlendirir.
+    await appendAudit(db, { actor: actor.email, action: "ticket.created", resource: reference, detail: `unit:${destination.code}; task:${taskReference}; pii:${redaction.detected.join(",") || "none"}; staffReview:${signal.notice}` });
+    // Hastaya "başvurunuz alındı" bildirimi: yalnız hasta izin verdiği kanalı seçtiyse. Acil ifade geçtiyse otomatik
+    // mesaj gönderilmez; görevli kayıt üzerinden ilgilenir, kayıt ekranında 112 bilgilendirmesi görünür.
     const requestType = classifyRequest(redaction.maskedText);
     const notifyChannel = typeof payload.notifyChannel === "string" && ["sms", "whatsapp", "email"].includes(payload.notifyChannel) ? payload.notifyChannel as "sms" | "whatsapp" | "email" : null;
-    if (notifyChannel && !signal.isEmergency) {
+    if (notifyChannel && !signal.notice) {
       await queueNotification(db, { ticketReference: reference, patientAlias, channel: notifyChannel, template: "request_received", body: renderMessage("request_received", { reference }), urgent: false, createdBy: actor.email });
     }
     // Şikâyet kaydı hasta hakları akışını kendiliğinden başlatır (aynı kayıt için bir kez).
     let playbook: { reference: string; playbook: string } | null = null;
-    if (requestType.code === "complaint" && !signal.isEmergency) {
+    if (requestType.code === "complaint" && !signal.notice) {
       try { const started = await startFromEvent(db, { type: "complaint.received", eventId: reference, source: "talep-kaydi", note: `Kayıt ${reference}` }); playbook = { reference: started.reference, playbook: started.playbook }; }
       catch (error) { console.error("complaint playbook", error); }
     }
@@ -160,10 +162,10 @@ export async function POST(request: Request) {
     return Response.json({
       playbook,
       requestType: { code: requestType.code, label: requestType.label },
-      patientNotified: false, notificationQueued: Boolean(notifyChannel && !signal.isEmergency),
+      patientNotified: false, notificationQueued: Boolean(notifyChannel && !signal.notice),
       ticket,
       destination: { unitCode: destination.code, unitName: destination.name, assignedRole: destination.assignedRole, taskReference, queueStatus: "queued" },
-      automation: { emergency: signal.isEmergency, signal, redaction: { detected: redaction.detected } },
+      automation: { staffReview: signal.notice, emergencyNotice: signal.notice ? EMERGENCY_NOTICE_TEXT : null, redaction: { detected: redaction.detected } },
     }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Hasta takma")) return Response.json({ error: error.message, code: "INVALID_INPUT" }, { status: 400 });
