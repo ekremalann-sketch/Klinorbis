@@ -61,7 +61,7 @@ await test("nakil formu: talep ULS birimine düşer; özet düzenli; kişisel ve
   assert.ok(seen.includes(ticket.reference), "ULS birimi talebi görmeli");
 });
 
-await test("taburculuk formu: açık engeller listelenir; 3+ engel yüksek öncelik; tarih zorunlu; acil ifade acil akışa gider", async () => {
+await test("taburculuk formu: açık engeller listelenir; 3+ engel yüksek öncelik; tarih zorunlu; acil ifade görevli incelemesi açar, öncelik/birim değişmez", async () => {
   const post = (form) => ticketsRoute.POST(req("POST", "/api/tickets", "agent@klinorbis.test", { patientAlias: "HST-SENTETIK-22", formKind: "discharge", form }));
   assert.equal((await post({ ward: "Dahiliye 4B" })).status, 400);
   const r = await post({ ward: "Dahiliye 4B / 12", plannedDate: "2026-10-01", done: ["epikriz", "recete", "hile"] });
@@ -71,6 +71,6 @@ await test("taburculuk formu: açık engeller listelenir; 3+ engel yüksek önce
   assert.match(row.subject, /Tamam: 2\/6 · Açık engeller: Hasta\/yakın bilgilendirmesi/);
   const e = await post({ ward: "Dahiliye 4B / 12", plannedDate: "2026-10-01", done: [], note: "hasta nefes alamıyor" });
   const erow = sqlite.prepare("SELECT unit_code, priority, human_approval_required FROM tickets WHERE reference = ?").get((await e.json()).ticket.reference);
-  assert.deepEqual([erow.unit_code, erow.priority, erow.human_approval_required], ["TBR", "Yüksek", 0], "belirti, personelin seçtiği operasyon birimini veya önceliğini değiştirmez");
+  assert.deepEqual([erow.unit_code, erow.priority, erow.human_approval_required], ["TBR", "Yüksek", 1], "ADR-003: öncelik yalnız idari formdan (6 açık engel); acil ifade yalnız görevli incelemesi açar");
   assert.equal((await ticketsRoute.POST(req("POST", "/api/tickets", "agent@klinorbis.test", { patientAlias: "HST-SENTETIK-23", formKind: "baska", form: {} }))).status, 400);
 });

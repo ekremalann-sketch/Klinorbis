@@ -37,4 +37,4 @@ Tarih: 19.10.2026. Bu faz yalnız `/hbys` sentetik kabul alanını açar; gerçe
 
 Yarım gerçek adaptörler kullanıcıya etkin bağlantı diye sunulmaz. Gerçek HBYS bağlantısı bu fazda koddan etkinleştirilemez. Teknik, hukuki ve kurum kabulü tamamlanana kadar kapalıdır.
 
-Faz 1 yerel son doğrulama: 386/386 test, tsc ve derleme geçti; lint hatası yok. GitHub kontrolü ayrıca beklenir.
+Faz 1 GitHub kontrolü de geçti ve PR #14 ana dala birleştirildi.

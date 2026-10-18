@@ -1,3 +1,4 @@
+import { CLOUD_PROFILE } from "./deployment-profile";
 import { demoEnabled } from "./automation-policy";
 import { aiConfigured, latestAiSuggestion } from "./ai-monitor";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
@@ -57,7 +58,7 @@ export async function ensureOperationalSeed(db: Db) {
     status: "human_handoff",
     unitCode: "ACY",
     assignedRole: "Klinik Triyaj Rolü",
-    summary: "Kimlik doğrulama sırasında göğüs ağrısı ifadesi algılandı. Otomatik randevu akışı durduruldu; yetkili sağlık personeline devir ve acil güvenlik yönlendirmesi açıldı.",
+    summary: "Arayanın metninde acil durum ifadesi geçti; 112 bilgilendirmesi gösterildi ve otomatik randevu akışı durduruldu. Görevli, görüşmeyi kendi kararıyla yetkili sağlık personeline aktardı.",
     training: true,
     requiresHuman: true,
     startedAt: new Date(Date.now() - 5 * 60_000),
@@ -68,8 +69,8 @@ export async function ensureOperationalSeed(db: Db) {
     [1, "system", "Sistem", "Gelen çağrı güvenli oturuma alındı. Telefon numarası görüşme ekranında maskelendi."],
     [2, "agent", "Çağrı görevlisi", "KLINORBIS Hasta İletişim Merkezine hoş geldiniz. Acil bir durumdaysanız 112'yi arayın. Görüşmeye devam etmeden önce kimliğinizi asgari bilgilerle doğrulayacağım."],
     [3, "caller", "Arayan", "Bugün başlayan göğüs ağrım var. Hangi bölüme başvurmam gerektiğini öğrenmek istiyorum."],
-    [4, "assistant", "Kural tabanlı güvenlik kontrolü", "Acil olasılık sinyali: göğüs ağrısı. Klinik karar üretme; normal randevu otomasyonunu durdur; yetkili sağlık personeline devir öner."],
-    [5, "system", "Otomasyon", "Normal randevu akışı durduruldu. ACY kuyruğunda yüksek öncelikli TSK-TRN-2401 görevi ve insan onayı açıldı."],
+    [4, "assistant", "Kural tabanlı güvenlik kontrolü", "Bu kanal acil sağlık hizmeti değildir. Tıbbi acil durumda hemen 112'yi arayın. Otomatik randevu akışı durduruldu; görüşmeyi görevli sürdürür."],
+    [5, "system", "Otomasyon", "Görevli görüşmeyi Acil Yönlendirme birimine aktardı (insan kararı); TSK-TRN-2401 görevi açıldı."],
     [6, "agent", "Çağrı görevlisi", "Geçmiş olsun. Bu görüşmeyi şimdi yetkili sağlık personeline aktarıyorum. Şikâyetiniz artarsa veya nefes darlığı, bayılma gibi bir durum olursa beklemeden 112'yi arayın."],
     [7, "clinician", "Klinik triyaj rolü", "Görüşmeyi devraldım. Önce bulunduğunuz ortamın güvenli olduğunu ve acil yardım çağırabilecek birinin yanınızda olup olmadığını doğrulayalım."],
   ] as const;
@@ -219,7 +220,7 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
   return {
     generatedAt: new Date().toISOString(),
     // İstemci "canlı / yapay zekâ" ifadelerini yalnız gerçekten açık olan özellikler için gösterir.
-    features: { demo: demoEnabled(), ai: aiConfigured() },
+    features: { demo: demoEnabled(), ai: aiConfigured(), profile: CLOUD_PROFILE.key, profileNotice: CLOUD_PROFILE.notice },
     aiSuggestion,
     identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: actor.unitCodes, canSeeAllUnits: actor.canSeeAllUnits },
     units: unitRows.map((unit) => ({ ...unit, queue: queueByUnit.get(unit.code) || 0, assignedRole: findUnit(unit.code).assignedRole })),
@@ -310,7 +311,7 @@ function emptySnapshot(actor: RequestActor) {
   return {
     generatedAt: new Date().toISOString(),
     // İstemci "canlı / yapay zekâ" ifadelerini yalnız gerçekten açık olan özellikler için gösterir.
-    features: { demo: demoEnabled(), ai: aiConfigured() },
+    features: { demo: demoEnabled(), ai: aiConfigured(), profile: CLOUD_PROFILE.key, profileNotice: CLOUD_PROFILE.notice },
     aiSuggestion,
     identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: [], canSeeAllUnits: false },
     units: [], tickets: [], tasks: [], calls: [], events: [], approvals: [], jobs: { queued: 0, completed: 0, localCompleted: 0, deadLetter: 0 },

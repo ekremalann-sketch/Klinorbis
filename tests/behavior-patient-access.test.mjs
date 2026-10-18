@@ -162,8 +162,8 @@ await test("8) talep kaydı: hasta izin verdiyse 'başvurunuz alındı' bildirim
   assert.ok(sqlite.prepare("SELECT body FROM patient_notifications WHERE ticket_reference = ?").get(nb.ticket.reference).body.includes(nb.ticket.reference));
   const urgent = await tickets.POST(browserJson("/api/tickets", { patientAlias: "HST-WEB-02", subject: "Annemin göğüs ağrısı var randevu lazım", channel: "WhatsApp", notifyChannel: "whatsapp" }, OWNER));
   const ub = await urgent.json();
-  assert.equal(ub.patientNotified, false); assert.equal(ub.notificationQueued, true);
-  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM patient_notifications WHERE ticket_reference = ?").get(ub.ticket.reference).n, 1);
+  assert.equal(ub.patientNotified, false); assert.equal(ub.notificationQueued, false);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM patient_notifications WHERE ticket_reference = ?").get(ub.ticket.reference).n, 0);
 });
 
 await test("9) plan reddi: randevular eski durumuna döner, aynı gün için yeniden bildirilebilir", async () => {

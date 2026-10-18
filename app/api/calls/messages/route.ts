@@ -10,7 +10,7 @@ import {
 } from "../../../../db/schema";
 import { appendAudit } from "../../../../lib/audit";
 import { findUnit } from "../../../../lib/hospital-units";
-import { redactPII, urgencySignal } from "../../../../lib/privacy";
+import { EMERGENCY_NOTICE_TEXT, emergencyWordsNotice, redactPII } from "../../../../lib/privacy";
 import {
   assertBrowserMutation,
   assertJsonRequest,
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       .orderBy(desc(callMessages.sequence))
       .limit(1);
     const redaction = redactPII(message);
-    const signal = urgencySignal(redaction.maskedText);
+    const signal = emergencyWordsNotice(redaction.maskedText); // ADR-003: puan/yönlendirme yok
     const speakerType = actor.role === "clinician" ? "clinician" : "agent";
     const speakerLabel = (speakerType === "clinician" ? "Klinik personel · " : "Çağrı görevlisi · ") + actor.label;
     const nextSequence = (last?.sequence || 0) + 1;
@@ -89,10 +89,9 @@ export async function POST(request: Request) {
       createdAt: now,
     });
 
-    let destination = findUnit(call.unitCode);
+    const destination = findUnit(call.unitCode);
     let status = call.status === "ringing" ? "active" : call.status;
-    if (signal.isEmergency) {
-      destination = findUnit("ACY");
+    if (signal.notice) {
       status = "human_handoff";
       await db
         .update(callSessions)
@@ -101,7 +100,7 @@ export async function POST(request: Request) {
           assignedRole: destination.assignedRole,
           status,
           requiresHuman: true,
-          summary: `Acil olasılık sinyali (${signal.matched}) nedeniyle normal akış durduruldu; klinik insan devri bekleniyor.`,
+          summary: "Metinde acil durum ifadesi geçti; arayana 112 bilgilendirmesi yapılmalı. Otomatik akış durduruldu, görüşmeyi görevli sürdürür. Klinik değerlendirme yapılmadı.",
           lastMessageAt: now,
         })
         .where(eq(callSessions.reference, call.reference));
@@ -111,7 +110,6 @@ export async function POST(request: Request) {
           unitCode: destination.code,
           assignedRole: destination.assignedRole,
           status: "queued",
-          priority: "Acil",
           acceptedBy: null,
           acceptedAt: null,
           dueAt: new Date(now.getTime() + destination.slaMinutes * 60_000),
@@ -121,10 +119,10 @@ export async function POST(request: Request) {
       await db
         .insert(approvals)
         .values({
-          reference: `ONAY-${call.reference}-ACIL`,
+          reference: `ONAY-${call.reference}-112`,
           callReference: call.reference,
           unitCode: destination.code,
-          approvalType: "clinical_handoff",
+          approvalType: "staff_review",
           requestedBy: actor.email,
           status: "pending",
           createdAt: now,
@@ -136,7 +134,7 @@ export async function POST(request: Request) {
           sequence: nextSequence + 1,
           speakerType: "assistant",
           speakerLabel: "Kural tabanlı güvenlik kontrolü",
-          message: `Acil olasılık sinyali: ${signal.matched}. Klinik karar üretme; normal akışı durdur ve yetkili sağlık personeline devret.`,
+          message: `${EMERGENCY_NOTICE_TEXT} Otomatik akış durduruldu; görüşmeyi görevli sürdürür.`,
           redacted: false,
           createdAt: new Date(now.getTime() + 1),
         },
@@ -145,7 +143,7 @@ export async function POST(request: Request) {
           sequence: nextSequence + 2,
           speakerType: "system",
           speakerLabel: "Otomasyon",
-          message: `${destination.name} / ${destination.assignedRole} kuyruğunda acil görev ve insan onayı açıldı.`,
+          message: `${destination.name} kuyruğunda görevli incelemesi açıldı.`,
           redacted: false,
           createdAt: new Date(now.getTime() + 2),
         },
@@ -157,15 +155,15 @@ export async function POST(request: Request) {
         .where(eq(callSessions.reference, call.reference));
     }
 
-    const outcome = signal.isEmergency
-      ? `${destination.name} birimine acil insan devri açıldı.`
+    const outcome = signal.notice
+      ? `${destination.name}: 112 bilgilendirmesi ve görevli devri.`
       : `${speakerLabel} görüşmeye yeni ileti ekledi.`;
     await db
       .insert(automationEvents)
       .values({
         ticketReference: call.reference,
-        rule: signal.isEmergency
-          ? "Canlı konuşmada acil insan devri"
+        rule: signal.notice
+          ? "Canlı konuşmada 112 bilgilendirmesi"
           : "Canlı görüşme iletisi",
         outcome,
         unitCode: destination.code,
@@ -176,7 +174,7 @@ export async function POST(request: Request) {
       actor: actor.email,
       action: "call.message_added",
       resource: call.reference,
-      detail: `speaker:${body.speakerType}; unit:${destination.code}; pii:${redaction.detected.join(",") || "none"}; emergency:${signal.isEmergency}`,
+      detail: `speaker:${body.speakerType}; unit:${destination.code}; pii:${redaction.detected.join(",") || "none"}; staffReview:${signal.notice}`,
     });
     const [updated] = await db
       .select()
@@ -195,7 +193,8 @@ export async function POST(request: Request) {
         unitName: destination.name,
         assignedRole: destination.assignedRole,
       },
-      emergency: signal.isEmergency,
+      staffReview: signal.notice,
+      emergencyNotice: signal.notice ? EMERGENCY_NOTICE_TEXT : null,
     });
   } catch (error) {
     return securityResponse(error, request);

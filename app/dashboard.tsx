@@ -284,7 +284,7 @@ type Snapshot = {
   events: Event[];
   approvals: Approval[];
   jobs: { queued: number; completed: number; local?: number; localCompleted: number; deadLetter: number };
-  features?: { demo: boolean; ai: boolean };
+  features?: { demo: boolean; ai: boolean; profile?: string; profileNotice?: string };
   aiSuggestion?: { text: string; createdAt: string } | null;
   automation: {
     settings?: { demoMode: boolean; automationPaused: boolean; updatedBy: string | null; updatedAt: string | null };
@@ -1252,6 +1252,7 @@ export default function Dashboard({
             )}
           </div>
         </header>
+        {snapshot.features?.profileNotice && <p className="profile-banner" role="note">{snapshot.features.profileNotice}</p>}
         {previewRole && realRole === "operations_manager" && (
           <div className="preview-banner" role="status">
             <span><b>Önizleme:</b> {roleNames[previewRole]} gözünden görüyorsunuz. Veriler ve yetki sizin oturumunuzdan gelir.</span>
@@ -3910,7 +3911,7 @@ function eventTitle(eventType: string) {
   );
 }
 function approvalLabel(type: string) {
-  return ({ absence_reschedule: "Hekim yokluğu · randevu yeniden planlama", clinical_handoff: "Klinik devir onayı" } as Record<string, string>)[type] || type;
+  return ({ absence_reschedule: "Hekim yokluğu · randevu yeniden planlama", clinical_handoff: "Klinik devir onayı", staff_review: "Görevli incelemesi (112 bilgilendirmesi)" } as Record<string, string>)[type] || type;
 }
 function cycleStatusLabel(status?: string | null) {
   return ({ completed: "başarılı", running: "sürüyor", failed: "başarısız" } as Record<string, string>)[status || ""] || "durum bekleniyor";
