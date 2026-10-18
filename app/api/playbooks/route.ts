@@ -4,7 +4,7 @@ import { getDb } from "../../../db";
 import { ensureOperationalSeed } from "../../../lib/operations";
 import { activateDueSteps, cancelRun, completeStep, listRuns, playbookReport, startFromEvent, startPlaybook } from "../../../lib/playbook-store";
 import { EVENT_TRIGGERS } from "../../../lib/playbook-triggers";
-import { PLAYBOOK_CATEGORIES, PLAYBOOKS, playbookNetwork } from "../../../lib/playbooks";
+import { CHAIN_CONDITIONS, PLAYBOOK_CATEGORIES, PLAYBOOKS, playbookNetwork } from "../../../lib/playbooks";
 import { HOSPITAL_UNITS } from "../../../lib/hospital-units";
 import {
   assertBrowserMutation, assertJsonRequest, enforceRateLimit, requireActor, requireOperationalWriter, SecurityError, securityResponse,
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 // Operasyon akışları:
 // GET  → akış kütüphanesi, akış ağı, olay tetikleyicileri, etkin/son akışlar ve performans raporu
-// POST → start {code, note?} | step.complete {reference, version, note?} | cancel {reference, version, note}
+// POST → start {code, note?, fields?{campus,location,deviceCode,patientRef}} | step.complete {reference, version, note?, conditions?[]} | cancel {reference, version, note}
 //        event.simulate {type} (yalnız operasyon yöneticisi; gerçek entegrasyon yokken olay tetiklemeyi denemek için)
 export async function GET(request: Request) {
   try {
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     return Response.json(oversightView(actor,{
       serverNow: Date.now(), triggers: EVENT_TRIGGERS, report: await playbookReport(db, actor),
       identity: { role: actor.role, label: actor.label, email: actor.email, unitCodes: actor.unitCodes, canSeeAllUnits: actor.canSeeAllUnits },
-      categories: PLAYBOOK_CATEGORIES, playbooks: PLAYBOOKS, network: playbookNetwork(),
+      categories: PLAYBOOK_CATEGORIES, playbooks: PLAYBOOKS, conditions: CHAIN_CONDITIONS, network: playbookNetwork(),
       units: HOSPITAL_UNITS.map((u) => ({ code: u.code, name: u.name })),
       runs: await listRuns(db, actor),
     }), { headers: { "cache-control": "no-store, private" } });
@@ -50,11 +50,11 @@ export async function POST(request: Request) {
     const version = Number(body.version);
     switch (body.action) {
       case "start": {
-        const ref = await startPlaybook(db, actor, typeof body.code === "string" ? body.code.slice(0, 40) : "", body.note);
+        const ref = await startPlaybook(db, actor, typeof body.code === "string" ? body.code.slice(0, 40) : "", body.note, body.fields);
         return Response.json({ ok: true, reference: ref }, { status: 201 });
       }
       case "step.complete":
-        return Response.json({ ok: true, ...(await completeStep(db, actor, reference, version, body.note)) });
+        return Response.json({ ok: true, ...(await completeStep(db, actor, reference, version, body.note, body.conditions)) });
       case "event.simulate": {
         if (actor.role !== "operations_manager") throw new SecurityError(403, "Olay simülasyonunu yalnız operasyon yöneticisi çalıştırır.", "OPERATIONS_MANAGER_REQUIRED");
         const type = typeof body.type === "string" ? body.type.slice(0, 60) : "";

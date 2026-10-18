@@ -4985,3 +4985,68 @@ label:not(.required-field):not(:has(.field-star)):has(> :is(input, select, texta
 .sales-sandbox nav{display:flex;gap:8px;flex-wrap:wrap;padding:18px 0;border-bottom:1px solid #e1e9ef}.sales-sandbox label{display:grid;gap:6px;font-size:14px;margin:12px 0}.sales-sandbox select,.sales-sandbox input{border:1px solid #bdcfd9;border-radius:8px;padding:10px;font:inherit;width:100%;background:white;color:#153348;min-width:0}.sales-sandbox button:focus-visible,.sales-sandbox select:focus-visible,.sales-sandbox input:focus-visible{outline:3px solid #26a98e;outline-offset:2px}
 .sandbox-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:24px}.sandbox-columns article,.sandbox-units article{border:1px solid #e0e8ee;border-radius:12px;padding:18px}.sandbox-queue{display:grid;gap:8px;max-height:350px;overflow:auto}.sandbox-queue button{display:grid;gap:5px;text-align:left}.sandbox-actions{display:flex;gap:8px;flex-wrap:wrap}.sandbox-feedback{background:#edf7f4;border-radius:9px;padding:12px}.sandbox-units{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.sandbox-units h4{margin:0 0 10px}.sandbox-units small{line-height:1.5;display:block}.sandbox-units button{margin:5px 5px 0 0}.sales-sandbox aside{background:#f5f9fb;padding:14px;border-radius:10px}
 @media(max-width:760px){.sales-sandbox{padding:16px}.sales-sandbox header{display:block}.sandbox-columns{grid-template-columns:1fr}.sales-sandbox h2{font-size:22px}}
+
+/* Akış: yapılandırılmış alanlar, etiketler ve koşullu zincir seçimi */
+.pb-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.pb-fields label{display:flex;flex-direction:column;gap:4px;font-weight:650;font-size:14px}
+.pb-fields label small{font-weight:500;color:var(--muted)}
+.pb-fields input,.pb-fields select{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;min-height:40px;background:#fff}
+.pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0}.pb-tags span{font-size:12.5px;font-weight:650;background:#f1f5f9;color:#334155;border-radius:999px;padding:3px 9px}
+.pb-conditions{border:1px solid #d7e3f0;border-radius:12px;padding:10px 12px;margin:0;display:flex;flex-direction:column;gap:6px;background:#f8fbff}
+.pb-conditions legend{font-weight:700;font-size:14px;padding:0 4px}.pb-conditions label{display:flex;gap:8px;align-items:center;font-size:14px}.pb-conditions small{color:var(--muted)}
+.pb-links button small{font-weight:500;color:var(--muted)}
+/* Bildirim: okunmamış kişisel bildirim ve yükseltme */
+.notification-pop i.escalation{background:#b42318}
+.notification-pop > button.unread b::after{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#2563eb;margin-left:6px;vertical-align:middle}
+.notification-pop .pop-mark{border:0;background:none;color:#174a7c;font-weight:650;cursor:pointer;padding:4px 0}
+.task-escalated{display:inline-block;font-size:11.5px;font-weight:700;color:#b42318;background:#fdecea;border-radius:999px;padding:2px 8px;margin-left:6px}
+
+/* Sanal hastane simülasyonu */
+.sim-panel{display:flex;flex-direction:column;gap:14px}
+.sim-label{margin:0;align-self:flex-start;font-size:12.5px;font-weight:800;letter-spacing:.04em;color:#7a2e0e;background:#fff4e5;border:1px solid #f5c98b;border-radius:999px;padding:4px 12px}
+.sim-head h2{margin:0;font-size:19px}.sim-head p{margin:4px 0 0;color:#4a5566;max-width:760px}
+.sim-warn{margin:0;background:#fdecea;color:#8a1c12;border-radius:10px;padding:8px 12px;font-weight:650}
+.sim-form{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.sim-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.sim-grid label{display:flex;flex-direction:column;gap:4px;font-weight:650;font-size:14px}
+.sim-grid input{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;min-height:40px}
+.sim-form details summary{cursor:pointer;font-weight:650;color:#174a7c;margin-bottom:8px}
+.sim-actions{display:flex;flex-wrap:wrap;gap:8px}
+.sim-panel button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font:inherit;font-weight:650;cursor:pointer}
+.sim-panel button.pb-primary{background:var(--navy);color:#fff;border-color:var(--navy)}.sim-panel button.danger{background:#b42318;color:#fff;border-color:#b42318}
+.sim-panel button:disabled{opacity:.6;cursor:not-allowed}
+.sim-report{display:flex;flex-direction:column;gap:12px}.sim-report h3{margin:6px 0 0;font-size:16px}
+.sim-summary{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;color:#24303f}
+.sim-chart{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.sim-chart-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+.sim-chart svg{width:100%;height:auto;display:block;margin-top:8px}
+.sim-assumptions{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 14px}.sim-assumptions summary{font-weight:700;cursor:pointer}
+.sim-assumptions ul{columns:2;gap:24px;padding-left:18px}
+.sim-history{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 16px}.sim-history h3{margin:0 0 6px;font-size:15px}
+.sim-history ul{margin:0 0 8px;padding-left:18px}.sim-history small{color:var(--muted)}
+.sim-confirm{margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.print-only{display:none}
+@media (max-width:640px){.sim-assumptions ul{columns:1}}
+@media print{
+  .sidebar,.content>header,.attention-bar,.screen-help,.sim-form,.sim-history,.sim-chart-head [role=group],.mobile-nav,.setup-banner,.preview-banner{display:none!important}
+  .print-only{display:inline-block}.sim-panel{gap:8px}.sim-chart,.sim-assumptions{break-inside:avoid}
+}
+.sim-grid select{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;min-height:40px;background:#fff}
+.sim-scenario{display:flex;flex-direction:column;gap:3px;background:#fff8ec;border:1px solid #f5c98b;border-radius:12px;padding:10px 14px;font-size:14px}
+
+/* İş yükü ve haftalık rapor */
+.mg-panel{display:flex;flex-direction:column;gap:12px}.mg-panel h3,.mg-panel h4{margin:4px 0 0}
+.mg-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.mg-panel button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:7px 12px;font:inherit;font-weight:650;cursor:pointer}
+.mg-panel button.pb-primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+.mg-suggest{background:#f8fbff;border:1px solid #d7e3f0;border-radius:12px;padding:10px 14px}.mg-suggest ul{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.mg-suggest li{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px}
+.mg-level{font-size:12.5px;font-weight:700;border-radius:999px;padding:3px 9px;background:#eef2f6;color:#334155}
+.mg-level.yogun,.mg-level.kimse-yok{background:#fdecea;color:#b42318}.mg-level.sakin{background:#e3f6ef;color:#0b5c49}
+.mg-members{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:13px}.mg-members label{display:flex;gap:6px;align-items:center}
+.mg-members select,.mg-assume input{border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit}
+.mg-money{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 14px}.mg-money p{margin:4px 0}
+.mg-assume{display:flex;flex-wrap:wrap;gap:12px}.mg-assume label{display:flex;flex-direction:column;gap:3px;font-size:13px;font-weight:650}
+@media print{.weekly .mg-assume,.weekly .mg-head button,.pa-tabs{display:none!important}}
+
+.sim-label{position:sticky;top:0;z-index:5;max-width:100%;border-radius:12px}

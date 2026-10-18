@@ -131,7 +131,10 @@ export const operationalTasks = sqliteTable("operational_tasks", {
   acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
-});
+  // Gecikme yükseltmesi: 0 = yok, 1 = birim sorumlusuna, 2 = operasyon yöneticisine bildirildi.
+  escalationLevel: integer("escalation_level").notNull().default(0),
+  escalatedAt: integer("escalated_at", { mode: "timestamp_ms" }),
+}, (table) => [index("operational_tasks_overdue").on(table.status, table.dueAt)]);
 
 export const callSessions = sqliteTable("call_sessions", {
   reference: text("reference").primaryKey(),
@@ -443,6 +446,13 @@ export const playbookRuns = sqliteTable("playbook_runs", {
   closedAt: integer("closed_at", { mode: "timestamp_ms" }),
   // Olaydan başlatılan akışlarda olay kimliği (aynı olay ikinci kez akış açmaz).
   triggerEvent: text("trigger_event"),
+  // Yapılandırılmış alanlar (isteğe bağlı): yerleşke, oda/yatak, cihaz kodu, hasta kısa kodu (ad değil).
+  campus: text("campus"),
+  location: text("location"),
+  deviceCode: text("device_code"),
+  patientRef: text("patient_ref"),
+  // Son adımda işaretlenen zincir koşulları (JSON dizi).
+  chainChoices: text("chain_choices"),
 }, (table) => [
   uniqueIndex("playbook_runs_trigger_once").on(table.triggerEvent).where(sql`trigger_event is not null`),
   // Bir akış kapanınca aynı bağlı akış iki kez açılmaz (çift tıklama, yarış).
@@ -465,3 +475,26 @@ export const playbookSteps = sqliteTable("playbook_steps", {
   dueAt: integer("due_at", { mode: "timestamp_ms" }),
   completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 }, (table) => [uniqueIndex("playbook_steps_once").on(table.runReference, table.stepIndex)]);
+
+// Kişiye özel bildirim: iş atanınca, gecikme yükseltmesinde. Aynı olay için ikinci kez yazılmaz (dedupe_key).
+export const staffNotifications = sqliteTable("staff_notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").notNull(),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  detail: text("detail").notNull(),
+  path: text("path").notNull().default("/inbox"),
+  dedupeKey: text("dedupe_key").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  readAt: integer("read_at", { mode: "timestamp_ms" }),
+}, (table) => [index("staff_notifications_inbox").on(table.email, table.readAt, table.createdAt)]);
+
+// Sanal hastane simülasyonu: yalnız sonuç özeti saklanır; gerçek iş, görev ve sayaç tablolarına yazılmaz.
+export const simulationRuns = sqliteTable("simulation_runs", {
+  id: text("id").primaryKey(),
+  seed: integer("seed").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  params: text("params").notNull(),
+  result: text("result").notNull(),
+});

@@ -78,6 +78,13 @@
       "when": 1791291564044,
       "tag": "0010_productive_angel",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792170348748,
+      "tag": "0011_narrow_warlock",
+      "breakpoints": true
     }
   ]
 }

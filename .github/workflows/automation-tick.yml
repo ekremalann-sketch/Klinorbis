@@ -1,0 +1,42 @@
+# Tarayıcı kapalıyken de otomasyonun ilerlemesi için yedek zamanlayıcı.
+# Worker cron'u (vite.config.ts → triggers.crons) barındırma platformunda çalışmıyorsa bu iş 15 dakikada bir
+# imzalı "tick" olayını /api/automation/agent adresine gönderir. İmza: HMAC-SHA256(timestamp.eventId.body),
+# anahtar KLINORBIS_N8N_SHARED_SECRET ile aynıdır; 5 dakikalık zaman penceresi ve tekrar koruması sunucuda uygulanır.
+# Gerekli ayarlar (GitHub → Settings → Secrets and variables → Actions):
+#   secrets.KLINORBIS_N8N_SHARED_SECRET  (Worker'daki ile aynı, en az 32 karakter)
+#   vars.KLINORBIS_ORIGIN                (ör. https://klinorbis.ekremalan.chatgpt.site)
+name: Klinorbis otomasyon zamanlayıcısı
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: İmzalı otomasyon olayı gönder
+        env:
+          SECRET: ${{ secrets.KLINORBIS_N8N_SHARED_SECRET }}
+          ORIGIN: ${{ vars.KLINORBIS_ORIGIN }}
+        run: |
+          if [ -z "$SECRET" ] || [ -z "$ORIGIN" ]; then
+            echo "::error::KLINORBIS_N8N_SHARED_SECRET veya KLINORBIS_ORIGIN tanımlı değil; zamanlayıcı çalışmadı."
+            exit 1
+          fi
+          TS=$(date +%s%3N)
+          EVENT="gh-$(date -u +%Y%m%d%H%M)-${GITHUB_RUN_ID}"
+          BODY='{"action":"tick"}'
+          SIG=$(printf '%s.%s.%s' "$TS" "$EVENT" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $NF}')
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST "$ORIGIN/api/automation/agent" \
+            -H "content-type: application/json" \
+            -H "x-klinorbis-event-id: $EVENT" \
+            -H "x-klinorbis-timestamp: $TS" \
+            -H "x-klinorbis-signature: sha256=$SIG" \
+            --data "$BODY"

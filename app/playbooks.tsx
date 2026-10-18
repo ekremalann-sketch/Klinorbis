@@ -6,14 +6,22 @@
 //  4) Olaylar: hangi sistem olayının hangi akışı kendiliğinden başlattığı (operasyon yöneticisi simüle edebilir)
 //  5) Performans: akış süreleri, birim bekleme süreleri, hedef süreye uyum, şu an geciken adımlar
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { WeeklyReportView, WorkloadView } from "./management-views";
 
 type Step = { unitCode: string; task: string; minutes: number; approval: boolean; waitMinutes: number; clinical: boolean };
-type Playbook = { code: string; title: string; category: string; trigger: string; steps: Step[]; next: string[] };
+type Playbook = { code: string; title: string; category: string; trigger: string; steps: Step[]; next: string[]; nextRules?: { code: string; when: string | null }[] };
 type RunStep = { stepIndex: number; unitCode: string; task: string; approval: boolean; completedBy: string | null; completedAt: string | number | null; startedAt: string | number; activateAt: string | number | null; dueAt: string | number | null; note: string | null };
-type Run = { reference: string; playbookCode: string; title: string; status: string; currentStep: number; stepCount: number; note: string | null; parentReference: string | null; startedBy: string; version: number; createdAt: string | number; steps: RunStep[] };
+type Run = { reference: string; playbookCode: string; title: string; status: string; currentStep: number; stepCount: number; note: string | null; parentReference: string | null; startedBy: string; version: number; createdAt: string | number; steps: RunStep[]; campus?: string | null; location?: string | null; deviceCode?: string | null; patientRef?: string | null; chainChoices?: string | null };
+type Fields = { campus: string; location: string; deviceCode: string; patientRef: string };
+type ActResult = { reference?: string; started?: { title: string }[]; skipped?: { title: string; condition: string }[] };
+const EMPTY_FIELDS: Fields = { campus: "", location: "", deviceCode: "", patientRef: "" };
+const CAMPUS_LABELS: Record<string, string> = { merkez: "Merkez yerleşke", "ek-bina": "Ek bina", poliklinik: "Poliklinik binası", diger: "Diğer" };
+// Akışa göre hangi yapılandırılmış alanların sorulacağı (gereksiz alan gösterilmez).
+const wantsDevice = (p: Playbook) => /cihaz|kalibrasyon|MR\/BT|gaz|asansör|iklim|diyaliz su|soğuk zincir/i.test(`${p.title} ${p.category}`) || p.category === "Cihaz ve tesis";
+const wantsPatient = (p: Playbook) => ["Yatak ve hasta akışı", "Taburculuk", "Ameliyathane", "Hasta iletişimi ve haklar"].includes(p.category) || /hasta/i.test(p.title);
 type Data = {
   identity: { role: string; label: string; email: string; unitCodes: string[]; canSeeAllUnits: boolean };
-  categories: string[]; playbooks: Playbook[]; units: { code: string; name: string }[]; runs: Run[];
+  categories: string[]; playbooks: Playbook[]; units: { code: string; name: string }[]; runs: Run[]; conditions?: Record<string, string>;
   network: { units: { code: string; name: string; steps: number }[]; handoffs: { from: string; to: string; count: number }[]; chains: { from: string; to: string }[] };
   triggers: { type: string; label: string; source: string; playbook: string }[];
   serverNow: number;
@@ -27,6 +35,7 @@ type Report = {
 
 const WRITERS = ["operations_manager", "unit_manager", "clinician", "call_agent"];
 const APPROVERS = ["operations_manager", "unit_manager"];
+const MANAGERS = APPROVERS;
 const mins = (m: number) => (m >= 1440 ? `${Math.round(m / 1440)} gün` : m >= 60 ? `${Math.round(m / 60)} sa` : `${m} dk`);
 const ago = (v: string | number) => { const m = Math.max(0, Math.round((Date.now() - new Date(v).getTime()) / 60000)); return m < 60 ? `${m} dk` : m < 1440 ? `${Math.round(m / 60)} sa` : `${Math.round(m / 1440)} gün`; };
 
@@ -39,10 +48,15 @@ async function call<T>(url: string, body?: unknown): Promise<T> {
 
 export function Playbooks() {
   const [data, setData] = useState<Data | null>(null);
-  const [tab, setTab] = useState<"library" | "runs" | "network" | "events" | "report">("library");
+  // Bildirimden gelen "#haftalik" / "#is-yuku" bağlantısı ilgili sekmeyi açar (bileşen yalnız tarayıcıda yüklenir).
+  const [tab, setTab] = useState<"library" | "runs" | "network" | "events" | "report" | "workload" | "weekly">(() => {
+    const h = typeof window === "undefined" ? "" : window.location.hash;
+    return h === "#haftalik" ? "weekly" : h === "#is-yuku" ? "workload" : "library";
+  });
   const [msg, setMsg] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const [category, setCategory] = useState(""), [query, setQuery] = useState(""), [open, setOpen] = useState<string>("");
   const [note, setNote] = useState(""), [focusUnit, setFocusUnit] = useState("");
+  const [fields, setFields] = useState<Fields>(EMPTY_FIELDS), [choices, setChoices] = useState<Record<string, string[]>>({});
   const fetchData = useCallback(() => call<Data>("/api/playbooks"), []);
   const load = useCallback(async () => { const d = await fetchData(); setData(d); return d; }, [fetchData]);
   useEffect(() => { let alive = true; fetchData().then((d) => { if (alive) setData(d); }).catch((e) => { if (alive) setErr(e instanceof Error ? e.message : "Bilgiler alınamadı."); }); return () => { alive = false; }; }, [fetchData]);
@@ -55,9 +69,9 @@ export function Playbooks() {
   }, [data, category, query, unitName]);
   const triggeredBy = useCallback((code: string) => (data?.playbooks || []).filter((p) => p.next.includes(code)), [data]);
 
-  async function act(body: Record<string, unknown>, success: (r: { reference?: string; started?: { title: string }[] }) => string) {
+  async function act(body: Record<string, unknown>, success: (r: ActResult) => string) {
     setBusy(true); setErr(""); setMsg("");
-    try { const r = await call<{ reference?: string; started?: { title: string }[] }>("/api/playbooks", body); setMsg(success(r)); setNote(""); await load(); }
+    try { const r = await call<ActResult>("/api/playbooks", body); setMsg(success(r)); setNote(""); setFields(EMPTY_FIELDS); await load(); }
     catch (e) { setErr(e instanceof Error ? e.message : "İşlem tamamlanamadı."); } finally { setBusy(false); }
   }
 
@@ -77,7 +91,9 @@ export function Playbooks() {
       <button type="button" className={tab === "runs" ? "active" : ""} aria-pressed={tab === "runs"} onClick={() => setTab("runs")}>Etkin akışlar ({active.length})</button>
       <button type="button" className={tab === "network" ? "active" : ""} aria-pressed={tab === "network"} onClick={() => setTab("network")}>Akış ağı</button>
       <button type="button" className={tab === "events" ? "active" : ""} aria-pressed={tab === "events"} onClick={() => setTab("events")}>Olay tetikleyicileri ({data.triggers.length})</button>
-      <button type="button" className={tab === "report" ? "active" : ""} aria-pressed={tab === "report"} onClick={() => setTab("report")}>Performans{data.report.totals.overdueNow ? ` · ${data.report.totals.overdueNow} geciken` : ""}</button>
+      <button type="button" className={tab === "report" ? "active" : ""} aria-pressed={tab === "report"} onClick={() => setTab("report")}>Darboğaz ve performans{data.report.totals.overdueNow ? ` · ${data.report.totals.overdueNow} geciken` : ""}</button>
+      {MANAGERS.includes(me.role) && <button type="button" className={tab === "workload" ? "active" : ""} aria-pressed={tab === "workload"} onClick={() => setTab("workload")}>İş yükü</button>}
+      {MANAGERS.includes(me.role) && <button type="button" className={tab === "weekly" ? "active" : ""} aria-pressed={tab === "weekly"} onClick={() => setTab("weekly")}>Haftalık rapor</button>}
     </nav>
     <p className="pb-msg" role="status">{msg}</p>
     {err && <p className="pb-err" role="alert">{err}</p>}
@@ -92,7 +108,7 @@ export function Playbooks() {
           </div>
         </div>
         <ul className="pb-cards">{filtered.map((p) => <li key={p.code}>
-          <button type="button" className={`pb-card ${open === p.code ? "on" : ""}`} onClick={() => { setOpen(p.code); setNote(""); }}>
+          <button type="button" className={`pb-card ${open === p.code ? "on" : ""}`} onClick={() => { setOpen(p.code); setNote(""); setFields(EMPTY_FIELDS); }}>
             <small>{p.category}</small><strong>{p.title}</strong><span className="pb-trigger">{p.trigger}</span>
             <span className="pb-chain">{p.steps.map((s, i) => <i key={i} className={s.approval ? "appr" : ""}>{s.unitCode}</i>)}</span>
             <span className="pb-meta">{p.steps.length} adım · {p.steps.filter((s) => s.approval).length} onay{p.next.length ? ` · kapanınca ${p.next.length} akış başlatır` : ""}</span>
@@ -105,10 +121,16 @@ export function Playbooks() {
         <p><b>Ne zaman:</b> {selected.trigger}</p>
         <ol className="pb-steps">{selected.steps.map((s, i) => <li key={i}><b>{unitName(s.unitCode)}</b> — {s.task} <small>{s.waitMinutes ? `önceki adımdan ${mins(s.waitMinutes)} sonra açılır · ` : ""}hedef {mins(s.minutes)}{s.clinical ? " · klinik onay (yalnız klinisyen)" : s.approval ? " · yönetici onayı" : ""}</small></li>)}</ol>
         {triggeredBy(selected.code).length > 0 && <p className="pb-links"><b>Şu akışlardan sonra kendiliğinden başlar:</b> {triggeredBy(selected.code).map((p) => <button type="button" key={p.code} onClick={() => setOpen(p.code)}>{p.title}</button>)}</p>}
-        {selected.next.length > 0 && <p className="pb-links"><b>Kapanınca başlatır:</b> {selected.next.map((c) => <button type="button" key={c} onClick={() => setOpen(c)}>{byCode(c)?.title}</button>)}</p>}
+        {selected.next.length > 0 && <p className="pb-links"><b>Kapanınca başlatır:</b> {(selected.nextRules ?? selected.next.map((code) => ({ code, when: null }))).map((rule) => <button type="button" key={rule.code} onClick={() => setOpen(rule.code)}>{byCode(rule.code)?.title}{rule.when ? <small> · yalnız “{data.conditions?.[rule.when] ?? rule.when}” ise</small> : null}</button>)}</p>}
         {canWrite && canDo(selected.steps[0].unitCode) ? <div className="pb-start">
+          <div className="pb-fields">
+            <label><span>Yerleşke</span><select value={fields.campus} onChange={(e) => setFields({ ...fields, campus: e.target.value })}><option value="">Seçilmedi</option>{Object.entries(CAMPUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            <label><span>Oda / yatak</span><input value={fields.location} maxLength={24} placeholder="ör. 312-B" onChange={(e) => setFields({ ...fields, location: e.target.value })} /></label>
+            {wantsDevice(selected) && <label><span>Cihaz kodu</span><input value={fields.deviceCode} maxLength={24} placeholder="ör. BMD-0457" onChange={(e) => setFields({ ...fields, deviceCode: e.target.value })} /></label>}
+            {wantsPatient(selected) && <label><span>Hasta kısa kodu <small>(isteğe bağlı; ad yazılmaz)</small></span><input value={fields.patientRef} maxLength={12} placeholder="ör. P-1042" pattern="[A-Za-z]{1,3}-?[0-9]{2,8}" onChange={(e) => setFields({ ...fields, patientRef: e.target.value })} /></label>}
+          </div>
           <label><span>Kısa not (isteğe bağlı; hasta kimliği yazmayın, telefon ve TCKN maskelenir)</span><textarea rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} /></label>
-          <button type="button" className="pb-primary" disabled={busy} onClick={() => void act({ action: "start", code: selected.code, note }, (r) => `Akış başlatıldı: ${r.reference}. İlk görev ${unitName(selected.steps[0].unitCode)} iş kutusunda.`).then(() => setTab("runs"))}>Akışı başlat</button>
+          <button type="button" className="pb-primary" disabled={busy} onClick={() => void act({ action: "start", code: selected.code, note, fields }, (r) => `Akış başlatıldı: ${r.reference}. İlk görev ${unitName(selected.steps[0].unitCode)} iş kutusunda; birim üyelerine bildirim gitti.`).then(() => setTab("runs"))}>Akışı başlat</button>
         </div> : <p className="pb-hint">Bu akışı {unitName(selected.steps[0].unitCode)} birimi veya operasyon yöneticisi başlatır.</p>}
       </aside>}
     </div>}
@@ -123,9 +145,16 @@ export function Playbooks() {
             return <li key={i} className={done ? "done" : now ? "now" : ""} aria-current={now ? "step" : undefined}><b>{s.unitCode}</b><span>{s.task}</span>{s.approval && <em>onay</em>}{now && rs && (rs.activateAt && new Date(rs.activateAt).getTime() > data.serverNow
               ? <small>{new Date(rs.activateAt).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} tarihinde açılacak</small>
               : <small>{ago(rs.activateAt ?? rs.startedAt)}dır bekliyor · hedef {mins(s.minutes)}{rs.dueAt && new Date(rs.dueAt).getTime() < data.serverNow ? " · GECİKTİ" : ""}</small>)}</li>; })}</ol>
+          {(r.campus || r.location || r.deviceCode || r.patientRef) && <p className="pb-tags">{r.campus && <span>{CAMPUS_LABELS[r.campus] ?? r.campus}</span>}{r.location && <span>Oda/yatak {r.location}</span>}{r.deviceCode && <span>Cihaz {r.deviceCode}</span>}{r.patientRef && <span>Hasta {r.patientRef}</span>}</p>}
           {r.note && <p className="pb-note">{r.note}</p>}
+          {mine && pb && r.currentStep + 1 === pb.steps.length && (pb.nextRules ?? []).some((x) => x.when) && <fieldset className="pb-conditions">
+            <legend>Kapanınca hangi bağlı akış açılsın?</legend>
+            {(pb.nextRules ?? []).map((rule) => rule.when ? <label key={rule.code}><input type="checkbox" checked={(choices[r.reference] ?? []).includes(rule.when)} onChange={(e) => { const w = rule.when as string; const cur = choices[r.reference] ?? []; setChoices({ ...choices, [r.reference]: e.target.checked ? [...cur, w] : cur.filter((c) => c !== w) }); }} /> {data.conditions?.[rule.when] ?? rule.when} → <b>{byCode(rule.code)?.title}</b></label>
+              : <p key={rule.code} className="pb-hint">Her durumda başlar: {byCode(rule.code)?.title}</p>)}
+            <small>İşaretlenmeyen akış açılmaz; karar denetim kaydına yazılır.</small>
+          </fieldset>}
           {r.status === "active" && cur && <div className="pb-run-actions">
-            {mine ? <button type="button" className="pb-primary" disabled={busy} onClick={() => void act({ action: "step.complete", reference: r.reference, version: r.version }, (x) => x.started?.length ? `Akış tamamlandı. Kendiliğinden başlayanlar: ${x.started.map((s) => s.title).join(", ")}.` : `${unitName(cur.unitCode)} adımı tamamlandı.`)}>{cur.approval ? "Onayla ve ilerlet" : "Adımı tamamla"}</button>
+            {mine ? <button type="button" className="pb-primary" disabled={busy} onClick={() => void act({ action: "step.complete", reference: r.reference, version: r.version, conditions: choices[r.reference] ?? [] }, (x) => [x.started?.length ? `Akış tamamlandı. Kendiliğinden başlayanlar: ${x.started.map((s) => s.title).join(", ")}.` : `${unitName(cur.unitCode)} adımı tamamlandı.`, x.skipped?.length ? `Açılmayan: ${x.skipped.map((s) => s.title).join(", ")}.` : ""].filter(Boolean).join(" "))}>{cur.approval ? "Onayla ve ilerlet" : "Adımı tamamla"}</button>
               : <span className="pb-hint">{waiting ? "Bu adım zamanı gelince açılacak." : `Sıradaki adım: ${unitName(cur.unitCode)}`}{cur.approval && !waiting ? (r.startedBy === me.email ? " · akışı siz başlattınız; onayı başka bir yetkili verir" : cur.clinical ? " (klinisyen onayı)" : " (yönetici onayı)") : ""}</span>}
             {(r.startedBy === me.email || APPROVERS.includes(me.role)) && <button type="button" disabled={busy} onClick={() => { const n = note; if (!n || n.trim().length < 5) { setErr("İptal için alttaki not alanına en az 5 karakterlik bir neden yazın."); return; } void act({ action: "cancel", reference: r.reference, version: r.version, note: n }, () => "Akış iptal edildi."); }}>İptal et</button>}
             <button type="button" onClick={() => { setTab("library"); setOpen(r.playbookCode); }}>Akış tanımını gör</button>
@@ -142,6 +171,8 @@ export function Playbooks() {
       </tbody></table>
     </section>}
 
+    {tab === "workload" && <WorkloadView />}
+    {tab === "weekly" && <WeeklyReportView />}
     {tab === "report" && <ReportView report={data.report} openPlaybook={(code) => { setTab("library"); setOpen(code); }} />}
 
     {tab === "network" && <NetworkView data={data} unitName={unitName} focus={focusUnit} setFocus={setFocusUnit} openPlaybook={(code) => { setTab("library"); setOpen(code); }} />}
@@ -192,7 +223,7 @@ function NetworkView({ data, unitName, focus, setFocus, openPlaybook }: { data: 
       {!focus && <ol className="pb-handoffs">{data.network.handoffs.slice(0, 14).map((h) => <li key={h.from + h.to}><button type="button" onClick={() => setFocus(h.from)}>{unitName(h.from)}</button> → <button type="button" onClick={() => setFocus(h.to)}>{unitName(h.to)}</button> <small>{h.count} akışta</small></li>)}</ol>}
       {focus && <ul className="pb-related">{related.map((p) => <li key={p.code}><button type="button" onClick={() => openPlaybook(p.code)}>{p.title}</button> <small>{p.steps.filter((s) => s.unitCode === focus).map((s) => s.task).join(" · ")}</small></li>)}</ul>}
       <h2>Zincirler: bir akış kapanınca başlayanlar</h2>
-      <ul className="pb-chains">{data.network.chains.filter((c) => !focus || [c.from, c.to].some((code) => data.playbooks.find((p) => p.code === code)?.steps.some((s) => s.unitCode === focus))).map((c) => <li key={c.from + c.to}><button type="button" onClick={() => openPlaybook(c.from)}>{data.playbooks.find((p) => p.code === c.from)?.title}</button> → <button type="button" onClick={() => openPlaybook(c.to)}>{data.playbooks.find((p) => p.code === c.to)?.title}</button></li>)}</ul>
+      <ul className="pb-chains">{(data.network.chains as { from: string; to: string; when?: string | null }[]).filter((c) => !focus || [c.from, c.to].some((code) => data.playbooks.find((p) => p.code === code)?.steps.some((s) => s.unitCode === focus))).map((c) => <li key={c.from + c.to}><button type="button" onClick={() => openPlaybook(c.from)}>{data.playbooks.find((p) => p.code === c.from)?.title}</button> → <button type="button" onClick={() => openPlaybook(c.to)}>{data.playbooks.find((p) => p.code === c.to)?.title}</button>{c.when && <small> · koşul: {c.when}</small>}</li>)}</ul>
     </section>
   </div>;
 }

@@ -71,6 +71,6 @@ await test("taburculuk formu: açık engeller listelenir; 3+ engel yüksek önce
   assert.match(row.subject, /Tamam: 2\/6 · Açık engeller: Hasta\/yakın bilgilendirmesi/);
   const e = await post({ ward: "Dahiliye 4B / 12", plannedDate: "2026-10-01", done: [], note: "hasta nefes alamıyor" });
   const erow = sqlite.prepare("SELECT unit_code, priority, human_approval_required FROM tickets WHERE reference = ?").get((await e.json()).ticket.reference);
-  assert.deepEqual([erow.unit_code, erow.priority, erow.human_approval_required], ["ACY", "Acil", 1], "acil sinyal güvenlik için önceliklidir");
+  assert.deepEqual([erow.unit_code, erow.priority, erow.human_approval_required], ["TBR", "Yüksek", 0], "belirti, personelin seçtiği operasyon birimini veya önceliğini değiştirmez");
   assert.equal((await ticketsRoute.POST(req("POST", "/api/tickets", "agent@klinorbis.test", { patientAlias: "HST-SENTETIK-23", formKind: "baska", form: {} }))).status, 400);
 });

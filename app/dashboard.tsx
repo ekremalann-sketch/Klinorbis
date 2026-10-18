@@ -30,6 +30,7 @@ import { chatGPTSignInPath, chatGPTSignOutPath } from "./auth-paths";
 
 const PatientAccess = lazy(() => import("./patient-access").then(m => ({default:m.PatientAccess})));
 const Playbooks = lazy(() => import("./playbooks").then(m => ({default:m.Playbooks})));
+const Simulation = lazy(() => import("./simulation").then(m => ({default:m.Simulation})));
 const ScreenLoading = () => <div className="screen-loading" role="status"><span /><span /><span /><p>Çalışma ekranı hazırlanıyor…</p></div>;
 
 export type View =
@@ -40,6 +41,7 @@ export type View =
   | "appointments"
   | "access"
   | "playbooks"
+  | "simulation"
   | "calls"
   | "approvals"
   | "automation"
@@ -65,6 +67,7 @@ type Task = {
   acceptedAt?: DateValue;
   updatedAt?: DateValue;
   sourceType?: string;
+  escalationLevel?: number;
 };
 // Görevin açılacağı ekran: kayda bağlıysa kayıt, görüşmeye bağlıysa görüşme; operasyon akışı ve
 // hekim yokluğu görevleri kendi ekranlarına gider (önceden bu görevlere tıklamak boş sayfa açıyordu).
@@ -412,6 +415,7 @@ const viewPaths: Record<View, string> = {
   appointments: "/appointments",
   access: "/access",
   playbooks: "/playbooks",
+  simulation: "/simulation",
   calls: "/calls",
   approvals: "/approvals",
   automation: "/automation",
@@ -432,6 +436,7 @@ const titles: Record<View, string> = {
   appointments: "Randevu Talepleri",
   access: "Hekim Yokluğu ve Hasta Bilgilendirme",
   playbooks: "Operasyon Akışları",
+  simulation: "Sanal Hastane Simülasyonu",
   calls: "Çağrı ve Konuşmalar",
   approvals: "İnsan Onayları",
   automation: "Canlı Otomasyon",
@@ -461,6 +466,7 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
       group: "OPERASYON",
     },
     { view: "playbooks", icon: "⇄", label: "Operasyon Akışları" },
+    { view: "simulation", icon: "◌", label: "Sanal Hastane" },
     { view: "capacity", icon: "↔", label: "Kapasite ve Transfer" },
     { view: "integrations", icon: "⌁", label: "Entegrasyon Sağlığı" },
     { view: "units", icon: "◇", label: "Birim Çalışma Masaları" },
@@ -475,8 +481,8 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
 const ROLE_VIEWS: Record<string, View[]> = {
   // Her rol yalnız kendi işine ait ekranları görür; "Personel ve Yetki" herkeste "Benim işim/vardiyam" olarak durur.
   // Diğer ekranlar "Tüm ekranları göster" altında.
-  operations_manager: ["dashboard", "inbox", "approvals", "calls", "access", "flow", "playbooks", "capacity", "automation", "units", "staff", "reports"],
-  unit_manager: ["dashboard", "inbox", "approvals", "units", "appointments", "access", "capacity", "staff"],
+  operations_manager: ["dashboard", "inbox", "approvals", "calls", "access", "flow", "playbooks", "simulation", "capacity", "automation", "units", "staff", "reports"],
+  unit_manager: ["dashboard", "inbox", "approvals", "playbooks", "units", "appointments", "access", "capacity", "staff"],
   clinician: ["dashboard", "approvals", "inbox", "units", "access", "staff"],
   call_agent: ["calls", "inbox", "appointments", "access", "staff"],
   privacy_officer: ["privacy", "audit", "reports", "inbox", "staff"],
@@ -491,7 +497,7 @@ const NAV_GROUP_OF: Record<string, string> = (() => {
 const MOBILE_LABELS: Partial<Record<View, string>> = {
   dashboard: "Merkez", inbox: "İşler", calls: "Çağrı", approvals: "Onay", access: "Yokluk", units: "Birim",
   appointments: "Randevu", flow: "Akış", privacy: "KVKK", audit: "Denetim", reports: "Rapor", security: "Güvenlik",
-  automation: "Otomasyon", integrations: "Entegr.", capacity: "Kapasite", staff: "Personel",
+  automation: "Otomasyon", integrations: "Entegr.", simulation: "Simülasyon", capacity: "Kapasite", staff: "Personel",
 };
 const roleNames: Record<string, string> = {
   operations_manager: "Operasyon Yöneticisi",
@@ -577,6 +583,8 @@ export default function Dashboard({
   const [error, setError] = useState("");
   const [menu, setMenu] = useState(false);
   const [bell, setBell] = useState(false);
+  // Kişiye özel bildirimler (iş atandı, gecikme yükseltmesi): /api/notifications'tan dakikada bir alınır.
+  const [personal, setPersonal] = useState<{ items: PersonalNotice[]; unread: number }>({ items: [], unread: 0 });
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [query, setQuery] = useState("");
   const [showAllNav, setShowAllNav] = useState(false);
@@ -812,8 +820,29 @@ export default function Dashboard({
   }, [refresh, refreshSecurity]);
   useEffect(() => { if (initialView !== "security" && initialView !== "privacy") return; const t = window.setTimeout(() => void refreshSecurity(), 0); return () => window.clearTimeout(t); }, [initialView, refreshSecurity]);
 
+  const loadPersonal = useCallback(async () => {
+    try {
+      const response = await fetch("/api/notifications", { cache: "no-store" });
+      if (response.ok) setPersonal(await response.json() as { items: PersonalNotice[]; unread: number });
+    } catch { /* bildirim alınamazsa panel çalışmaya devam eder */ }
+  }, []);
+  useEffect(() => {
+    if (!snapshot?.identity.email) return;
+    const first = window.setTimeout(() => void loadPersonal(), 1500);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void loadPersonal(); }, 60_000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [snapshot?.identity.email, loadPersonal]);
+  const readPersonal = useCallback(async (ids: number[] | "all") => {
+    setPersonal((current) => ({ unread: ids === "all" ? 0 : Math.max(0, current.unread - current.items.filter((n) => ids.includes(n.id) && !n.readAt).length), items: current.items.map((n) => (ids === "all" || ids.includes(n.id) ? { ...n, readAt: n.readAt ?? Date.now() } : n)) }));
+    await fetch("/api/notifications", { method: "POST", headers: { "content-type": "application/json", "x-klinorbis-request": "browser" }, body: JSON.stringify(ids === "all" ? { action: "read.all" } : { action: "read", ids }) }).catch(() => undefined);
+  }, []);
+
   const notices = useMemo(() => {
     if (!snapshot) return [];
+    const mine = personal.items.slice(0, 10).map((n) => ({
+      id: `n${n.id}`, personalId: n.id, unread: !n.readAt, kind: n.kind,
+      title: n.title, detail: n.detail, time: formatTime(n.createdAt), path: n.path, urgent: n.kind === "escalation",
+    }));
     const pendingApprovals = snapshot.approvals
       .filter((approval) => approval.status === "pending")
       .map((approval) => ({
@@ -837,8 +866,8 @@ export default function Dashboard({
         path: taskPath(task),
         urgent: task.priority === "Acil",
       }));
-    return [...pendingApprovals, ...queuedTasks].slice(0, 12);
-  }, [snapshot]);
+    return [...mine, ...pendingApprovals, ...queuedTasks].slice(0, 16);
+  }, [snapshot, personal.items]);
 
   async function secureMutation<T extends ApiError>(
     url: string,
@@ -1207,7 +1236,7 @@ export default function Dashboard({
               aria-label="Bildirim merkezini aç"
               onClick={() => setBell(!bell)}
             >
-              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>{notices.length > 0 && <i>{notices.length}</i>}
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>{(personal.unread + notices.filter((n) => !("personalId" in n)).length) > 0 && <i>{Math.min(99, personal.unread + notices.filter((n) => !("personalId" in n)).length)}</i>}
             </button>
             {/* Paylaşılan bilgisayarlarda oturumu kapatmak için; üst belge gezintisi gerekir. */}
             <a className="secondary logout-link" href={chatGPTSignOutPath("/")} target="_top">Çıkış yap</a>
@@ -1216,6 +1245,8 @@ export default function Dashboard({
                 notices={notices}
                 open={go}
                 close={() => setBell(false)}
+                markRead={(ids) => void readPersonal(ids)}
+                unread={personal.unread}
               />
             )}
           </div>
@@ -1285,6 +1316,7 @@ export default function Dashboard({
         )}
         {initialView === "access" && <Suspense fallback={<ScreenLoading />}><PatientAccess /></Suspense>}
         {initialView === "playbooks" && <Suspense fallback={<ScreenLoading />}><Playbooks /></Suspense>}
+        {initialView === "simulation" && <Suspense fallback={<ScreenLoading />}><Simulation /></Suspense>}
         {initialView === "calls" && (
           <CallsWorkspace
             snapshot={snapshot}
@@ -1469,10 +1501,13 @@ function ReceiptBar({
     </div>
   );
 }
+type PersonalNotice = { id: number; kind: string; title: string; detail: string; path: string; createdAt: DateValue; readAt: DateValue };
 function NotificationPanel({
   notices,
   open,
   close,
+  markRead,
+  unread,
 }: {
   notices: Array<{
     id: string;
@@ -1481,9 +1516,14 @@ function NotificationPanel({
     time: string;
     path: string;
     urgent: boolean;
+    personalId?: number;
+    unread?: boolean;
+    kind?: string;
   }>;
   open: (path: string) => void;
   close: () => void;
+  markRead: (ids: number[] | "all") => void;
+  unread: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Dışarı dokununca veya Esc'ye basınca kapanır (önceden yalnız × ile kapanıyordu).
@@ -1511,12 +1551,14 @@ function NotificationPanel({
         notices.map((notice) => (
           <button
             key={notice.id}
+            className={notice.unread ? "unread" : undefined}
             onClick={() => {
+              if (notice.personalId && notice.unread) markRead([notice.personalId]);
               close();
               open(notice.path);
             }}
           >
-            <i className={notice.urgent ? "urgent" : "task"} />
+            <i className={notice.kind === "escalation" ? "escalation" : notice.urgent ? "urgent" : "task"} />
             <span>
               <b>{notice.title}</b>
               <small>{notice.detail}</small>
@@ -1528,7 +1570,8 @@ function NotificationPanel({
         <div className="empty">Bekleyen bildirim yok.</div>
       )}
       <div className="pop-foot">
-        Statik bildirim yoktur; görev ve onay kayıtlarından üretilir.
+        {unread > 0 && <button type="button" className="pop-mark" onClick={() => markRead("all")}>Tümünü okundu say ({unread})</button>}
+        <span>Size atanan işler, gecikme yükseltmeleri, onaylar ve kuyruktaki görevler.</span>
       </div>
     </div>
   );
@@ -1914,6 +1957,7 @@ function TaskList({
           <span>
             <b>
               {task.reference} · {task.assignedRole}
+              {!!task.escalationLevel && !["completed", "cancelled"].includes(task.status) && <span className="task-escalated">{task.escalationLevel >= 2 ? "Yönetime yükseldi" : "Gecikti · sorumluya bildirildi"}</span>}
             </b>
             <small>
               {unitName(snapshot, task.unitCode)} ·{" "}

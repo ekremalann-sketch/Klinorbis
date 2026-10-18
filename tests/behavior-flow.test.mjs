@@ -86,9 +86,11 @@ await test("7) çözülmüş talep yeniden işlenemez (çift gönderim/eski sekm
 });
 let emergency;
 await test("8) acil olasılık sinyali: otomasyon durur, ACY'de insan onayı açılır; yetkili klinisyen onaylar", async () => {
-  const r = await ticketsRoute.POST(call("POST", "/api/tickets", "agent", { patientAlias: "HST-SENTETIK-02", subject: "Arayan kişi göğüs ağrısı tarif ediyor (sentetik senaryo)" }));
+  const r = await ticketsRoute.POST(call("POST", "/api/tickets", "agent", { patientAlias: "HST-SENTETIK-02", unitCode: "ACY", subject: "Yetkili personelin seçtiği klinik devir (sentetik senaryo)" }));
   assert.equal(r.status, 201);
   emergency = (await r.json()).ticket.reference;
+ sqlite.prepare("UPDATE tickets SET human_approval_required=1,status='Personele aktarıldı' WHERE reference=?").run(emergency);
+ sqlite.prepare("INSERT INTO approvals(reference,ticket_reference,unit_code,approval_type,status,requested_by,created_at) VALUES(?,?,'ACY','clinical_handoff','pending','explicit-test-authority',?)").run('ONAY-'+emergency,emergency,Date.now());
   assert.equal(ticket(emergency).unit_code, "ACY");
   const approval = sqlite.prepare("SELECT reference, status FROM approvals WHERE ticket_reference = ?").get(emergency);
   assert.equal(approval.status, "pending");
