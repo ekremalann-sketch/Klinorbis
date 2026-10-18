@@ -13,6 +13,7 @@ const sections = new Set<string>([
   "appointments",
   "access",
   "playbooks",
+  "simulation",
   "calls",
   "approvals",
   "automation",

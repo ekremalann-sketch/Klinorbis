@@ -160,7 +160,7 @@ export async function POST(request: Request) {
     return Response.json({
       playbook,
       requestType: { code: requestType.code, label: requestType.label },
-      patientNotified: Boolean(notifyChannel && !signal.isEmergency),
+      patientNotified: false, notificationQueued: Boolean(notifyChannel && !signal.isEmergency),
       ticket,
       destination: { unitCode: destination.code, unitName: destination.name, assignedRole: destination.assignedRole, taskReference, queueStatus: "queued" },
       automation: { emergency: signal.isEmergency, signal, redaction: { detected: redaction.detected } },

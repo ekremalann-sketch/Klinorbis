@@ -24,7 +24,8 @@ for (const playbook of PLAYBOOKS) {
         assert.equal(run.current_step, index);
         const persisted = sqlite.prepare('SELECT unit_code, task_reference FROM playbook_steps WHERE run_reference = ? AND step_index = ?').get(reference, index);
         assert.equal(persisted.unit_code, step.unitCode);
-        const body = { action: 'step.complete', reference, version: run.version, note: 'Kurgusal adım teyidi' };
+        // Koşullu zincirler: tüm koşullar işaretlenir; böylece her bağlı akışın açılabildiği doğrulanır (koşulsuz açılmaması package1 testinde).
+        const body = { action: 'step.complete', reference, version: run.version, note: 'Kurgusal adım teyidi', conditions: playbook.nextRules.map((r) => r.when).filter(Boolean) };
         const actor = step.approval ? (step.clinical ? CLINICIAN : MANAGER) : OWNER;
         if (step.approval) assert.equal((await post(OWNER, body)).status, 403, 'starter cannot approve own workflow');
         if (step.waitMinutes) {

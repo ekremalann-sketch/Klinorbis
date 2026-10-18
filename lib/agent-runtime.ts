@@ -1,6 +1,10 @@
+import { tickVirtualHospital } from "./virtual-hospital-store";
 import { automationStopped } from "./automation-policy";
 import { and, eq, lt, lte, ne, or } from "drizzle-orm";
 import { activateDueSteps } from "./playbook-store";
+import { escalateOverdueTasks } from "./escalation";
+import { notificationStatements, roleRecipients } from "./notifications";
+import { weeklyNoticeKey } from "./weekly-report";
 import type { getDb } from "../db";
 import { integrationEvents, rateLimitCounters } from "../db/schema";
 import { getAutomationAgentStatus } from "./agent-health";
@@ -13,6 +17,7 @@ import { runAiMonitor } from "./ai-monitor";
 type Db = ReturnType<typeof getDb>;
 
 export async function runAutomationAgent(db: Db, workerId = "scheduled-worker") {
+  await tickVirtualHospital(db).catch(error => console.error("[simulation]", String(error)));
   if (await automationStopped(db)) return { ran: false, pilot: null, controlTower: null, cycle: null, housekeeping: null, status: await getAutomationAgentStatus(db) };
   const receivedAt = new Date();
   const leaseToken = crypto.randomUUID();
@@ -38,6 +43,14 @@ export async function runAutomationAgent(db: Db, workerId = "scheduled-worker") 
     const cycle = await runWorkflowCycle(db, workerId, 30);
     // Zamanı gelen gecikmeli akış adımlarını (ör. taburcudan 48 saat sonra arama) iş kutusuna aç.
     await activateDueSteps(db, new Date());
+    // Hedef süresi geçen işler: önce birim sorumlusuna, 30 dk sonra operasyon yöneticisine bildirim.
+    const escalation = await escalateOverdueTasks(db, new Date()).catch(() => ({ checked: 0, escalated: 0, paused: false, failed: true }));
+    // Pazartesi sabahı: operasyon yöneticilerine haftalık rapor hatırlatması (haftada bir; dedupe anahtarı).
+    const weeklyKey = weeklyNoticeKey();
+    if (weeklyKey) {
+      const notify = notificationStatements(db, await roleRecipients(db, "operations_manager"), { kind: "report", title: "Haftalık yönetim raporu hazır", detail: "Geçen haftanın darboğazları, gecikme saatleri ve öneriler.", path: "/playbooks#haftalik", key: weeklyKey });
+      if (notify.length) await db.batch(notify as [typeof notify[number], ...typeof notify]).catch(() => undefined);
+    }
     // İsteğe bağlı yapay zekâ izleme: anahtar yoksa no-op; en fazla 15 dk'da bir; yalnız toplam sayılar gider; işlem yapmaz.
     const ai = await runAiMonitor(db).catch(() => ({ ran: false, reason: "failed" }));
     await db.update(integrationEvents).set({ status: "completed" }).where(eq(integrationEvents.eventId, eventId));
@@ -47,6 +60,7 @@ export async function runAutomationAgent(db: Db, workerId = "scheduled-worker") 
       controlTower,
       cycle,
       ai,
+      escalation,
       housekeeping: { expiredRateLimitsPurgedAt: receivedAt.toISOString() },
       status: await getAutomationAgentStatus(db),
     };

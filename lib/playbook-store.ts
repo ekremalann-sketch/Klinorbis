@@ -11,7 +11,8 @@ import { integrationEvents, operationalTasks, playbookRuns, playbookSteps } from
 import { auditStatements } from "./audit";
 import { findUnit } from "./hospital-units";
 import { triggerFor } from "./playbook-triggers";
-import { playbookOf, PLAYBOOKS, type Playbook } from "./playbooks";
+import { CHAIN_CONDITIONS, chainTargets, playbookOf, PLAYBOOKS, type Playbook } from "./playbooks";
+import { notificationStatements, unitRecipients } from "./notifications";
 import { redactPII } from "./privacy";
 import { canAccessUnit, SecurityError, type RequestActor } from "./security";
 
@@ -29,6 +30,40 @@ function cleanNote(value: unknown) {
   return text ? redactPII(text).maskedText : null;
 }
 const isConflict = (error: unknown) => /UNIQUE|constraint/i.test(`${String(error)} ${String((error as { cause?: unknown })?.cause ?? "")}`);
+/** Yapılandırılmış alanlar: hepsi isteğe bağlı. Hasta alanı yalnız kısa kod kabul eder (ad-soyad yazılamaz). */
+export type RunFields = { campus: string | null; location: string | null; deviceCode: string | null; patientRef: string | null };
+const CAMPUSES = ["merkez", "ek-bina", "poliklinik", "diger"];
+function field(value: unknown, pattern: RegExp, label: string, max: number) {
+  if (value === undefined || value === null || value === "") return null;
+  const text = typeof value === "string" ? value.normalize("NFC").trim().slice(0, max) : "";
+  if (!text) return null;
+  if (!pattern.test(text)) throw new SecurityError(400, `${label} biçimi geçersiz.`, "INVALID_INPUT");
+  return text;
+}
+export function cleanRunFields(raw: unknown): RunFields {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const campus = field(r.campus, /^[a-z-]{2,20}$/, "Yerleşke", 20);
+  if (campus && !CAMPUSES.includes(campus)) throw new SecurityError(400, "Yerleşke listede yok.", "INVALID_INPUT");
+  const patientRef = field(typeof r.patientRef === "string" ? r.patientRef.toUpperCase() : r.patientRef, /^[A-Z]{1,3}-?\d{2,8}$/, "Hasta kısa kodu (ör. P-1042; ad yazılmaz)", 12);
+  return {
+    campus,
+    location: field(r.location, /^[0-9A-Za-zÇĞİÖŞÜçğıöşü .\/-]{1,24}$/, "Oda/yatak", 24),
+    deviceCode: field(r.deviceCode, /^[0-9A-Za-z._/-]{2,24}$/, "Cihaz kodu", 24),
+    patientRef,
+  };
+}
+const NO_FIELDS: RunFields = { campus: null, location: null, deviceCode: null, patientRef: null };
+
+/** Adımı açılan birimin üyelerine bildirim (gecikmeli adımda açılış zamanı gelince activateDueSteps bildirir). */
+async function stepNotifications(db: Db, runReference: string, playbook: Playbook, index: number, now: Date) {
+  const step = playbook.steps[index];
+  if (step.waitMinutes) return [];
+  return notificationStatements(db, await unitRecipients(db, step.unitCode), {
+    kind: "task", title: `Yeni iş: ${playbook.title}`, detail: `${index + 1}. adım · ${step.task}${step.approval ? " · onay gerekli" : ""}`,
+    path: "/playbooks", key: `task:TSK-${runReference}-${index + 1}`,
+  }, now);
+}
+
 const lock = (db: Db, key: string, type: string) => db.insert(integrationEvents).values({ eventId: key, source: "klinorbis", eventType: type, payloadHash: "-", status: "lock" });
 
 /** Bir adımı açan ifadeler: adım kaydı + birimin iş kutusuna görev (gecikmeliyse "scheduled"). */
@@ -47,11 +82,13 @@ function stepStatements(db: Db, runReference: string, playbook: Playbook, index:
   ];
 }
 
-function runStatements(db: Db, playbook: Playbook, opts: { reference: string; startedBy: string; note: string | null; parentReference: string | null; triggerEvent: string | null; now: Date }): Stmt[] {
+function runStatements(db: Db, playbook: Playbook, opts: { reference: string; startedBy: string; note: string | null; parentReference: string | null; triggerEvent: string | null; now: Date; fields?: RunFields }): Stmt[] {
+  const fields = opts.fields ?? NO_FIELDS;
   return [
     db.insert(playbookRuns).values({
       reference: opts.reference, playbookCode: playbook.code, title: playbook.title, status: "active", currentStep: 0, stepCount: playbook.steps.length,
       note: opts.note, parentReference: opts.parentReference, startedBy: opts.startedBy, triggerEvent: opts.triggerEvent, createdAt: opts.now, updatedAt: opts.now,
+      campus: fields.campus, location: fields.location, deviceCode: fields.deviceCode, patientRef: fields.patientRef,
     }),
     ...stepStatements(db, opts.reference, playbook, 0, opts.now),
   ];
@@ -67,16 +104,18 @@ async function runBatch(db: Db, statements: Stmt[], conflictMessage: string) {
 }
 
 /** Elle başlatma: ilk adımın birimi veya tüm birimleri gören operasyon yöneticisi başlatır. */
-export async function startPlaybook(db: Db, actor: RequestActor, code: string, rawNote: unknown) {
+export async function startPlaybook(db: Db, actor: RequestActor, code: string, rawNote: unknown, rawFields?: unknown) {
   const playbook = playbookOf(code);
   if (!playbook) throw new SecurityError(404, "Akış bulunamadı.", "PLAYBOOK_NOT_FOUND");
   if (!canAccessUnit(actor, playbook.steps[0].unitCode)) {
     throw new SecurityError(403, `Bu akışı ilk adımın birimi (${findUnit(playbook.steps[0].unitCode).name}) veya operasyon yöneticisi başlatır.`, "UNIT_ACCESS_DENIED");
   }
+  const fields = cleanRunFields(rawFields);
   const now = new Date();
   const reference = newReference(code);
+  const notify = await stepNotifications(db, reference, playbook, 0, now);
   const audit = await auditStatements(db, [{ actor: actor.email, action: "playbook.started", resource: reference, detail: playbook.title }]);
-  await runBatch(db, [...runStatements(db, playbook, { reference, startedBy: actor.email, note: cleanNote(rawNote), parentReference: null, triggerEvent: null, now }), ...audit], "Akış başlatılamadı; tekrar deneyin.");
+  await runBatch(db, [...runStatements(db, playbook, { reference, startedBy: actor.email, note: cleanNote(rawNote), parentReference: null, triggerEvent: null, now, fields }), ...notify, ...audit], "Akış başlatılamadı; tekrar deneyin.");
   return reference;
 }
 
@@ -91,9 +130,10 @@ export async function startFromEvent(db: Db, input: { type: string; eventId: str
   const now = new Date();
   const reference = newReference(playbook.code);
   const startedBy = input.simulatedBy ? input.simulatedBy : `olay:${input.source}`;
+  const notify = await stepNotifications(db, reference, playbook, 0, now);
   const audit = await auditStatements(db, [{ actor: startedBy, action: "playbook.triggered", resource: reference, detail: `${trigger.label} → ${playbook.title} (${triggerEvent})` }]);
   try {
-    await db.batch([...runStatements(db, playbook, { reference, startedBy, note: cleanNote(input.note) ?? `Olay: ${trigger.label}`, parentReference: null, triggerEvent, now }), ...audit] as [Stmt, ...Stmt[]]);
+    await db.batch([...runStatements(db, playbook, { reference, startedBy, note: cleanNote(input.note) ?? `Olay: ${trigger.label}`, parentReference: null, triggerEvent, now }), ...notify, ...audit] as [Stmt, ...Stmt[]]);
   } catch (error) {
     if (!isConflict(error)) throw error;
     const [again] = await db.select({ reference: playbookRuns.reference }).from(playbookRuns).where(eq(playbookRuns.triggerEvent, triggerEvent)).limit(1);
@@ -108,7 +148,13 @@ export async function activateDueSteps(db: Db, now = new Date()) {
   if (await automationStopped(db)) return;
   const due = db.select({ ref: playbookSteps.taskReference }).from(playbookSteps).where(and(lte(playbookSteps.activateAt, now), isNull(playbookSteps.completedAt)));
   const changed = await db.update(operationalTasks).set({ status: "queued", updatedAt: now })
-    .where(and(eq(operationalTasks.status, "scheduled"), inArray(operationalTasks.reference, due))).returning({ reference: operationalTasks.reference });
+    .where(and(eq(operationalTasks.status, "scheduled"), inArray(operationalTasks.reference, due))).returning({ reference: operationalTasks.reference, unitCode: operationalTasks.unitCode });
+  // Zamanı gelen adımın birimine bildirim (dedupe: aynı görev için bir kez).
+  const notify: Stmt[] = [];
+  for (const task of changed) {
+    notify.push(...notificationStatements(db, await unitRecipients(db, task.unitCode), { kind: "task", title: "Zamanı gelen iş açıldı", detail: `${task.reference} iş kutunuza düştü.`, path: "/playbooks", key: `task:${task.reference}` }, now));
+  }
+  if (notify.length) await db.batch(notify as [Stmt, ...Stmt[]]);
   return changed.length;
 }
 
@@ -125,7 +171,13 @@ function assertCanComplete(actor: RequestActor, run: { startedBy: string }, step
   }
 }
 
-export async function completeStep(db: Db, actor: RequestActor, reference: string, version: number, rawNote: unknown) {
+/** Son adımda işaretlenebilecek zincir koşulları (yalnız bu akışta tanımlı olanlar kabul edilir). */
+export function cleanConditions(playbook: Playbook, raw: unknown): string[] {
+  const allowed = new Set(playbook.nextRules.map((r) => r.when).filter((w): w is string => !!w));
+  return Array.isArray(raw) ? [...new Set(raw.filter((c): c is string => typeof c === "string" && allowed.has(c)))] : [];
+}
+
+export async function completeStep(db: Db, actor: RequestActor, reference: string, version: number, rawNote: unknown, rawConditions?: unknown) {
   const [run] = await db.select().from(playbookRuns).where(eq(playbookRuns.reference, reference)).limit(1);
   if (!run) throw new SecurityError(404, "Akış bulunamadı.", "PLAYBOOK_NOT_FOUND");
   if (run.status !== "active") throw new SecurityError(409, "Akış kapanmış.", "PLAYBOOK_CLOSED");
@@ -152,21 +204,30 @@ export async function completeStep(db: Db, actor: RequestActor, reference: strin
     { actor: actor.email, action: last ? "playbook.done" : step.approval ? "playbook.approved" : "playbook.step", resource: reference, detail: `${run.currentStep + 1}. ${step.task}` },
   ];
   const started: { reference: string; title: string }[] = [];
+  const skipped: { code: string; title: string; condition: string }[] = [];
   if (!last) {
-    statements.push(...stepStatements(db, reference, playbook, run.currentStep + 1, now));
+    statements.push(...stepStatements(db, reference, playbook, run.currentStep + 1, now), ...await stepNotifications(db, reference, playbook, run.currentStep + 1, now));
   } else {
+    const conditions = cleanConditions(playbook, rawConditions);
+    const targets = chainTargets(playbook, conditions);
+    if (conditions.length) statements.push(db.update(playbookRuns).set({ chainChoices: JSON.stringify(conditions) }).where(eq(playbookRuns.reference, reference)));
     // Akış ağı: kapanan akış bağlı akışları aynı işlemde başlatır (zincir derinliği sınırlı).
     let depth = 0, parent = run.parentReference;
     while (parent && depth < MAX_CHAIN) {
       const [p] = await db.select({ parentReference: playbookRuns.parentReference }).from(playbookRuns).where(eq(playbookRuns.reference, parent)).limit(1);
       parent = p?.parentReference ?? null; depth++;
     }
+    for (const s of targets.skip) {
+      skipped.push({ code: s.code, title: playbookOf(s.code)?.title ?? s.code, condition: CHAIN_CONDITIONS[s.when] ?? s.when });
+      auditEntries.push({ actor: actor.email, action: "playbook.chain_skipped", resource: reference, detail: `${playbookOf(s.code)?.title ?? s.code}: koşul işaretlenmedi (${CHAIN_CONDITIONS[s.when] ?? s.when})` });
+    }
     if (depth < MAX_CHAIN) {
-      for (const code of playbook.next) {
+      const inherited: RunFields = { campus: run.campus, location: run.location, deviceCode: run.deviceCode, patientRef: run.patientRef };
+      for (const code of targets.start) {
         const child = playbookOf(code);
         if (!child) continue;
         const childRef = newReference(code);
-        statements.push(...runStatements(db, child, { reference: childRef, startedBy: run.startedBy, note: `Otomatik: ${playbook.title} (${reference})`, parentReference: reference, triggerEvent: null, now }));
+        statements.push(...runStatements(db, child, { reference: childRef, startedBy: run.startedBy, note: `Otomatik: ${playbook.title} (${reference})`, parentReference: reference, triggerEvent: null, now, fields: inherited }), ...await stepNotifications(db, childRef, child, 0, now));
         auditEntries.push({ actor: actor.email, action: "playbook.chained", resource: childRef, detail: `${child.title} ← ${reference}` });
         started.push({ reference: childRef, title: child.title });
       }
@@ -174,7 +235,7 @@ export async function completeStep(db: Db, actor: RequestActor, reference: strin
   }
   statements.push(...await auditStatements(db, auditEntries));
   await runBatch(db, statements, "Bu adım başka bir işlemle tamamlandı; sayfayı yenileyin.");
-  return { done: last, started };
+  return { done: last, started, skipped };
 }
 
 export async function cancelRun(db: Db, actor: RequestActor, reference: string, version: number, rawNote: unknown) {

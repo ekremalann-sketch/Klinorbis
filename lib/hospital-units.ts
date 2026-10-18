@@ -107,28 +107,10 @@ export function findUnit(value?: string | null) {
     ?? HOSPITAL_UNITS.find((unit) => unit.code === "HIL")!;
 }
 
+/** Only explicit staff selection or administrative request type may select a destination. */
 export function recommendUnit(subject: string, requestedUnit?: string | null) {
-  if (requestedUnit) return findUnit(requestedUnit);
-  const value = subject.toLocaleLowerCase("tr-TR");
-  const matchers: Array<[string[], string]> = [
-    [["randevu", "tarih değiş", "iptal"], "RND"],
-    [["tahlil", "laboratuvar", "kan sonucu"], "LAB"],
-    [["kalp damar cerrahisi", "kvc"], "KVC"],
-    [["kardiyoloji", "kalp"], "KRD"],
-    [["ortopedi", "kırık", "eklem"], "ORT"],
-    [["radyoloji", "mr", "tomografi", "ultrason"], "RAD"],
-    [["gastroenteroloji", "endoskopi"], "GAS"],
-    [["nefroloji", "diyaliz"], "NEF"],
-    [["endokrinoloji", "diyabet"], "END"],
-    [["infertilite", "tüp bebek", "üreme"], "IVF"],
-    [["onkoloji", "kemoterapi"], "ONK"],
-    [["çocuk kardiyoloji"], "PKR"],
-    [["çocuk nöroloji"], "PNR"],
-    [["evde sağlık", "evde bakım"], "EVS"],
-    [["provizyon", "sigorta"], "PRV"],
-    [["fatura", "vezne"], "VZN"],
-    [["şikâyet", "hasta hakkı"], "HHK"],
-  ];
-  const code = matchers.find(([terms]) => terms.some((term) => value.includes(term)))?.[1] ?? "HIL";
-  return findUnit(code);
+ if (requestedUnit) return findUnit(requestedUnit);
+ const value=subject.toLocaleLowerCase('tr-TR');
+ const rules: [string[],string][]=[[["randevu","tarih değiş"],"RND"],[["provizyon","sigorta"],"PRV"],[["fatura","vezne"],"VZN"],[["şikâyet","hasta hakkı"],"HHK"]];
+ return findUnit(rules.find(([terms])=>terms.some(t=>value.includes(t)))?.[1]??'HIL');
 }
