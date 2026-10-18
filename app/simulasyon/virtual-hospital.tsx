@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_SIM_SETTINGS, SIM_LABEL, SIM_STAFF, SIM_UNITS, simTime, type SimSettings, type SimState, type simulationMetrics } from '../../lib/virtual-hospital';
 import './virtual-hospital.css';
@@ -30,7 +31,7 @@ export default function VirtualHospital(){
  }
  return <main className="sim-shell">
   <div className="sim-banner" role="note">{SIM_LABEL}</div>
-  <header className="sim-header"><div><a href="/merkez">← Operasyon Merkezi</a> · <a href="/simulation">Maliyet ve zaman karşılaştırması</a><p className="sim-eyebrow">KLINORBIS / SANAL PİLOT</p><h1>Sanal Hastane Simülasyonu</h1><p>İki kampüs, kurgusal ekipler, gerçek kurallar. Telefon ve tıklama yükünü aynı olaylar üzerinden karşılaştırın.</p></div><span className={'sim-status '+(running?'sim-live':'')}>{snapshot?.emergencyStopped?'Acil durdurma etkin':running?'Kurgusal gün çalışıyor':state?.status==='completed'?'Senaryo tamamlandı':state?'Durduruldu':snapshot?'Başlamadı':'Yükleniyor…'}</span></header>
+  <header className="sim-header"><div><Link href="/merkez">← Operasyon Merkezi</Link> · <Link href="/simulation">Maliyet ve zaman karşılaştırması</Link><p className="sim-eyebrow">KLINORBIS / SANAL PİLOT</p><h1>Sanal Hastane Simülasyonu</h1><p>İki kampüs, kurgusal ekipler, gerçek kurallar. Telefon ve tıklama yükünü aynı olaylar üzerinden karşılaştırın.</p></div><span className={'sim-status '+(running?'sim-live':'')}>{snapshot?.emergencyStopped?'Acil durdurma etkin':running?'Kurgusal gün çalışıyor':state?.status==='completed'?'Senaryo tamamlandı':state?'Durduruldu':snapshot?'Başlamadı':'Yükleniyor…'}</span></header>
   {error&&<div className="sim-error" role="alert">{error} <button onClick={()=>void request()}>Yeniden dene</button></div>}
   <section className="sim-card"><div className="sim-section-head"><h2>Pilot kontrolü</h2><span>Yalnız operasyon yöneticisi · Canlı kayıtlardan ayrı</span></div>
    <div className="sim-settings">

@@ -1,4 +1,5 @@
 "use client";
+import Link from 'next/link';
 // Sanal hastane simülasyonu ekranı (yalnız operasyon yöneticisi).
 // Kurgusal hastanede aynı olaylar telefon/kâğıt ve Klinorbis ile oynatılır; personel zamanı ve TL karşılığı
 // karşılaştırılır. Her yerde "SİMÜLASYON" etiketi görünür; sonuç yazdırılabilir. Gerçek veri kullanılmaz.
@@ -68,7 +69,7 @@ export function Simulation() {
   </label>;
 
   return <section className="sim-panel" aria-label="Sanal hastane simülasyonu">
-    <p className="sim-label" role="note">{meta.label}</p><p><a href="/simulasyon">Otomatik hastane gününü aç</a></p>
+    <p className="sim-label" role="note">{meta.label}</p><p><Link href="/simulasyon">Otomatik hastane gününü aç</Link></p>
     <div className="sim-head">
       <div>
         <h2>{meta.hospital.name}</h2>
