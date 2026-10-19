@@ -14,7 +14,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const ts = (d: Date) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}+0000`;
 
 export type FakePatient = { n: number; visit: string; unit: string; room: string; bed: string };
-export function adt(event: "A01" | "A02" | "A03" | "A08", p: FakePatient, control: string, at = new Date(), prior?: { unit: string; room: string; bed: string }) {
+export function adt(event: "A01" | "A02" | "A03" | "A08" | "A11" | "A12" | "A13", p: FakePatient, control: string, at = new Date(), prior?: { unit: string; room: string; bed: string }) {
   const name = `${FAMILY[p.n % FAMILY.length]}^${GIVEN[p.n % GIVEN.length]}`;
   return [
     `MSH|^~\\&|SAHTE-HBYS|KURGU-HASTANE|KLINORBIS|KURGU-HASTANE|${ts(at)}||ADT^${event}|${control}|P|2.5`,

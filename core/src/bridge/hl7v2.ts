@@ -1,7 +1,7 @@
-// HL7 v2.x ADT ayrıştırıcı (A01 yatış, A02 nakil, A03 taburcu, A08 güncelleme) ve ACK üretici.
+// HL7 v2.x ADT ayrıştırıcı (A01 yatış, A02 nakil, A03 taburcu, A08 güncelleme, A11/A12/A13 iptaller) ve ACK üretici.
 // Yalnız koordinasyon için gereken alanlar okunur: kimlik (kasaya şifreli gider), ziyaret numarası (karma olarak tutulur),
 // birim/oda/yatak ve olay zamanı. Tanı (DG1), ilaç (RXE), sonuç (OBX) gibi klinik segmentler bilerek okunmaz.
-export type AdtEvent = "A01" | "A02" | "A03" | "A08";
+export type AdtEvent = "A01" | "A02" | "A03" | "A08" | "A11" | "A12" | "A13";
 export type NormalizedAdt = {
   event: AdtEvent; controlId: string; version: string; sendingFacility: string; occurredAt: Date;
   patient: { nationalId: string | null; givenName: string; familyName: string };
@@ -12,7 +12,8 @@ export class Hl7Error extends Error {
   constructor(code: "AR" | "AE", message: string) { super(message); this.code = code; }
 }
 
-const SUPPORTED = new Set(["A01", "A02", "A03", "A08"]);
+// A11 yatış iptali, A12 nakil iptali, A13 taburcu iptali (düzeltme mesajları).
+const SUPPORTED = new Set(["A01", "A02", "A03", "A08", "A11", "A12", "A13"]);
 
 export function splitSegments(message: string) {
   return message.replace(/\r\n|\n/g, "\r").split("\r").map((s) => s.trim()).filter(Boolean);

@@ -1190,7 +1190,7 @@ export default function Dashboard({
             <small>Son eşitleme {formatTime(snapshot.generatedAt)}</small>
           </div>
         </div>
-        <Link href="/hbys">HBYS ve operasyon kabulü · Sentetik</Link>
+        <Link href="/yatak">Yatak panosu · Sentetik</Link><Link href="/temizlik">Temizlik kuyruğu · Sentetik</Link><Link href="/entegrasyon">Entegrasyon merkezi · Sentetik</Link><Link href="/hbys">Transport, vardiya ve devir · Sentetik</Link>
       </aside>
       <section className="content">
         <header>
