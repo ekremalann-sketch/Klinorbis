@@ -20,7 +20,7 @@ await test('köprü: başarısız mesaj aynı kimlikle yeniden işlenir; işlenm
 });
 await test('köprü: eski olay güncel yatışı ezmez; taburcu sonrası geciken nakil yatışı açmaz',async()=>{
  const discharge=adt('A03',P,'SIM-DISCHARGE',new Date(t0.getTime()+3600000));assert.equal((await ingestAdt(db,ctx,keys,parseAdt(discharge),discharge)).status,'processed');
- const move=adt('A02',P,'SIM-LATE-MOVE',new Date(t0.getTime()+1800000));assert.equal((await ingestAdt(db,ctx,keys,parseAdt(move),move)).status,'ignored');
+ const move=adt('A02',P,'SIM-LATE-MOVE',new Date(t0.getTime()+1800000));assert.equal((await ingestAdt(db,ctx,keys,parseAdt(move),move)).status,'quarantined');
  assert.equal((await db.query<{status:string}>("SELECT status FROM kb.encounters WHERE tenant_id=$1",[A.tenantId])).rows[0].status,'discharged');
 });
 await test('kasa: rastgele acil erişim kimliği normal yetkiyi atlatamaz',async()=>{

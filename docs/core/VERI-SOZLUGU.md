@@ -192,7 +192,7 @@ Kısıt (CHECK): 6
 
 ## kb.bed_transitions
 
-Yatak durumunun izin verilen geçişleri (ör. occupied → cleaning; occupied → available doğrudan yasak).
+Eski tek durumlu model (0002). 0013 sonrası durum bileşenlerden türetilir; tablo geriye uyumluluk için duruyor.
 
 Kısıt (CHECK): 0
 
@@ -205,7 +205,7 @@ Kısıt (CHECK): 0
 
 Yatak ve anlık durumu. Durum geçişleri kb.bed_transitions tablosuyla sınırlandırılır.
 
-Kısıt (CHECK): 2
+Kısıt (CHECK): 11
 
 | Sütun | Tür | Boş olabilir |
 |---|---|---|
@@ -219,6 +219,17 @@ Kısıt (CHECK): 2
 | created_at | timestamp with time zone | hayır |
 | updated_at | timestamp with time zone | hayır |
 | version | integer | hayır |
+| occupancy | text | hayır |
+| occupancy_source | text | hayır |
+| occupancy_changed_at | timestamp with time zone | hayır |
+| cleaning_state | text | hayır |
+| block_reason | text | evet |
+| block_note | text | evet |
+| blocked_by | text | evet |
+| reserved_for | text | evet |
+| reserved_until | timestamp with time zone | evet |
+| reserved_by | text | evet |
+| conflict | text | evet |
 
 ## kb.break_glass_sessions
 
@@ -276,9 +287,9 @@ Kısıt (CHECK): 2
 
 ## kb.cleaning_jobs
 
-Oda/yatak temizlik işi; yatak başına tek açık iş.
+Temizlik işi: kabul, başlangıç, tamamlama ve temizliği yapandan farklı kişinin kontrolü. Kontrolden kalan iş yeniden işlem olarak açılır.
 
-Kısıt (CHECK): 4
+Kısıt (CHECK): 5
 
 | Sütun | Tür | Boş olabilir |
 |---|---|---|
@@ -291,6 +302,35 @@ Kısıt (CHECK): 4
 | created_at | timestamp with time zone | hayır |
 | done_at | timestamp with time zone | evet |
 | done_by | text | evet |
+| accepted_by | text | evet |
+| accepted_at | timestamp with time zone | evet |
+| started_at | timestamp with time zone | evet |
+| inspected_by | text | evet |
+| inspected_at | timestamp with time zone | evet |
+| inspection_result | text | evet |
+| rework_of | uuid | evet |
+| cancelled_reason | text | evet |
+| due_at | timestamp with time zone | evet |
+| task_id | uuid | evet |
+
+## kb.code_mappings
+
+HBYS birim/yatak kodlarının Klinorbis kayıtlarına eşlemesi. Eşleşmeyen kod mesajı karantinaya alır.
+
+Kısıt (CHECK): 4
+
+| Sütun | Tür | Boş olabilir |
+|---|---|---|
+| id | uuid | hayır |
+| tenant_id | uuid | hayır |
+| system | text | hayır |
+| kind | text | hayır |
+| external_code | text | hayır |
+| unit_id | uuid | evet |
+| bed_id | uuid | evet |
+| active | boolean | hayır |
+| created_by | text | hayır |
+| created_at | timestamp with time zone | hayır |
 
 ## kb.cold_chain_readings
 
@@ -433,6 +473,8 @@ Kısıt (CHECK): 6
 | source | text | hayır |
 | updated_at | timestamp with time zone | hayır |
 | version | integer | hayır |
+| last_event_at | timestamp with time zone | evet |
+| prior_bed_id | uuid | evet |
 
 ## kb.facility_alarms
 
@@ -501,7 +543,7 @@ Kısıt (CHECK): 2
 
 Köprüden gelen mesajların izi. Ham mesaj (kimlik içerir) saklanmaz; yalnız karma ve kontrol numarası. Aynı kontrol numarası ikinci kez işlenmez.
 
-Kısıt (CHECK): 5
+Kısıt (CHECK): 7
 
 | Sütun | Tür | Boş olabilir |
 |---|---|---|
@@ -516,6 +558,11 @@ Kısıt (CHECK): 5
 | error_code | text | evet |
 | received_at | timestamp with time zone | hayır |
 | processed_at | timestamp with time zone | evet |
+| quarantine_reason | text | evet |
+| event_at | timestamp with time zone | evet |
+| resolved_by | text | evet |
+| resolved_at | timestamp with time zone | evet |
+| resolution | text | evet |
 
 ## kb.indicator_measurements
 
@@ -775,6 +822,40 @@ Kısıt (CHECK): 1
 | owner | text | hayır |
 | due_at | date | hayır |
 | closed_at | timestamp with time zone | evet |
+
+## kb.reconciliation_items
+
+Mutabakat farkları (yalnız ziyaret karması ve konum; kimlik yok).
+
+Kısıt (CHECK): 2
+
+| Sütun | Tür | Boş olabilir |
+|---|---|---|
+| run_id | uuid | hayır |
+| tenant_id | uuid | hayır |
+| kind | text | hayır |
+| visit_hash | text | hayır |
+| detail | text | hayır |
+| resolved_at | timestamp with time zone | evet |
+| resolved_by | text | evet |
+
+## kb.reconciliation_runs
+
+Mutabakat turu: HBYS yatan hasta listesi ile Klinorbis yatış kayıtları karşılaştırılır; fark kendiliğinden düzeltilmez, insan çözer.
+
+Kısıt (CHECK): 1
+
+| Sütun | Tür | Boş olabilir |
+|---|---|---|
+| id | uuid | hayır |
+| tenant_id | uuid | hayır |
+| started_at | timestamp with time zone | hayır |
+| actor | text | hayır |
+| census_count | integer | hayır |
+| matched | integer | hayır |
+| missing_in_klinorbis | integer | hayır |
+| missing_in_hbys | integer | hayır |
+| location_mismatch | integer | hayır |
 
 ## kb.role_permissions
 
@@ -1376,6 +1457,20 @@ Kısıt (CHECK): 3
 | source | text | hayır |
 | created_at | timestamp with time zone | hayır |
 | anonymized_at | timestamp with time zone | evet |
+
+## vault.inbound_payloads
+
+Karantina/yeniden deneme için şifreli ham mesaj; en fazla 7 gün, sonra imha edilir.
+
+Kısıt (CHECK): 0
+
+| Sütun | Tür | Boş olabilir |
+|---|---|---|
+| message_id | uuid | hayır |
+| tenant_id | uuid | hayır |
+| ciphertext | bytea | hayır |
+| key_version | integer | hayır |
+| expires_at | timestamp with time zone | hayır |
 
 ## vault.key_versions
 

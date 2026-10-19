@@ -63,16 +63,16 @@ test("uçtan uca: yatış → nakil → taburcu; yatak durumları, temizlik gör
   const a02 = adt("A02", { ...P, room: "314", bed: "314-B" }, "MSG-1002", new Date(), { unit: "DHL", room: "312", bed: "312-A" });
   const r2 = await ingestAdt(db, ctx, keys, parseAdt(a02), a02);
   assert.equal(await bedStatus("312-A"), "cleaning"); assert.equal(await bedStatus("314-B"), "occupied");
-  assert.equal(r2.tasks.length, 1);
+  assert.equal(r2.cleaningJobs.length, 1);
 
   const a03 = adt("A03", { ...P, room: "314", bed: "314-B" }, "MSG-1003");
   const r3 = await ingestAdt(db, ctx, keys, parseAdt(a03), a03);
-  assert.equal(await bedStatus("314-B"), "cleaning"); assert.equal(r3.tasks.length, 1);
+  assert.equal(await bedStatus("314-B"), "cleaning"); assert.equal(r3.cleaningJobs.length, 1);
 
   const enc = (await db.query<{ status: string; patient_token: string }>("SELECT status, patient_token FROM kb.encounters WHERE tenant_id = $1", [A.tenantId])).rows;
   assert.equal(enc.length, 1); assert.equal(enc[0].status, "discharged"); assert.match(enc[0].patient_token, /^P-[0-9A-F]{12}$/);
   const tasks = (await db.query<{ unit_id: string; source: string }>("SELECT unit_id, source FROM kb.tasks WHERE tenant_id = $1", [A.tenantId])).rows;
-  assert.equal(tasks.length, 2); assert.ok(tasks.every((t) => t.unit_id === A.units.ctm && t.source === "bridge"));
+  assert.equal(tasks.length, 2); assert.ok(tasks.every((t) => t.unit_id === A.units.ctm && t.source === "maintenance"));
   const moves = (await db.query<{ reason: string }>("SELECT reason FROM kb.encounter_moves ORDER BY id")).rows.map((m) => m.reason);
   assert.deepEqual(moves, ["admit", "transfer", "discharge"]);
   const dump = JSON.stringify((await db.query("SELECT * FROM kb.encounters")).rows) + JSON.stringify((await db.query("SELECT * FROM kb.inbound_messages")).rows);

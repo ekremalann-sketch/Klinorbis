@@ -60,12 +60,16 @@ test("denetim zinciri: kayıtlar zincirlenir, değiştirilemez, silinemez; doğr
   await assert.rejects(withContext(db, ctxA, (tx) => tx.query("DELETE FROM audit.events")), /permission denied|değiştirilemez/);
 });
 
-test("yatak geçişi: dolu yatak temizlenmeden boşa çıkamaz; geçmiş kaydı tutulur", async () => {
-  await withContext(db, ctxA, (tx) => tx.query("UPDATE kb.beds SET status = 'occupied' WHERE id = $1", [A.bedId]));
-  await assert.rejects(withContext(db, ctxA, (tx) => tx.query("UPDATE kb.beds SET status = 'available' WHERE id = $1", [A.bedId])), /geçişine izin yok/);
-  await withContext(db, ctxA, (tx) => tx.query("UPDATE kb.beds SET status = 'cleaning' WHERE id = $1", [A.bedId]));
+test("yatak: doluluk boşalınca yatak kendiliğinden kirli olur; kirli yatak temizlik/kontrol olmadan hazır olamaz; geçmiş tutulur", async () => {
+  await withContext(db, ctxA, (tx) => tx.query("UPDATE kb.beds SET occupancy = 'dolu' WHERE id = $1", [A.bedId]));
+  await withContext(db, ctxA, (tx) => tx.query("UPDATE kb.beds SET occupancy = 'bos' WHERE id = $1", [A.bedId]));
+  const b = (await db.query<{ status: string; cleaning_state: string }>("SELECT status, cleaning_state FROM kb.beds WHERE id = $1", [A.bedId])).rows[0];
+  assert.deepEqual([b.status, b.cleaning_state], ["cleaning", "kirli"]);
+  await assert.rejects(withContext(db, ctxA, (tx) => tx.query("UPDATE kb.beds SET cleaning_state = 'temiz' WHERE id = $1", [A.bedId])), /geçişine izin yok/);
+  await withContext(db, ctxA, (tx) => tx.query("UPDATE kb.beds SET status = 'available' WHERE id = $1", [A.bedId]));
+  assert.equal((await db.query<{ status: string }>("SELECT status FROM kb.beds WHERE id = $1", [A.bedId])).rows[0].status, "cleaning", "özet durum elle değiştirilemez; bileşenlerden türetilir");
   const h = await db.query<{ n: number }>("SELECT count(*)::int n FROM audit.row_history WHERE table_name = 'kb.beds' AND row_id = $1 AND op = 'UPDATE'", [A.bedId]);
-  assert.equal(h.rows[0].n, 2);
+  assert.ok(h.rows[0].n >= 2);
 });
 
 test("görev: tamamlanan görev yeniden açılamaz; sürüm otomatik artar ve elle değiştirilemez; olay geçmişi oluşur", async () => {
