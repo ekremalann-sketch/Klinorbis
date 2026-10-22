@@ -20,15 +20,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: İmzalı otomasyon olayı gönder
+      - name: Zamanlayıcı yapılandırmasını kontrol et
+        id: config
         env:
           SECRET: ${{ secrets.KLINORBIS_N8N_SHARED_SECRET }}
           ORIGIN: ${{ vars.KLINORBIS_ORIGIN }}
         run: |
           if [ -z "$SECRET" ] || [ -z "$ORIGIN" ]; then
-            echo "::error::KLINORBIS_N8N_SHARED_SECRET veya KLINORBIS_ORIGIN tanımlı değil; zamanlayıcı çalışmadı."
-            exit 1
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '### Zamanlayıcı çalıştırılmadı' >> "$GITHUB_STEP_SUMMARY"
+            echo 'KLINORBIS_N8N_SHARED_SECRET veya KLINORBIS_ORIGIN eksik. Otomasyon olayı gönderilmedi. Yapılandırma tamamlanınca sonraki zamanlanmış çalışma yeniden kontrol eder.' >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+              echo '::error::Zamanlayıcı yapılandırması eksik; elle başlatılan çalışma tamamlanamadı.'
+              exit 1
+            fi
+            echo '::notice::Yedek zamanlayıcı yapılandırılmadığı için atlandı; otomasyon çalıştırılmadı.'
+            exit 0
           fi
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - name: İmzalı otomasyon olayı gönder
+        if: steps.config.outputs.ready == 'true'
+        env:
+          SECRET: ${{ secrets.KLINORBIS_N8N_SHARED_SECRET }}
+          ORIGIN: ${{ vars.KLINORBIS_ORIGIN }}
+        run: |
           TS=$(date +%s%3N)
           EVENT="gh-$(date -u +%Y%m%d%H%M)-${GITHUB_RUN_ID}"
           BODY='{"action":"tick"}'
