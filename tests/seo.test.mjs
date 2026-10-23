@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import {createArtifactWorker} from '../scripts/artifact-runtime.mjs';
+let runtime;
+async function getWorker(){runtime??=await createArtifactWorker();return {fetch:(request)=>runtime.dispatchFetch(request.url,{method:request.method,headers:request.headers,redirect:'manual'})};}
+test.after(async()=>{if(runtime)await runtime.dispose();});
+
 
 async function render(path) {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("seo", `${process.pid}-${path}`);
-  const { default: worker } = await import(workerUrl.href);
+  const worker = await getWorker();
   const response = await worker.fetch(new Request(`https://klinorbis.ekremalan.chatgpt.site${path}`, { headers: { accept: "text/html" } }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
   return response.text();

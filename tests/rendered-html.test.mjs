@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {createArtifactWorker} from '../scripts/artifact-runtime.mjs';
+let runtime;
+async function getWorker(){runtime??=await createArtifactWorker();return {fetch:(request)=>runtime.dispatchFetch(request.url,{method:request.method,headers:request.headers,redirect:'manual'})};}
+test.after(async()=>{if(runtime)await runtime.dispose();});
+
 
 const productTitle = /KLINORBIS \| Hastane Operasyon Kontrol Kulesi/i;
 
 test("renders the public product presentation with security headers", async () => {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+  const worker = await getWorker();
 
   const response = await worker.fetch(
     new Request("http://localhost/", {
@@ -39,9 +42,7 @@ test("renders the public product presentation with security headers", async () =
 });
 
 test("renders direct operation routes instead of losing the click target", async () => {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("route-test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+  const worker = await getWorker();
   const response = await worker.fetch(
     new Request("http://localhost/requests/KLI-TEST-01", {
       headers: { accept: "text/html", "oai-authenticated-user-email": "signed-in@test.invalid" },
@@ -61,9 +62,7 @@ test("renders direct operation routes instead of losing the click target", async
 });
 
 test("every operation tab has a real routable screen", async () => {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("section-test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+  const worker = await getWorker();
   const sections = [
     "inbox",
     "flow",
@@ -105,9 +104,7 @@ test("every operation tab has a real routable screen", async () => {
 
 
 test("anonymous operational navigation initiates sign-in and preserves the selected destination", async () => {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("auth-route-test", String(process.pid));
-  const { default: worker } = await import(workerUrl.href);
+  const worker = await getWorker();
   const env = { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } };
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   for (const path of ["/workspace", "/inbox", "/requests/KLI-TEST-01"]) {
