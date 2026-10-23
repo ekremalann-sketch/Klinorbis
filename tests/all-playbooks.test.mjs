@@ -3,6 +3,8 @@ import test from 'node:test';
 import { browserJson, createD1, loadRoute, setRuntime } from './helpers/route-harness.mjs';
 const { PLAYBOOKS } = await loadRoute('lib/playbooks.ts');
 const route = await loadRoute('app/api/playbooks/route.ts');
+const myWork = await loadRoute('app/api/my-work/route.ts');
+const { isCleaningStep } = await loadRoute('lib/cleaning-inspection.ts');
 const OWNER = 'owner@klinorbis.test', MANAGER = 'approver@klinorbis.test', CLINICIAN = 'clinician@klinorbis.test';
 for (const playbook of PLAYBOOKS) {
   await test(`${playbook.code}: every step, approval separation, waiting time and automatic chains`, async () => {
@@ -34,6 +36,21 @@ for (const playbook of PLAYBOOKS) {
           sqlite.prepare('UPDATE playbook_steps SET activate_at = ? WHERE run_reference = ? AND step_index = ?').run(now - 1000, reference, index);
         }
         if (step.approval && step.clinical) assert.equal((await post(MANAGER, body)).status, 403, 'clinical approval requires clinician');
+        if (isCleaningStep(step)) {
+          // Oda temizliği bağımsız kontrolsüz ilerlemez: temizleyen tamamlar, başka bir sorumlu kontrol eder.
+          const direct = await post(actor, body);
+          assert.equal(direct.status, 409, 'cleaning cannot skip inspection');
+          assert.equal((await direct.json()).code, 'INSPECTION_REQUIRED');
+          const mw = (email, b) => myWork.POST(browserJson('/api/my-work', b, email));
+          for (const action of ['accept', 'start', 'complete']) assert.equal((await mw(OWNER, { action, reference: persisted.task_reference })).status, 200, action);
+          const inspection = sqlite.prepare("SELECT inspection_task_reference AS ref FROM cleaning_inspections WHERE run_reference = ? AND step_index = ? AND status = 'pending'").get(reference, index).ref;
+          const self = await mw(OWNER, { action: 'inspect', reference: inspection, pass: true });
+          assert.equal(self.status, 403, 'cleaner cannot inspect own work');
+          assert.equal((await mw(MANAGER, { action: 'inspect', reference: inspection, pass: true })).status, 200);
+          assert.equal(sqlite.prepare('SELECT current_step FROM playbook_runs WHERE reference = ?').get(reference).current_step >= index + 1 || index + 1 === playbook.steps.length, true);
+          assert.equal(sqlite.prepare('SELECT status FROM operational_tasks WHERE reference = ?').get(persisted.task_reference).status, 'completed');
+          continue;
+        }
         const completed = await post(actor, body);
         assert.equal(completed.status, 200, `${playbook.code} step ${index}: ${await completed.text()}`);
         assert.equal(sqlite.prepare('SELECT status FROM operational_tasks WHERE reference = ?').get(persisted.task_reference).status, 'completed');

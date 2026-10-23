@@ -1,12 +1,13 @@
 // Personel iş yükü dengesi: birim başına açık iş, geciken iş, kişi başına düşen iş ve "işi kime verelim" önerisi.
 // Öneri yalnız öneridir; atamayı birim sorumlusu veya operasyon yöneticisi yapar. Atanan kişiye bildirim gider.
 // Pilot/eğitim görevleri ve sistem (otomasyon) kullanıcıları hesaba katılmaz.
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import { operationalTasks, staffAccounts, unitMemberships } from "../db/schema";
 import { auditStatements } from "./audit";
 import { findUnit, HOSPITAL_UNITS } from "./hospital-units";
 import { notificationStatements } from "./notifications";
+import { shiftAvailability } from "./my-work";
 import { SecurityError, type RequestActor } from "./security";
 
 type Db = ReturnType<typeof getDb>;
@@ -61,7 +62,10 @@ export async function workloadView(db: Db, actor: RequestActor, now = new Date()
 const rank = (level: string) => ({ "kimse-yok": 3, yogun: 2, normal: 1, sakin: 0 }[level] ?? 0);
 
 /** İşi birimdeki bir kişiye ata. Yetki: o birimin sorumlusu veya operasyon yöneticisi. Hedef kişi o birimin etkin üyesi olmalı. */
-export async function assignTask(db: Db, actor: RequestActor, reference: string, email: string, now = new Date()) {
+export type AssignOptions = { confirmOffShift?: boolean; confirmReassign?: boolean };
+/** İşi birimdeki bir kişiye ata. Yetki: o birimin sorumlusu veya operasyon yöneticisi. Hedef kişi o birimin etkin üyesi olmalı.
+ * Vardiyası dışında olan kişiye veya başka birinin üstündeki işe sessizce atama yapılmaz: açık onay istenir. */
+export async function assignTask(db: Db, actor: RequestActor, reference: string, email: string, now = new Date(), opts: AssignOptions = {}) {
   const [task] = await db.select().from(operationalTasks).where(eq(operationalTasks.reference, reference)).limit(1);
   if (!task || CLOSED.includes(task.status)) throw new SecurityError(404, "Açık görev bulunamadı.", "TASK_NOT_FOUND");
   if (!canManage(actor, task.unitCode)) throw new SecurityError(403, "İşi bu birimin sorumlusu veya operasyon yöneticisi atar.", "ASSIGN_NOT_ALLOWED");
@@ -69,12 +73,20 @@ export async function assignTask(db: Db, actor: RequestActor, reference: string,
     .innerJoin(staffAccounts, eq(staffAccounts.email, unitMemberships.email))
     .where(and(eq(unitMemberships.email, email), eq(unitMemberships.unitCode, task.unitCode), eq(unitMemberships.active, true), eq(staffAccounts.active, true))).limit(1);
   if (!target) throw new SecurityError(400, "Kişi bu birimin etkin üyesi değil.", "INVALID_ASSIGNEE");
+  if (task.assignedUser === target.email) return { reference, assignedTo: target.label, unchanged: true };
+  const shift = (await shiftAvailability(db, [target.email], task.unitCode, now)).get(target.email);
+  if (shift === "vardiya_disi" && !opts.confirmOffShift) throw new SecurityError(409, `${target.label} şu an vardiyada değil. Yine de atamak için onaylayın.`, "OFF_SHIFT");
+  const previous = task.assignedUser;
+  if (previous && !opts.confirmReassign) throw new SecurityError(409, "Bu iş başka bir görevlinin üstünde. Yeniden görevlendirmek için onaylayın.", "REASSIGN_CONFIRM");
   const unit = findUnit(task.unitCode);
   const statements: Stmt[] = [
-    db.update(operationalTasks).set({ assignedUser: target.email, updatedAt: now }).where(eq(operationalTasks.reference, reference)),
-    ...notificationStatements(db, [target.email], { kind: "task", title: `Size iş atandı: ${unit.name}`, detail: `${reference} · atayan ${actor.label}`, path: "/inbox", key: `assign:${reference}:${now.getTime()}` }, now),
-    ...await auditStatements(db, [{ actor: actor.email, action: "task.assigned", resource: reference, detail: `${unit.code} → ${target.label}` }]),
+    // Yeniden görevlendirmede yeni kişi işi kendisi kabul eder (sahiplik açık kalsın).
+    db.update(operationalTasks).set(previous ? { assignedUser: target.email, status: task.status === "scheduled" ? task.status : "queued", acceptedBy: null, acceptedAt: null, updatedAt: now } : { assignedUser: target.email, updatedAt: now })
+      .where(and(eq(operationalTasks.reference, reference), previous ? eq(operationalTasks.assignedUser, previous) : isNull(operationalTasks.assignedUser))),
+    ...notificationStatements(db, [target.email], { kind: "task", title: `Size iş atandı: ${unit.name}`, detail: `${task.title ?? reference} · atayan ${actor.label}`, path: "/islerim", key: `assign:${reference}:${now.getTime()}` }, now),
+    ...(previous ? notificationStatements(db, [previous], { kind: "task", title: "Bir işiniz başka birine verildi", detail: `${task.title ?? reference} · ${actor.label}`, path: "/islerim", key: `unassign:${reference}:${now.getTime()}` }, now) : []),
+    ...await auditStatements(db, [{ actor: actor.email, action: previous ? "task.reassigned" : "task.assigned", resource: reference, detail: `${unit.code} → ${target.label}${shift === "vardiya_disi" ? " (vardiya dışı, onaylı)" : ""}` }]),
   ];
   await db.batch(statements as [Stmt, ...Stmt[]]);
-  return { reference, assignedTo: target.label };
+  return { reference, assignedTo: target.label, shift };
 }

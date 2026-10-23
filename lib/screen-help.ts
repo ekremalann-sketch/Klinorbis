@@ -3,6 +3,27 @@
 export type ScreenHelp = { purpose: string; who: string; steps: string[]; tip?: string };
 
 export const SCREEN_HELP: Record<string, ScreenHelp> = {
+  mywork: {
+    purpose: "Size atanan ve biriminizde alınabilecek işler. Her kartta işin adı, yeri, kimde olduğu, hedef zamanı ve sonraki adım yazar.",
+    who: "Birim görevlileri, hemşireler, çağrı merkezi",
+    steps: [
+      "Kartın büyük düğmesi o an yapılacak tek işlemdir: Kabul et → Başla → Tamamla.",
+      "Başkasının kabul ettiği iş size kabul düğmesi göstermez; sunucu da reddeder.",
+      "Yardım, engel veya devir için kartta “Diğer seçenekler”i açın. Devir, karşı taraf kabul edene kadar sizde kalır.",
+      "Arıza için sağ üstteki “Arıza bildir”: yalnız türü seçmeniz yeterli; doğru teknik birime gider.",
+    ],
+    tip: "Temizlik işinde “Tamamla” akışı hemen ilerletmez; kontrol birim sorumlusuna gider. Kendi temizliğinizi kontrol edemezsiniz.",
+  },
+  myunit: {
+    purpose: "Biriminizin açık işleri: kontrol bekleyen temizlikler, sahipsiz, geciken, engelli, onay bekleyen ve devam eden işler; ekibin iş yükü ve vardiyası.",
+    who: "Birim sorumluları",
+    steps: [
+      "Üstteki sayılara tıklayarak ilgili bölüme inin.",
+      "Sahipsiz işi “Görevlendir” ile birine verin; kişinin açık iş sayısı ve vardiya durumu listede görünür.",
+      "Vardiya dışındaki kişiye veya başkasının üstündeki işe atama yalnız açık onayla yapılır.",
+      "Temizlik kontrolünde “Geçmedi” derseniz gerekçe yazılır ve yeniden temizlik işi açılır.",
+    ],
+  },
   dashboard: {
     purpose: "Hastanenin o anki operasyon durumunu tek bakışta gösterir: açık talepler, onay bekleyenler, kapasite, canlı görüşmeler ve otomasyonun son çalışması.",
     who: "Operasyon yöneticisi, birim sorumluları",

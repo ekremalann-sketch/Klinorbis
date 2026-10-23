@@ -11,10 +11,12 @@ import { WeeklyReportView, WorkloadView } from "./management-views";
 type Step = { unitCode: string; task: string; minutes: number; approval: boolean; waitMinutes: number; clinical: boolean };
 type Playbook = { code: string; title: string; category: string; trigger: string; steps: Step[]; next: string[]; nextRules?: { code: string; when: string | null }[] };
 type RunStep = { stepIndex: number; unitCode: string; task: string; approval: boolean; completedBy: string | null; completedAt: string | number | null; startedAt: string | number; activateAt: string | number | null; dueAt: string | number | null; note: string | null };
-type Run = { reference: string; playbookCode: string; title: string; status: string; currentStep: number; stepCount: number; note: string | null; parentReference: string | null; startedBy: string; version: number; createdAt: string | number; steps: RunStep[]; campus?: string | null; location?: string | null; deviceCode?: string | null; patientRef?: string | null; chainChoices?: string | null };
-type Fields = { campus: string; location: string; deviceCode: string; patientRef: string };
+type Run = { reference: string; playbookCode: string; title: string; status: string; currentStep: number; stepCount: number; note: string | null; parentReference: string | null; startedBy: string; version: number; createdAt: string | number; steps: RunStep[]; campus?: string | null; location?: string | null; deviceCode?: string | null; patientRef?: string | null; targetLocation?: string | null; chainChoices?: string | null };
+type Fields = { campus: string; location: string; deviceCode: string; patientRef: string; targetLocation: string };
 type ActResult = { reference?: string; started?: { title: string }[]; skipped?: { title: string; condition: string }[] };
-const EMPTY_FIELDS: Fields = { campus: "", location: "", deviceCode: "", patientRef: "" };
+const EMPTY_FIELDS: Fields = { campus: "", location: "", deviceCode: "", patientRef: "", targetLocation: "" };
+// Nakil akışlarında kaynak ve hedef ayrı sorulur (taşıma görevlisi kartında "Nereden → Nereye" görünür).
+const wantsTarget = (p: Playbook) => /nakil|transfer|transport/i.test(p.title);
 const CAMPUS_LABELS: Record<string, string> = { merkez: "Merkez yerleşke", "ek-bina": "Ek bina", poliklinik: "Poliklinik binası", diger: "Diğer" };
 // Akışa göre hangi yapılandırılmış alanların sorulacağı (gereksiz alan gösterilmez).
 const wantsDevice = (p: Playbook) => /cihaz|kalibrasyon|MR\/BT|gaz|asansör|iklim|diyaliz su|soğuk zincir/i.test(`${p.title} ${p.category}`) || p.category === "Cihaz ve tesis";
@@ -125,7 +127,8 @@ export function Playbooks() {
         {canWrite && canDo(selected.steps[0].unitCode) ? <div className="pb-start">
           <div className="pb-fields">
             <label><span>Yerleşke</span><select value={fields.campus} onChange={(e) => setFields({ ...fields, campus: e.target.value })}><option value="">Seçilmedi</option>{Object.entries(CAMPUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-            <label><span>Oda / yatak</span><input value={fields.location} maxLength={24} placeholder="ör. 312-B" onChange={(e) => setFields({ ...fields, location: e.target.value })} /></label>
+            <label><span>{wantsTarget(selected) ? "Nereden (oda / yatak)" : "Oda / yatak"}</span><input value={fields.location} maxLength={24} placeholder="ör. 312-B" onChange={(e) => setFields({ ...fields, location: e.target.value })} /></label>
+            {wantsTarget(selected) && <label><span>Nereye (hedef servis / oda)</span><input value={fields.targetLocation} maxLength={24} placeholder="ör. Dahiliye 4-12" onChange={(e) => setFields({ ...fields, targetLocation: e.target.value })} /></label>}
             {wantsDevice(selected) && <label><span>Cihaz kodu</span><input value={fields.deviceCode} maxLength={24} placeholder="ör. BMD-0457" onChange={(e) => setFields({ ...fields, deviceCode: e.target.value })} /></label>}
             {wantsPatient(selected) && <label><span>Hasta kısa kodu <small>(isteğe bağlı; ad yazılmaz)</small></span><input value={fields.patientRef} maxLength={12} placeholder="ör. P-1042" pattern="[A-Za-z]{1,3}-?[0-9]{2,8}" onChange={(e) => setFields({ ...fields, patientRef: e.target.value })} /></label>}
           </div>
@@ -145,7 +148,7 @@ export function Playbooks() {
             return <li key={i} className={done ? "done" : now ? "now" : ""} aria-current={now ? "step" : undefined}><b>{s.unitCode}</b><span>{s.task}</span>{s.approval && <em>onay</em>}{now && rs && (rs.activateAt && new Date(rs.activateAt).getTime() > data.serverNow
               ? <small>{new Date(rs.activateAt).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} tarihinde açılacak</small>
               : <small>{ago(rs.activateAt ?? rs.startedAt)}dır bekliyor · hedef {mins(s.minutes)}{rs.dueAt && new Date(rs.dueAt).getTime() < data.serverNow ? " · GECİKTİ" : ""}</small>)}</li>; })}</ol>
-          {(r.campus || r.location || r.deviceCode || r.patientRef) && <p className="pb-tags">{r.campus && <span>{CAMPUS_LABELS[r.campus] ?? r.campus}</span>}{r.location && <span>Oda/yatak {r.location}</span>}{r.deviceCode && <span>Cihaz {r.deviceCode}</span>}{r.patientRef && <span>Hasta {r.patientRef}</span>}</p>}
+          {(r.campus || r.location || r.deviceCode || r.patientRef || r.targetLocation) && <p className="pb-tags">{r.campus && <span>{CAMPUS_LABELS[r.campus] ?? r.campus}</span>}{r.location && <span>{r.targetLocation ? "Nereden" : "Oda/yatak"} {r.location}</span>}{r.targetLocation && <span>Nereye {r.targetLocation}</span>}{r.deviceCode && <span>Cihaz {r.deviceCode}</span>}{r.patientRef && <span>Hasta {r.patientRef}</span>}</p>}
           {r.note && <p className="pb-note">{r.note}</p>}
           {mine && pb && r.currentStep + 1 === pb.steps.length && (pb.nextRules ?? []).some((x) => x.when) && <fieldset className="pb-conditions">
             <legend>Kapanınca hangi bağlı akış açılsın?</legend>
