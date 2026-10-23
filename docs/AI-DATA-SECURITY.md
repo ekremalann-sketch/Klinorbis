@@ -94,9 +94,9 @@ Aşağıdaki şartlar proje için önerilen inceleme/kabul koşullarıdır; heps
 
 ## Otomasyonun gerçek kapsamı
 
-AI and data review inventory workflow'u her push/PR, haftalık ve elle çalışır. Altı sentetik rapor güvenilirliği testi ve sürümlü kontrol katalog doğrulaması yürütür. Git'te izlenen kaynaklarda olası AI/vektör/DB/araç/dışa aktarım yüzeylerini bulur. Tam 50 başlığı Actions görev özetine yazar; kaynak metnini veya eşleşen değerleri yazmaz. Büyük dosya ve symlink atlanması sayılır. Kaynak içeriğini LLM sağlayıcısına göndermez.
+AI and data review inventory workflow'u her push/PR, haftalık ve elle çalışır. Yedi sentetik rapor güvenilirliği testi ve sürümlü kontrol katalog doğrulaması yürütür. Sabit kaynak commit'inin Git nesnelerindeki kaynaklarda olası AI/vektör/DB/araç/dışa aktarım yüzeylerini bulur. Tam 50 başlığı Actions görev özetine yazar; kaynak metnini veya eşleşen değerleri yazmaz. Büyük dosya ve symlink atlanması sayılır. Kaynak içeriğini LLM sağlayıcısına göndermez.
 
-Bu işlem prompt injection savunmasını, gerçek RLS'yi, bulut hesabını veya sözleşmeyi test etmiş değildir. Altı rapor testi altı uygulama güvenlik testi değildir. CodeQL, Gitleaks, bağımlılık taraması ve günlük yapay zekâ incelemesi ayrıca sürer. Üretim servisine saldırı, yük veya bağlantı yapılmaz.
+Bu işlem prompt injection savunmasını, gerçek RLS'yi, bulut hesabını veya sözleşmeyi test etmiş değildir. Yedi rapor testi yedi uygulama güvenlik testi değildir. CodeQL, Gitleaks, bağımlılık taraması ve günlük yapay zekâ incelemesi ayrıca sürer. Üretim servisine saldırı, yük veya bağlantı yapılmaz.
 
 ## Dış bağlantı açmadan önce kabul kapısı
 

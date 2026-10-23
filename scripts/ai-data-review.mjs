@@ -1,5 +1,5 @@
-import {readFileSync,lstatSync} from 'node:fs';
-import {resolve,join,relative} from 'node:path';
+import {readFileSync} from 'node:fs';
+import {resolve,join} from 'node:path';
 import {pathToFileURL,fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 
@@ -42,20 +42,28 @@ export function markdownReport(report){
  return lines.join('\n');
 }
 
+export function readSourceSnapshot(root,sha){
+ if(!/^[a-f0-9]{40,64}$/.test(sha))throw new Error('Geçersiz kaynak SHA.');
+ const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:20*1024*1024});
+ const objects=git(['ls-tree','-rz','--full-tree',sha]).split('\0').filter(Boolean);
+ const entries=[],skipped=[];
+ for(const object of objects){
+  const tab=object.indexOf('\t');
+  if(tab<0)throw new Error('Git ağaç kaydı geçersiz.');
+  const [mode,type,oid]=object.slice(0,tab).split(' '),path=object.slice(tab+1);
+  if(!/\.(?:[cm]?js|tsx?|jsx|jsonc?|ya?ml|toml|sql)$/.test(path)||/(^|\/)(node_modules|dist|build|\.git|\.security)(\/|$)/.test(path)||path==='scripts/ai-data-review.mjs'||path==='scripts/ai-data-review.test.mjs')continue;
+  if(!['100644','100755'].includes(mode)||type!=='blob'||!/^[a-f0-9]{40,64}$/.test(oid)){skipped.push(path);continue;}
+  const size=Number(git(['cat-file','-s',oid]).trim());
+  if(!Number.isSafeInteger(size)||size<0||size>1024*1024){skipped.push(path);continue;}
+  entries.push({path,content:execFileSync('git',['cat-file','blob',oid],{cwd:root,encoding:'utf8',maxBuffer:1024*1024})});
+ }
+ return {entries,skipped};
+}
 function run(){
  const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
  const catalog=JSON.parse(readFileSync(join(root,'.security','ai-data-controls.json'),'utf8'));
- const paths=execFileSync('git',['ls-files','-z'],{cwd:root,encoding:'utf8',maxBuffer:20*1024*1024}).split('\0').filter(Boolean);
- const entries=[],skipped=[];
- for(const path of paths){
-  if(!/\.(?:[cm]?js|tsx?|jsx|jsonc?|ya?ml|toml|sql)$/.test(path)||/(^|\/)(node_modules|dist|build|\.git|\.security)(\/|$)/.test(path)||path==='scripts/ai-data-review.mjs'||path==='scripts/ai-data-review.test.mjs')continue;
-  const absolute=resolve(root,path);
-  if(relative(root,absolute).startsWith('..')){skipped.push(path);continue;}
-  const stat=lstatSync(absolute);
-  if(stat.isSymbolicLink()||!stat.isFile()||stat.size>1024*1024){skipped.push(path);continue;}
-  entries.push({path,content:readFileSync(absolute,'utf8')});
- }
  const sha=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+ const {entries,skipped}=readSourceSnapshot(root,sha);
  const report=buildReport(catalog,observeSources(entries),sha,skipped);
  process.stdout.write(process.argv.includes('--json')?JSON.stringify(report,null,2)+'\n':markdownReport(report));
 }
