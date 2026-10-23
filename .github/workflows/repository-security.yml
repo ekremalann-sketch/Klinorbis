@@ -1,0 +1,46 @@
+name: Repository security
+on:
+  push:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install checksum-pinned MIT-licensed Gitleaks CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 'https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz' -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  '"$RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/security-tools"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/security-tools" gitleaks
+      - name: Scan reachable Git history with redaction
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/security-tools/gitleaks" git --redact=100 --no-banner --log-level=error --log-opts="--all" .
+      - name: Record outcome without secret values
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        run: |
+          printf '## Gizli bilgi taraması\nSonuç: %s\n' "$SCAN_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Başarısız veya atlanmış kontrol temiz sonuç değildir. Ham bulgu dosyası yayımlanmaz. Olası sızıntıda anahtar değişimi ayrı insan onayı gerektirir.' >> "$GITHUB_STEP_SUMMARY"
