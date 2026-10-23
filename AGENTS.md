@@ -33,3 +33,11 @@ Rapor ve yorumlarda gizli değer, hasta/müşteri verisi veya ham kayıt yayıml
 Rapor: Yeni risk / doğrulanan / düzeltilen PR / canlıya uygulanan / eksik veya engelli / gerekli kullanıcı kararı. Canlıya bu görev kapsamında değişiklik yapılmaz. Tam güvenlik veya yasal uygunluk garantisi verme.
 
 Bu dosya otomatik yapay zekâ incelemesini tek başına etkinleştirmez; Codex inceleme ayarları ayrıca doğrulanmalıdır.
+
+## AI, cloud database and data acquisition review
+
+.security/ai-data-controls.json içindeki 50 risk başlığını ve docs/AI-DATA-SECURITY.md içindeki koşulları incelemeye dahil et. Kaynak envanteri açık kanıtı değildir. Her maddeyi kanıtlı/kanıtsız/uygulanamaz gerekçesiyle raporla; uygulanmış güvenlik kontrolü ile kontrol listesi eklenmesini karıştırma. Gerçek hesap, sözleşme, dağıtım çıktısı ve erişilebilirlik kanıtını ayrıca iste; araç sayacı gerçek istismar sayısı değildir.
+
+Hasta ile ilişkilendirilebilen veri ve tokenlar dış AI servislerine gönderilmez; yalnız risk değerlendirmesi yapılmış anonim toplu bilgi veya sentetik veri. Klinik karar/triyaj yok.
+
+Veri satın alınması, sağlayıcı eğitimi, saklama, ZDR, vektör/embedding ve yeniden belirleme, MCP/ajan egress/araç yetkisi ve cloud IAM/yedek/taşıma risklerini ayrı değerlendir. BDDK kıyasını otomatik banka uygunluğu sayma. Geliştirme bağımlılığı riskini sırf dev etiketiyle kapatma. Günlük değişen akışları, haftalık bütün katalogyu incele; yalnız sentetik yerel test kullan. Yeni dış alıcı veya üretim erişimi açma.

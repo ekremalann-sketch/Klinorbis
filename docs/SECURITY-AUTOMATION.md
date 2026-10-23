@@ -21,3 +21,7 @@ PR birleşmeden yeni schedule/Dependabot yapılandırması ana dalda etkin deği
 Secret scanning, push protection, Dependabot alerts ve zorunlu PR durum kontrolleri yönetici ayarlarıdır; dosya eklemek bunları açmaz. Secret scanning durumu bu kurulumda doğrulanmadı. Depo gizli hale getirilirse CodeQL lisans/plan uygunluğunu tekrar değerlendir; ücretli hizmeti onaysız açma.
 
 Kabul: üç workflow çalışır; hata ve atlanma görünürdür; test/derleme hattı korunur; ilk bulgular incelenir; Codex ayarı ayrıca kanıtlanır. Geri alma: bu PR'ın yapılandırma değişikliklerini ayrı PR ile geri al. Canlı uygulama/veritabanı değişikliği yoktur.
+
+## AI/veri risk kataloğu eki — 23 Ekim 2026
+
+.security/ai-data-controls.json ve docs/AI-DATA-SECURITY.md 50 risk başlığını, önlemini ve doğrulamasını içerir. AI and data review inventory görev özeti bunların tamamını gösterir. Başlangıçta 50/50 KANIT YOK; rapor üretimi korumaların uygulanmış olduğu anlamına gelmez. Altı sentetik test yalnız rapor güvenilirliğini denetler. Günlük yapay zekâ inceleme takibi de bu kataloğa genişletilmiştir.

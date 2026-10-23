@@ -1,0 +1,28 @@
+name: AI and data review inventory
+on:
+  push:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '28 3 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ai-data-inventory-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate report privacy and evidence semantics
+        run: node --test scripts/ai-data-review.test.mjs
+      - name: Generate all control rows without raw source or secrets
+        run: node scripts/ai-data-review.mjs >> "$GITHUB_STEP_SUMMARY"
+      - name: Explain inventory failure
+        if: failure()
+        run: echo 'Envanter oluşturulamadı; bu bir temiz güvenlik sonucu değildir.' >> "$GITHUB_STEP_SUMMARY"
