@@ -92,6 +92,13 @@
       "when": 1792368000000,
       "tag": "0012_sim_hospital_coordination",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1792744608247,
+      "tag": "0013_kullanilabilirlik",
+      "breakpoints": true
     }
   ]
 }

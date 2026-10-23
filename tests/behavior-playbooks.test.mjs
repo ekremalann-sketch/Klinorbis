@@ -16,7 +16,8 @@ const TBR = "tbr@klinorbis.test", CTM = "ctm@klinorbis.test", YTK = "ytk.mgr@kli
 const YOGM = "yog.mgr@klinorbis.test", YOGD = "yog.doc@klinorbis.test", LABM = "lab.mgr@klinorbis.test", OPS2 = "ops2@klinorbis.test";
 for (const [email, role, unit] of [[TBR, "call_agent", "TBR"], [CTM, "call_agent", "CTM"], [YTK, "unit_manager", "YTK"], [YTK2, "unit_manager", "YTK"], [KVT, "privacy_officer", "KVT"], [YOGM, "unit_manager", "YOG"], [YOGD, "clinician", "YOG"], [LABM, "unit_manager", "LAB"], [OPS2, "operations_manager", "YTK"]]) { staff.run(email, email, role, now); member.run(email, unit); }
 
-const [route, lib, events] = await Promise.all([loadRoute("app/api/playbooks/route.ts"), loadRoute("lib/playbooks.ts"), loadRoute("app/api/integrations/events/route.ts")]);
+const [route, lib, events, myWork] = await Promise.all([loadRoute("app/api/playbooks/route.ts"), loadRoute("lib/playbooks.ts"), loadRoute("app/api/integrations/events/route.ts"), loadRoute("app/api/my-work/route.ts")]);
+const mw = (email, body) => myWork.POST(browserJson("/api/my-work", body, email));
 const sign = (body, eventId, ts = String(Date.now())) => ({ "content-type": "application/json", "x-klinorbis-timestamp": ts, "x-klinorbis-event-id": eventId, "x-klinorbis-signature": createHmac("sha256", SECRET).update(`${ts}.${eventId}.${body}`).digest("hex") });
 const get = (email) => route.GET(new Request(`${ORIGIN}/api/playbooks`, { headers: { "oai-authenticated-user-email": email } }));
 const post = (email, body) => route.POST(browserJson("/api/playbooks", body, email));
@@ -49,7 +50,14 @@ await test("ilerleme: her adım yalnız kendi biriminde tamamlanır ve sonraki b
   assert.equal(task(`TSK-${ref}-1`).status, "completed");
   assert.deepEqual({ ...task(`TSK-${ref}-2`) }, { unit_code: "CTM", status: "queued" });
   assert.equal((await post(CTM, { action: "step.complete", reference: ref, version: 1 })).status, 409, "eski sürüm");
-  assert.equal((await post(CTM, { action: "step.complete", reference: ref, version: 2 })).status, 200);
+  // Oda temizliği: akış ekranından doğrudan geçilemez; görevli tamamlar, başka bir sorumlu bağımsız kontrol eder.
+  const direct = await post(CTM, { action: "step.complete", reference: ref, version: 2 });
+  assert.equal(direct.status, 409); assert.equal((await direct.json()).code, "INSPECTION_REQUIRED");
+  for (const action of ["accept", "start", "complete"]) assert.equal((await mw(CTM, { action, reference: `TSK-${ref}-2` })).status, 200, action);
+  assert.equal(run(ref).current_step, 1, "kontrol olmadan ilerlemez");
+  const ins = sqlite.prepare("SELECT inspection_task_reference AS r FROM cleaning_inspections WHERE run_reference = ?").get(ref).r;
+  assert.equal((await mw(CTM, { action: "inspect", reference: ins, pass: true })).status, 403, "temizleyen kendi işini kontrol edemez");
+  assert.equal((await mw(OWNER, { action: "inspect", reference: ins, pass: true })).status, 200);
   assert.equal(run(ref).current_step, 2);
 });
 

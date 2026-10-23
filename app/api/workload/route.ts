@@ -25,11 +25,11 @@ export async function POST(request: Request) {
     const actor = await requireActor(request);
     requireOperationalWriter(actor);
     await enforceRateLimit(request, actor, "workload.write", 60, 60);
-    const body = await request.json() as { action?: unknown; reference?: unknown; email?: unknown };
+    const body = await request.json() as { action?: unknown; reference?: unknown; email?: unknown; confirmOffShift?: unknown; confirmReassign?: unknown };
     if (body.action !== "assign") throw new SecurityError(400, "Bilinmeyen işlem.", "UNKNOWN_ACTION");
     const reference = typeof body.reference === "string" ? body.reference.slice(0, 80) : "";
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 200) : "";
-    return Response.json({ ok: true, ...(await assignTask(getDb(), actor, reference, email)) });
+    return Response.json({ ok: true, ...(await assignTask(getDb(), actor, reference, email, new Date(), { confirmOffShift: body.confirmOffShift === true, confirmReassign: body.confirmReassign === true })) });
   } catch (error) {
     return securityResponse(error, request);
   }

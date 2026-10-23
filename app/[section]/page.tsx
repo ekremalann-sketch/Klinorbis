@@ -5,8 +5,12 @@ import Dashboard, { type View } from "../dashboard";
 export const dynamic = "force-dynamic";
 
 // "merkez" = Operasyon Merkezi (önceden "/" idi; yenileyince pazarlama sayfasına düşülüyordu).
+// Türkçe adresler: /islerim → İşlerim, /birimim → Birimim.
+const ALIASES: Record<string, View> = { merkez: "dashboard", islerim: "mywork", birimim: "myunit" };
 const sections = new Set<string>([
   "merkez",
+  "islerim",
+  "birimim",
   "inbox",
   "flow",
   "requests",
@@ -34,13 +38,13 @@ export default async function SectionPage({
 }) {
   const { section } = await params;
   if (!sections.has(section)) notFound();
-  return <AuthenticatedSection section={section === "merkez" ? "dashboard" : (section as View)} />;
+  return <AuthenticatedSection section={ALIASES[section] ?? (section as View)} path={`/${section}`} />;
 }
 
 import { privateMeta } from "../../lib/seo";
 export const metadata = privateMeta;
 
-async function AuthenticatedSection({ section }: { section: View }) {
-  await requireChatGPTUser(section === "dashboard" ? "/merkez" : `/${section}`);
+async function AuthenticatedSection({ section, path }: { section: View; path: string }) {
+  await requireChatGPTUser(path);
   return <Dashboard initialView={section} />;
 }

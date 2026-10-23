@@ -7,7 +7,8 @@ import { automationStopped } from "./automation-policy";
 // adımı tamamlar ya da biri tamamlarken öteki iptal eder) yarışırsa ikinci batch kilitte takılır ve tamamı geri alınır. Denetim izi de aynı batch içinde yazılır.
 import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import type { getDb } from "../db";
-import { integrationEvents, operationalTasks, playbookRuns, playbookSteps } from "../db/schema";
+import { faultReports, integrationEvents, operationalTasks, playbookRuns, playbookSteps } from "../db/schema";
+import { isCleaningStep, passedInspection } from "./cleaning-inspection";
 import { auditStatements } from "./audit";
 import { findUnit } from "./hospital-units";
 import { triggerFor } from "./playbook-triggers";
@@ -22,7 +23,7 @@ const MANAGER_ROLES = ["operations_manager", "unit_manager"];
 const MAX_CHAIN = 4;
 const MIN = 60_000;
 
-function newReference(code: string) {
+export function newReference(code: string) {
   return `AKS-${code.slice(0, 12).toUpperCase()}-${Date.now().toString(36).slice(-5).toUpperCase()}${crypto.randomUUID().slice(0, 3).toUpperCase()}`;
 }
 function cleanNote(value: unknown) {
@@ -31,7 +32,7 @@ function cleanNote(value: unknown) {
 }
 const isConflict = (error: unknown) => /UNIQUE|constraint/i.test(`${String(error)} ${String((error as { cause?: unknown })?.cause ?? "")}`);
 /** Yapılandırılmış alanlar: hepsi isteğe bağlı. Hasta alanı yalnız kısa kod kabul eder (ad-soyad yazılamaz). */
-export type RunFields = { campus: string | null; location: string | null; deviceCode: string | null; patientRef: string | null };
+export type RunFields = { campus: string | null; location: string | null; deviceCode: string | null; patientRef: string | null; targetLocation?: string | null };
 const CAMPUSES = ["merkez", "ek-bina", "poliklinik", "diger"];
 function field(value: unknown, pattern: RegExp, label: string, max: number) {
   if (value === undefined || value === null || value === "") return null;
@@ -48,6 +49,7 @@ export function cleanRunFields(raw: unknown): RunFields {
   return {
     campus,
     location: field(r.location, /^[0-9A-Za-zÇĞİÖŞÜçğıöşü .\/-]{1,24}$/, "Oda/yatak", 24),
+    targetLocation: field(r.targetLocation, /^[0-9A-Za-zÇĞİÖŞÜçğıöşü .\/-]{1,24}$/, "Hedef konum", 24),
     deviceCode: field(r.deviceCode, /^[0-9A-Za-z._/-]{2,24}$/, "Cihaz kodu", 24),
     patientRef,
   };
@@ -55,7 +57,7 @@ export function cleanRunFields(raw: unknown): RunFields {
 const NO_FIELDS: RunFields = { campus: null, location: null, deviceCode: null, patientRef: null };
 
 /** Adımı açılan birimin üyelerine bildirim (gecikmeli adımda açılış zamanı gelince activateDueSteps bildirir). */
-async function stepNotifications(db: Db, runReference: string, playbook: Playbook, index: number, now: Date) {
+export async function stepNotifications(db: Db, runReference: string, playbook: Playbook, index: number, now: Date) {
   const step = playbook.steps[index];
   if (step.waitMinutes) return [];
   return notificationStatements(db, await unitRecipients(db, step.unitCode), {
@@ -67,7 +69,15 @@ async function stepNotifications(db: Db, runReference: string, playbook: Playboo
 const lock = (db: Db, key: string, type: string) => db.insert(integrationEvents).values({ eventId: key, source: "klinorbis", eventType: type, payloadHash: "-", status: "lock" });
 
 /** Bir adımı açan ifadeler: adım kaydı + birimin iş kutusuna görev (gecikmeliyse "scheduled"). */
-function stepStatements(db: Db, runReference: string, playbook: Playbook, index: number, now: Date): Stmt[] {
+/** Görev kartında görünen konum: nakilde "kaynak → hedef", diğerlerinde oda/yatak ve yerleşke. */
+export function taskLocation(f: Partial<RunFields> | null | undefined) {
+  if (!f) return null;
+  const place = f.targetLocation ? `${f.location ?? "?"} → ${f.targetLocation}` : f.location ?? null;
+  const campus = f.campus ? ({ merkez: "Merkez", "ek-bina": "Ek bina", poliklinik: "Poliklinik", diger: "Diğer" } as Record<string, string>)[f.campus] ?? null : null;
+  return [place, campus].filter(Boolean).join(" · ") || null;
+}
+
+function stepStatements(db: Db, runReference: string, playbook: Playbook, index: number, now: Date, fields?: Partial<RunFields> | null): Stmt[] {
   const step = playbook.steps[index];
   const unit = findUnit(step.unitCode);
   const taskReference = `TSK-${runReference}-${index + 1}`;
@@ -78,23 +88,24 @@ function stepStatements(db: Db, runReference: string, playbook: Playbook, index:
     db.insert(operationalTasks).values({
       reference: taskReference, unitCode: step.unitCode, assignedRole: unit.assignedRole, sourceType: "playbook",
       status: activateAt ? "scheduled" : "queued", priority: step.approval ? "Yüksek" : "Normal", dueAt, createdAt: now, updatedAt: now,
+      title: step.approval ? `Onay: ${step.task}` : step.task, location: taskLocation(fields),
     }),
   ];
 }
 
-function runStatements(db: Db, playbook: Playbook, opts: { reference: string; startedBy: string; note: string | null; parentReference: string | null; triggerEvent: string | null; now: Date; fields?: RunFields }): Stmt[] {
+export function runStatements(db: Db, playbook: Playbook, opts: { reference: string; startedBy: string; note: string | null; parentReference: string | null; triggerEvent: string | null; now: Date; fields?: RunFields }): Stmt[] {
   const fields = opts.fields ?? NO_FIELDS;
   return [
     db.insert(playbookRuns).values({
       reference: opts.reference, playbookCode: playbook.code, title: playbook.title, status: "active", currentStep: 0, stepCount: playbook.steps.length,
       note: opts.note, parentReference: opts.parentReference, startedBy: opts.startedBy, triggerEvent: opts.triggerEvent, createdAt: opts.now, updatedAt: opts.now,
-      campus: fields.campus, location: fields.location, deviceCode: fields.deviceCode, patientRef: fields.patientRef,
+      campus: fields.campus, location: fields.location, deviceCode: fields.deviceCode, patientRef: fields.patientRef, targetLocation: fields.targetLocation ?? null,
     }),
-    ...stepStatements(db, opts.reference, playbook, 0, opts.now),
+    ...stepStatements(db, opts.reference, playbook, 0, opts.now, fields),
   ];
 }
 
-async function runBatch(db: Db, statements: Stmt[], conflictMessage: string) {
+export async function runBatch(db: Db, statements: Stmt[], conflictMessage: string) {
   try {
     await db.batch(statements as [Stmt, ...Stmt[]]);
   } catch (error) {
@@ -191,6 +202,8 @@ export async function completeStep(db: Db, actor: RequestActor, reference: strin
   if (current?.activateAt && current.activateAt.getTime() > now.getTime()) {
     throw new SecurityError(409, `Bu adım ${current.activateAt.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })} tarihinde etkinleşecek.`, "STEP_NOT_ACTIVE");
   }
+  // Temizlik adımı bağımsız kontrol olmadan geçilemez (temizleyen kişi kendi işini onaylayamaz).
+  if (isCleaningStep(step) && !(await passedInspection(db, reference, run.currentStep))) throw new SecurityError(409, "Temizlik adımı bağımsız kontrolden geçmeden ilerlemez. Görevli İşlerim ekranında “Tamamla” der; kontrolü birim sorumlusu yapar.", "INSPECTION_REQUIRED");
   const note = cleanNote(rawNote);
   const last = run.currentStep + 1 >= playbook.steps.length;
   const statements: Stmt[] = [
@@ -206,7 +219,7 @@ export async function completeStep(db: Db, actor: RequestActor, reference: strin
   const started: { reference: string; title: string }[] = [];
   const skipped: { code: string; title: string; condition: string }[] = [];
   if (!last) {
-    statements.push(...stepStatements(db, reference, playbook, run.currentStep + 1, now), ...await stepNotifications(db, reference, playbook, run.currentStep + 1, now));
+    statements.push(...stepStatements(db, reference, playbook, run.currentStep + 1, now, { campus: run.campus, location: run.location, targetLocation: run.targetLocation }), ...await stepNotifications(db, reference, playbook, run.currentStep + 1, now));
   } else {
     const conditions = cleanConditions(playbook, rawConditions);
     const targets = chainTargets(playbook, conditions);
@@ -222,7 +235,7 @@ export async function completeStep(db: Db, actor: RequestActor, reference: strin
       auditEntries.push({ actor: actor.email, action: "playbook.chain_skipped", resource: reference, detail: `${playbookOf(s.code)?.title ?? s.code}: koşul işaretlenmedi (${CHAIN_CONDITIONS[s.when] ?? s.when})` });
     }
     if (depth < MAX_CHAIN) {
-      const inherited: RunFields = { campus: run.campus, location: run.location, deviceCode: run.deviceCode, patientRef: run.patientRef };
+      const inherited: RunFields = { campus: run.campus, location: run.location, deviceCode: run.deviceCode, patientRef: run.patientRef, targetLocation: null }; // zincirdeki iş (ör. boşalan yatağın temizliği) kaynak konumda yapılır
       for (const code of targets.start) {
         const child = playbookOf(code);
         if (!child) continue;
@@ -231,6 +244,14 @@ export async function completeStep(db: Db, actor: RequestActor, reference: strin
         auditEntries.push({ actor: actor.email, action: "playbook.chained", resource: childRef, detail: `${child.title} ← ${reference}` });
         started.push({ reference: childRef, title: child.title });
       }
+    }
+  }
+  if (last) {
+    // Arıza bildirimi ile açılan akış kapandıysa: bildiren kişiden "giderildi mi?" onayı istenir (iş bitişi ≠ kullanıcı kabulü).
+    const [fault] = await db.select().from(faultReports).where(eq(faultReports.runReference, reference)).limit(1);
+    if (fault && fault.status === "open") {
+      statements.push(db.update(faultReports).set({ status: "awaiting_confirmation", resolvedAt: now }).where(and(eq(faultReports.reference, fault.reference), eq(faultReports.status, "open"))));
+      statements.push(...notificationStatements(db, [fault.reporterEmail], { kind: "task", title: "Bildirdiğiniz arıza kapatıldı", detail: `${fault.reference}: sorun giderildi mi? İşlerim ekranından onaylayın.`, path: "/islerim", key: `fault-done:${fault.reference}` }, now));
     }
   }
   statements.push(...await auditStatements(db, auditEntries));

@@ -27,14 +27,20 @@ import {
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { chatGPTSignInPath, chatGPTSignOutPath } from "./auth-paths";
+import { FormDialog } from "./work-ui";
 
 const PatientAccess = lazy(() => import("./patient-access").then(m => ({default:m.PatientAccess})));
 const Playbooks = lazy(() => import("./playbooks").then(m => ({default:m.Playbooks})));
 const Simulation = lazy(() => import("./simulation").then(m => ({default:m.Simulation})));
+const MyWork = lazy(() => import("./my-work").then(m => ({default:m.MyWork})));
+const MyUnit = lazy(() => import("./my-unit").then(m => ({default:m.MyUnit})));
+const OpsFocus = lazy(() => import("./ops-focus").then(m => ({default:m.OpsFocus})));
 const ScreenLoading = () => <div className="screen-loading" role="status"><span /><span /><span /><p>Çalışma ekranı hazırlanıyor…</p></div>;
 
 export type View =
   | "dashboard"
+  | "mywork"
+  | "myunit"
   | "inbox"
   | "flow"
   | "requests"
@@ -68,6 +74,8 @@ type Task = {
   updatedAt?: DateValue;
   sourceType?: string;
   escalationLevel?: number;
+  title?: string | null;
+  location?: string | null;
 };
 // Görevin açılacağı ekran: kayda bağlıysa kayıt, görüşmeye bağlıysa görüşme; operasyon akışı ve
 // hekim yokluğu görevleri kendi ekranlarına gider (önceden bu görevlere tıklamak boş sayfa açıyordu).
@@ -409,6 +417,8 @@ type ApprovalDecisionResponse = ApiError & {
 
 const viewPaths: Record<View, string> = {
   dashboard: "/merkez",
+  mywork: "/islerim",
+  myunit: "/birimim",
   inbox: "/inbox",
   flow: "/flow",
   requests: "/requests",
@@ -429,7 +439,9 @@ const viewPaths: Record<View, string> = {
   audit: "/audit",
 };
 const titles: Record<View, string> = {
-  dashboard: "Operasyon Merkezi",
+  dashboard: "Operasyon",
+  mywork: "İşlerim",
+  myunit: "Birimim",
   inbox: "Ortak İş Kutusu",
   flow: "Uçtan Uca Akış",
   requests: "Hasta Talepleri",
@@ -451,7 +463,9 @@ const titles: Record<View, string> = {
 };
 const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
   [
-    { view: "dashboard", icon: "▦", label: "Operasyon Merkezi", group: "GÜNLÜK İŞ" },
+    { view: "dashboard", icon: "▦", label: "Operasyon", group: "GÜNLÜK İŞ" },
+    { view: "mywork", icon: "☑", label: "İşlerim" },
+    { view: "myunit", icon: "◈", label: "Birimim" },
     { view: "inbox", icon: "◎", label: "Ortak İş Kutusu" },
     { view: "flow", icon: "⇢", label: "Uçtan Uca Akış" },
     { view: "requests", icon: "◉", label: "Hasta Talepleri" },
@@ -476,18 +490,23 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
     { view: "security", icon: "⬡", label: "Siber Güvenlik" },
     { view: "audit", icon: "≡", label: "Denetim İzleri" },
   ];
-// Rol bazlı menü: her rol önce kendi işine ait ekranları görür (sade menü). Yetki sunucuda
-// uygulanır; menüden gizlemek güvenlik değil kolaylıktır. "Tüm ekranlar" ile tamamı açılır.
+// Rol bazlı menü: her rol yalnız kendi işine ait ekranları görür; ilk eleman rolün ana ekranıdır.
+// Yetki sunucuda uygulanır; menüden gizlemek güvenlik değil kolaylıktır. Kalan ekranlar "Diğer ekranlar" altındadır.
 const ROLE_VIEWS: Record<string, View[]> = {
-  // Her rol yalnız kendi işine ait ekranları görür; "Personel ve Yetki" herkeste "Benim işim/vardiyam" olarak durur.
-  // Diğer ekranlar "Tüm ekranları göster" altında.
-  operations_manager: ["dashboard", "inbox", "approvals", "calls", "access", "flow", "playbooks", "simulation", "capacity", "automation", "units", "staff", "reports"],
-  unit_manager: ["dashboard", "inbox", "approvals", "playbooks", "units", "appointments", "access", "capacity", "staff"],
-  clinician: ["dashboard", "approvals", "inbox", "units", "access", "staff"],
-  call_agent: ["calls", "inbox", "appointments", "access", "staff"],
-  privacy_officer: ["privacy", "audit", "reports", "inbox", "staff"],
-  security_officer: ["security", "automation", "integrations", "audit", "reports", "staff"],
+  operations_manager: ["dashboard", "myunit", "inbox", "approvals", "playbooks", "capacity", "reports", "staff"],
+  unit_manager: ["myunit", "mywork", "approvals", "playbooks", "capacity", "staff"],
+  clinician: ["mywork", "approvals", "access", "staff"],
+  call_agent: ["calls", "mywork", "appointments", "staff"],
+  // Çağrı merkezi dışındaki birim görevlileri (temizlik, transport, servis…): yalnız kendi işleri.
+  unit_staff: ["mywork", "staff"],
+  privacy_officer: ["privacy", "audit", "reports", "staff"],
+  security_officer: ["security", "integrations", "automation", "audit", "staff"],
 };
+// Teknik ve entegrasyon ekranları günlük iş rollerinin "Diğer ekranlar" listesinde de görünmez (sunucu ayrıca reddeder).
+const TECHNICAL_VIEWS: View[] = ["integrations", "security", "automation", "audit", "privacy"];
+const TECHNICAL_ROLES = ["operations_manager", "security_officer", "privacy_officer"];
+/** Menü rolü: sistem rolü "call_agent" olan ama çağrı merkezinde çalışmayan personel "birim görevlisi" menüsünü görür. */
+function menuRoleOf(role: string, unitCodes: string[]) { return role === "call_agent" && !unitCodes.includes("CAG") ? "unit_staff" : role; }
 const NAV_GROUP_OF: Record<string, string> = (() => {
   let current = "";
   const out: Record<string, string> = {};
@@ -495,7 +514,8 @@ const NAV_GROUP_OF: Record<string, string> = (() => {
   return out;
 })();
 const MOBILE_LABELS: Partial<Record<View, string>> = {
-  dashboard: "Merkez", inbox: "İşler", calls: "Çağrı", approvals: "Onay", access: "Yokluk", units: "Birim",
+  mywork: "İşlerim", myunit: "Birimim",
+  dashboard: "Operasyon", inbox: "İşler", calls: "Çağrı", approvals: "Onay", access: "Yokluk", units: "Birim",
   appointments: "Randevu", flow: "Akış", privacy: "KVKK", audit: "Denetim", reports: "Rapor", security: "Güvenlik",
   automation: "Otomasyon", integrations: "Entegr.", simulation: "Simülasyon", capacity: "Kapasite", staff: "Personel",
 };
@@ -592,6 +612,7 @@ export default function Dashboard({
   // Yalnız menü, ana ekran ve dikkat şeridi değişir; veriler ve yetki yöneticinin kendi oturumundan gelir.
   const [previewRole, setPreviewRole] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
+  const [callConfirm, setCallConfirm] = useState<{ reference: string; action: string; targetUnitCode?: string } | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const knownCalls = useRef<Set<string>>(new Set());
   const initialized = useRef(false);
@@ -619,18 +640,22 @@ export default function Dashboard({
       setReferenceState(reference);
       setMenu(false);
       setBell(false);
-      // Aynı ekranda kayıt seçmek sayfayı kaydırmaz; başka ekrana geçince başa dönülür.
-      if (!sameView) window.scrollTo({ top: 0 });
+      // Aynı ekranda kayıt seçmek sayfayı kaydırmaz; başka ekrana geçince başa dönülür ve önceki ekranın
+      // arama/filtre metni yeni ekrana taşınmaz.
+      if (!sameView) { window.scrollTo({ top: 0 }); setQuery(""); }
     },
     [],
   );
   const viewRef = useRef<View>(viewProp);
   // Bildirim ve uyarılardaki adresler de aynı yoldan açılır.
   const go = useCallback((path: string) => {
-    const [section, ref] = path.replace(/^\//, "").split("/");
+    const [pathOnly, search] = path.split("?");
+    const [section, ref] = pathOnly.replace(/^\//, "").split("/");
     const view = (Object.entries(viewPaths).find(([, p]) => p === `/${section ?? ""}`)?.[0] ?? (section ? null : "dashboard")) as View | null;
     if (!view) { router.push(path); return; }
     navigate(view, ref ? decodeURIComponent(ref) : undefined);
+    // Bağlantıdaki filtre (ör. /birimim?birim=CTM) adres çubuğunda kalır; yenileyince aynı ekran açılır.
+    if (search) window.history.replaceState({ klinorbis: true }, "", `${window.location.pathname}?${search}`);
   }, [navigate, router]);
   useEffect(() => {
     const onPop = () => {
@@ -654,6 +679,16 @@ export default function Dashboard({
     return () => window.removeEventListener("klinorbis:refresh", onRefresh);
   }, []);
   useEffect(() => { document.title = `${titles[initialView] ?? "Klinorbis"} | Klinorbis`; }, [initialView]);
+  // Rol ana ekranı: /merkez (eski adres) ilk açılışta rolün ana ekranına yönlendirilir (geçmişe yeni kayıt eklemeden).
+  // Menüden bilerek "Operasyon" açılırsa yönlendirme yapılmaz.
+  const homeRedirected = useRef(false);
+  const [opsDetail, setOpsDetail] = useState(false);
+  useEffect(() => {
+    if (!snapshot || homeRedirected.current) return;
+    homeRedirected.current = true;
+    const home = ROLE_VIEWS[menuRoleOf(snapshot.identity.role, snapshot.identity.unitCodes)]?.[0];
+    if (viewRef.current === "dashboard" && !initialReference && home && home !== "dashboard") navigate(home, undefined, true);
+  }, [snapshot, navigate, initialReference]);
 
   useEffect(()=>{if(!initialReference||!["calls","requests","inbox","appointments"].includes(initialView))return;const controller=new AbortController();void fetch("/api/read-events",{method:"POST",headers:{"content-type":"application/json","x-klinorbis-request":"browser"},body:JSON.stringify({kind:initialView==="calls"?"call":"ticket",reference:initialReference}),signal:controller.signal}).catch(()=>{});return()=>controller.abort();},[initialReference,initialView]);
 
@@ -957,9 +992,10 @@ export default function Dashboard({
     }
   }
 
-  async function actOnCall(reference: string, action: string, targetUnitCode?: string) {
+  async function actOnCall(reference: string, action: string, targetUnitCode?: string, confirmed = false) {
     if (busy) return;
-    if (action === "CALL_COMPLETED" && !window.confirm("Görüşme sonuçlandırılacak. İnsan onayı gerektiren kayıtlar onay verilmeden kapatılamaz. Devam edilsin mi?")) return;
+    // Sonuçlandırma geri alınamaz: tarayıcı kutusu yerine erişilebilir onay penceresi.
+    if (action === "CALL_COMPLETED" && !confirmed) { setCallConfirm({ reference, action, targetUnitCode }); return; }
     setBusy(`${reference}:${action}`);
     try {
       const data = await secureMutation<ApiError & {outcome:string}>("/api/calls/actions", {callId:reference, action, targetUnitCode});
@@ -1107,6 +1143,7 @@ export default function Dashboard({
 
   const realRole = snapshot.identity.role;
   const effectiveRole = realRole === "operations_manager" && previewRole ? previewRole : realRole;
+  const menuRole = previewRole && realRole === "operations_manager" ? previewRole : menuRoleOf(realRole, snapshot.identity.unitCodes);
   const selectedTicket =
     initialReference &&
     ["requests", "inbox", "appointments"].includes(initialView)
@@ -1140,9 +1177,14 @@ export default function Dashboard({
         </div>
         <nav>
           {(() => {
-            const allowed = ROLE_VIEWS[effectiveRole];
-            const list = showAllNav || !allowed ? nav : nav.filter((item) => allowed.includes(item.view) || item.view === initialView);
-            return list.map((item, index) => ({ ...item, group: index === 0 || NAV_GROUP_OF[list[index - 1].view] !== NAV_GROUP_OF[item.view] ? NAV_GROUP_OF[item.view] || undefined : undefined }));
+            const allowed = ROLE_VIEWS[menuRole];
+            const visible = nav.filter((item) => TECHNICAL_ROLES.includes(menuRole) || !TECHNICAL_VIEWS.includes(item.view));
+            // Rolün ekranları ROLE_VIEWS sırasıyla (ilk eleman ana ekran); açık olan ekran listede yoksa sona eklenir.
+            const own = allowed ? visible.filter((item) => allowed.includes(item.view)).sort((a, b) => allowed.indexOf(a.view) - allowed.indexOf(b.view)) : visible;
+            const list = !allowed ? visible : showAllNav
+              ? [...own, ...visible.filter((item) => !allowed.includes(item.view)).map((item, i) => ({ ...item, other: i === 0 }))]
+              : [...own, ...visible.filter((item) => !allowed.includes(item.view) && item.view === initialView)];
+            return list.map((item, index) => ({ ...item, group: "other" in item && item.other ? "DİĞER EKRANLAR" : allowed ? (index === 0 ? "BENİM İŞİM" : undefined) : index === 0 || NAV_GROUP_OF[list[index - 1].view] !== NAV_GROUP_OF[item.view] ? NAV_GROUP_OF[item.view] || undefined : undefined }));
           })().map((item) => {
             const badge =
               item.view === "inbox"
@@ -1177,9 +1219,9 @@ export default function Dashboard({
               </span>
             );
           })}
-          {ROLE_VIEWS[effectiveRole] && (
+          {ROLE_VIEWS[menuRole] && (
             <button type="button" className="nav-toggle" aria-expanded={showAllNav} onClick={() => setShowAllNav((v) => !v)}>
-              {showAllNav ? "Yalnız rolümün ekranları" : "Tüm ekranları göster"}
+              {showAllNav ? "Diğer ekranları gizle" : "Diğer ekranlar"}
             </button>
           )}
         </nav>
@@ -1213,13 +1255,14 @@ export default function Dashboard({
             </div>
           </div>
           <div className="header-actions">
-            <a className="secondary" href={chatGPTSignOutPath("/")} target="_top">Çıkış yap</a>
+            {/* Yinelenen "Çıkış yap" kaldırıldı; tek çıkış bağlantısı zilin yanında. */}
             {realRole === "operations_manager" && (
               <label className="preview-select">
                 <span className="sr-only">Rol gözünden önizle</span>
                 <select value={previewRole ?? ""} onChange={(event) => { const role = event.target.value || null; setPreviewRole(role); const home = role ? ROLE_VIEWS[role]?.[0] : "dashboard"; if (home) navigate(home); }} aria-label="Rol gözünden önizle">
                   <option value="">Kendi görünümüm</option>
                   {Object.entries(roleNames).filter(([key]) => key !== "operations_manager").map(([key, label]) => <option key={key} value={key}>{label} gözünden</option>)}
+                  <option value="unit_staff">Birim görevlisi (temizlik, transport…) gözünden</option>
                 </select>
               </label>
             )}
@@ -1259,7 +1302,7 @@ export default function Dashboard({
             <button type="button" onClick={() => setPreviewRole(null)}>Önizlemeyi kapat</button>
           </div>
         )}
-        <ControlRibbon snapshot={snapshot} navigate={navigate} currentView={initialView} role={effectiveRole} />
+        <ControlRibbon snapshot={snapshot} navigate={navigate} currentView={initialView} role={menuRole} />
         <ScreenHelpBox key={initialView} view={initialView} />
         {receipt && (
           <ReceiptBar
@@ -1274,12 +1317,18 @@ export default function Dashboard({
         {initialView === "dashboard" && (
           effectiveRole === "clinician" ? <ClinicianHome snapshot={snapshot} navigate={navigate} />
           : effectiveRole === "unit_manager" ? <UnitManagerHome snapshot={snapshot} navigate={navigate} />
+          : effectiveRole === "operations_manager" ? <>
+            <Suspense fallback={<ScreenLoading />}><OpsFocus detailOpen={opsDetail} showDetail={() => setOpsDetail((v) => !v)} /></Suspense>
+            {opsDetail && <Overview snapshot={snapshot} navigate={navigate} create={() => setDialog("ticket")} />}
+          </>
           : <Overview
             snapshot={snapshot}
             navigate={navigate}
             create={() => setDialog("ticket")}
           />
         )}
+        {initialView === "mywork" && <Suspense fallback={<ScreenLoading />}><MyWork /></Suspense>}
+        {initialView === "myunit" && <Suspense fallback={<ScreenLoading />}><MyUnit /></Suspense>}
         {initialView === "inbox" && (
           <InboxWorkspace snapshot={snapshot} query={query} setQuery={setQuery} open={(task) => softGo(taskPath(task))} />
         )}
@@ -1395,7 +1444,7 @@ export default function Dashboard({
       </section>
       {/* Mobil alt çubuk: rolün ilk 4 ekranı (+ yazma yetkisi olan rollerde "Yeni talep"). */}
       <nav className="mobile-bottom" aria-label="Hızlı geçiş">
-        {(ROLE_VIEWS[effectiveRole] ?? ["dashboard", "inbox", "calls", "approvals"]).slice(0, 4).map((view, index) => (
+        {(ROLE_VIEWS[menuRole] ?? ["dashboard", "inbox", "calls", "approvals"]).slice(0, 4).map((view, index) => (
           <Fragment key={view}>
             {index === 2 && ["operations_manager", "unit_manager", "clinician", "call_agent"].includes(effectiveRole) && (
               <button className="mobile-create" aria-label="Yeni talep" onClick={() => setDialog("ticket")}><span>＋</span></button>
@@ -1406,6 +1455,10 @@ export default function Dashboard({
           </Fragment>
         ))}
       </nav>
+      <FormDialog open={!!callConfirm} title="Görüşme sonuçlandırılsın mı?" danger submitLabel="Sonuçlandır"
+        description="Görüşme kapanır. İnsan onayı gerektiren kayıtlar onay verilmeden kapatılamaz; sunucu bunu ayrıca denetler."
+        onClose={() => setCallConfirm(null)}
+        onSubmit={async () => { const c = callConfirm!; setCallConfirm(null); await actOnCall(c.reference, c.action, c.targetUnitCode, true); }} />
       {selectedTicket && (
         <TicketDrawer
           snapshot={snapshot}
@@ -1928,7 +1981,7 @@ function TicketTable({
 }
 function InboxWorkspace({ snapshot, query, setQuery, open }: { snapshot: Snapshot; query: string; setQuery: (value: string) => void; open: (task: Task) => void }) {
   const [scope, setScope] = useState<"open" | "mine" | "urgent" | "scheduled" | "all">("open");
-  const searchable = snapshot.tasks.map(task => ({ ...task, searchText: `${unitName(snapshot, task.unitCode)} ${taskSource(task)}` }));
+  const searchable = snapshot.tasks.map(task => ({ ...task, searchText: `${task.title ?? ""} ${task.location ?? ""} ${unitName(snapshot, task.unitCode)} ${taskSource(task)}` }));
   const rows = filterInboxTasks(searchable, scope, snapshot.identity.email ?? "", query);
   const filters = [["open", "Açık"], ["mine", "Benim üstlendiklerim"], ["urgent", "Acil / yüksek"], ["scheduled", "Zamanı beklenen"], ["all", "Tümü"]] as const;
   return <><Hero title="Ortak iş kutusu" text="Talep, çağrı, operasyon akışı ve hasta bilgilendirme görevleri aynı kuyrukta. Görevi açınca kendi işlem ekranına geçersiniz." />
@@ -1958,12 +2011,12 @@ function TaskList({
           />
           <span>
             <b>
-              {task.reference} · {task.assignedRole}
+              {task.title ?? task.reference}{task.location ? ` · ${task.location}` : ""}
               {!!task.escalationLevel && !["completed", "cancelled"].includes(task.status) && <span className="task-escalated">{task.escalationLevel >= 2 ? "Yönetime yükseldi" : "Gecikti · sorumluya bildirildi"}</span>}
             </b>
             <small>
               {unitName(snapshot, task.unitCode)} ·{" "}
-              {taskSource(task)}
+              {taskSource(task)} · {task.reference}
             </small>
           </span>
           <strong>{statusLabel(task.status)}</strong>
