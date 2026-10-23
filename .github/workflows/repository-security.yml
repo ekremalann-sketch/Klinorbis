@@ -36,7 +36,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/security-tools/gitleaks" git --redact=100 --no-banner --log-level=error --log-opts="--all" .
+          set +e
+          "$RUNNER_TEMP/security-tools/gitleaks" git --redact=100 --no-banner --log-level=error --log-opts="--all" --exit-code=10 --report-format=json --report-path="$RUNNER_TEMP/gitleaks.json" .
+          result=$?
+          set -e
+          if [ "$result" -eq 10 ]; then
+            node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const report = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'gitleaks.json'), 'utf8'));
+          const safe = value => String(value ?? '').replace(/[\r\n|<>]/g, ' ').slice(0, 200);
+          const rows = report.slice(0, 50).map(item => '| ' + [item.RuleID, item.File, item.StartLine, /^[a-f0-9]{40,64}$/.test(item.Commit) ? item.Commit.slice(0, 12) : ''].map(safe).join(' | ') + ' |');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '## İncelenecek gizli bilgi adayları: ' + report.length + '\nYalnız konum bilgisi; gerçek sır olduğu henüz doğrulanmadı. İlk 50 kayıt.\n\n| Kural | Dosya | Satır | Commit |\n|---|---|---|---|\n' + rows.join('\n') + '\n');
+          NODE
+          fi
+          exit "$result"
       - name: Record outcome without secret values
         if: always()
         env:
