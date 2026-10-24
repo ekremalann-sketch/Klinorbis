@@ -13,12 +13,15 @@ export type WorkTask = {
   flow: { reference: string; title: string; step: number; steps: number; approval: boolean } | null; nextStep: string | null; link: string;
   inspection: { cleanedBy: string; flow: string } | null;
 };
+type ReqType = { code: string; label: string; hint: string; fields: ("location" | "target" | "device")[]; clinicalNote: string | null; fault: boolean; unit: { code: string; name: string }; dispatcher: string | null };
 type Data = {
   mine: WorkTask[]; available: WorkTask[]; teamCount: number;
   handoffs: { id: number; task: WorkTask | null; note: string | null }[];
   faults: { reference: string; category: string; status: string; createdAt: string }[];
   canReportFault: boolean; myUnits: { code: string; name: string }[];
   teammates: { email: string; unitCode: string; label: string }[];
+  requestTypes: { group: string; types: ReqType[] }[];
+  requests: { reference: string; label: string; unit: string; location: string | null; status: string; state: string }[];
 };
 const CATEGORIES: [string, string][] = [["cihaz", "Tıbbi cihaz"], ["oda", "Oda / mobilya / tesisat"], ["elektrik", "Elektrik / aydınlatma"], ["iklim", "Isıtma / soğutma"], ["asansor", "Asansör"], ["diger", "Diğer teknik sorun"]];
 const CAT_LABEL = Object.fromEntries(CATEGORIES);
@@ -38,10 +41,12 @@ export function MyWork() {
   const [busy, setBusy] = useState("");
   const [receipt, setReceipt] = useState("");
   const [error, setError] = useState("");
-  const [dlg, setDlg] = useState<null | { kind: "block" | "handoff" | "inspect" | "fault" | "faultNo"; task?: WorkTask; ref?: string }>(null);
+  const [dlg, setDlg] = useState<null | { kind: "block" | "handoff" | "inspect" | "fault" | "faultNo" | "request" | "requestNo"; task?: WorkTask; ref?: string }>(null);
   const [text, setText] = useState("");
   const [email, setEmail] = useState("");
   const [fault, setFault] = useState({ category: "", location: "", deviceCode: "", note: "" });
+  const [req, setReq] = useState({ type: "", location: "", targetLocation: "", deviceCode: "", note: "" });
+  const [reqGroup, setReqGroup] = useState("");
   const [inspectPass, setInspectPass] = useState<boolean | null>(null);
   const d = live.data;
 
@@ -70,7 +75,7 @@ export function MyWork() {
           <h2 id="wk-title">İşlerim</h2>
           <p>Önce size atanan işler, sonra biriminizde alınabilecek işler. Her kartta yalnız şu an geçerli işlem etkindir.</p>
         </div>
-        {d?.canReportFault && <button type="button" className="wk-secondary wk-big" onClick={() => { setFault({ category: "", location: remembered("kb.lastLocation"), deviceCode: "", note: "" }); setDlg({ kind: "fault" }); }}>Arıza bildir</button>}
+        {!!d?.requestTypes.length && <button type="button" className="wk-secondary wk-big" onClick={() => { setReq({ type: "", location: remembered("kb.lastLocation"), targetLocation: "", deviceCode: "", note: "" }); setReqGroup(d.requestTypes[0]?.group ?? ""); setDlg({ kind: "request" }); }}>Talep aç <small className="wk-btn-sub">arıza, temizlik, taşıma…</small></button>}
       </div>
       <StaleBanner live={live} />
       <Receipt text={receipt} onClose={() => setReceipt("")} />
@@ -111,6 +116,17 @@ export function MyWork() {
                   {t.link && <button type="button" onClick={() => go(t.link)}>Kaydı aç</button>}
                 </>} />)}
           </div>
+          {d.requests.length > 0 && <div className="wk-group">
+            <h3>Açtığım talepler <span className="wk-count">{d.requests.length}</span></h3>
+            {d.requests.map((r) => <article key={r.reference} className="wk-card wk-card-compact">
+              <header><b>{r.label}</b><span className="wk-tag">{r.unit}</span></header>
+              <p className="wk-meta">{r.location ? `${r.location} · ` : ""}{r.state}</p>
+              {r.status === "done" && <div className="wk-actions">
+                <button type="button" className="wk-primary" disabled={!!busy} onClick={() => void api("/api/my-work", { action: "request.confirm", reference: r.reference, ok: true }).then(async () => { setReceipt("Teşekkürler; talep kapandı."); await live.reload(); }, (e) => setError(e.message))}>Tamam, sorun çözüldü</button>
+                <button type="button" className="wk-secondary" onClick={() => { setText(""); setDlg({ kind: "requestNo", ref: r.reference }); }}>Sorun sürüyor</button>
+              </div>}
+            </article>)}
+          </div>}
           <div className="wk-group">
             <h3>Alınabilecek işler <span className="wk-count">{d.available.length}</span></h3>
             {d.available.length === 0 ? <p className="wk-empty-line">Biriminizde sahipsiz iş yok.</p>
@@ -174,6 +190,37 @@ export function MyWork() {
       <FormDialog open={dlg?.kind === "faultNo"} title="Sorun sürüyor" description="Arıza aynı teknik birime yeniden açılır ve önceki kayıtla ilişkilendirilir." submitLabel="Yeniden aç" onClose={close}
         onSubmit={async () => { await api("/api/my-work", { action: "fault.confirm", reference: dlg!.ref, resolved: false, note: text }); close(); setReceipt("Arıza yeniden açıldı ve teknik birime iletildi."); await live.reload(); }}>
         <label className="wk-field"><span>Ne sürüyor? <Opt /></span><input maxLength={300} value={text} onChange={(e) => setText(e.target.value)} placeholder="ör. Işık yine yanıp sönüyor" /></label>
+      </FormDialog>
+      <FormDialog open={dlg?.kind === "request"} title="Talep aç"
+        description={<>Ne gerektiğini seçin; talep doğru birime kendiliğinden gider ve işi o birimin sorumlusu dağıtır.{d?.myUnits[0] ? <> Talep eden birim: <b>{d.myUnits[0].name}</b> (otomatik).</> : null}</>}
+        submitLabel="Talebi gönder" onClose={close}
+        submitDisabled={(() => { const t = d?.requestTypes.flatMap((g) => g.types).find((x) => x.code === req.type); return !t || (t.fields.includes("target") && (!req.location.trim() || !req.targetLocation.trim())); })()}
+        onSubmit={async () => {
+          const r = await api<{ result: { next: string } }>("/api/my-work", { action: "request", type: req.type, location: req.location, targetLocation: req.targetLocation, deviceCode: req.deviceCode, note: req.note });
+          if (req.location) remember("kb.lastLocation", req.location);
+          close(); setReceipt(r.result.next); await live.reload();
+        }}>
+        <div className="wk-tabs" role="tablist" aria-label="Talep grubu">
+          {(d?.requestTypes ?? []).map((g) => <button key={g.group} type="button" role="tab" aria-selected={reqGroup === g.group} className={reqGroup === g.group ? "on" : ""} onClick={() => { setReqGroup(g.group); setReq({ ...req, type: "" }); }}>{g.group}</button>)}
+        </div>
+        <fieldset className="wk-choice"><legend>Ne gerekiyor? <Req /></legend>
+          {(d?.requestTypes.find((g) => g.group === reqGroup)?.types ?? []).map((t) => <label key={t.code}><input type="radio" name="req" checked={req.type === t.code} onChange={() => setReq({ ...req, type: t.code })} />
+            <span><b>{t.label}</b><small className="wk-sub">{t.hint} · <em>{t.unit.name}</em></small></span></label>)}
+        </fieldset>
+        {(() => { const t = d?.requestTypes.flatMap((g) => g.types).find((x) => x.code === req.type); if (!t) return null; return <>
+          <p className="wk-route" role="status">→ <b>{t.unit.name}</b> birimine gider. {t.dispatcher ? <>İşi birim sorumlusu <b>{t.dispatcher}</b> dağıtır.</> : <>Birim sorumlusu tanımlı değil; birim ekibi görür.</>}</p>
+          {t.clinicalNote && <p className="wk-hint">{t.clinicalNote}</p>}
+          {t.fields.includes("location") && <label className="wk-field"><span>{t.fields.includes("target") ? "Nereden" : "Oda / konum"} {t.fields.includes("target") ? <Req /> : <Opt />}</span><input maxLength={24} value={req.location} onChange={(e) => setReq({ ...req, location: e.target.value })} placeholder="ör. 312-B" /></label>}
+          {t.fields.includes("target") && <label className="wk-field"><span>Nereye <Req /></span><input maxLength={24} value={req.targetLocation} onChange={(e) => setReq({ ...req, targetLocation: e.target.value })} placeholder="ör. Radyoloji BT" /></label>}
+          {t.fields.includes("device") && <label className="wk-field"><span>Cihaz / demirbaş kodu <Opt /></span><input maxLength={24} value={req.deviceCode} onChange={(e) => setReq({ ...req, deviceCode: e.target.value })} placeholder="etiketin üstündeki kod" /></label>}
+          <label className="wk-field"><span>Kısa not <Opt /></span><input maxLength={300} value={req.note} onChange={(e) => setReq({ ...req, note: e.target.value })} placeholder="ör. Alarm veriyor" /></label>
+          <small className="wk-hint">Hasta adı, kimlik veya şifre yazmayın. Hasta güvenliği risk altındaysa önce birim prosedürünü uygulayın.</small>
+        </>; })()}
+      </FormDialog>
+
+      <FormDialog open={dlg?.kind === "requestNo"} title="Sorun sürüyor" description="Talep aynı birime yeniden açılır ve öncekine bağlanır." submitLabel="Yeniden aç" onClose={close}
+        onSubmit={async () => { const r = await api<{ result: { next: string } }>("/api/my-work", { action: "request.confirm", reference: dlg!.ref, ok: false, note: text }); close(); setReceipt(r.result.next); await live.reload(); }}>
+        <label className="wk-field"><span>Ne sürüyor? <Opt /></span><input maxLength={300} value={text} onChange={(e) => setText(e.target.value)} placeholder="ör. Yazıcı yine çalışmıyor" /></label>
       </FormDialog>
     </section>
   );

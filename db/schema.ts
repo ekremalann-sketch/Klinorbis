@@ -551,3 +551,31 @@ export const cleaningInspections = sqliteTable("cleaning_inspections", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
 }, (table) => [uniqueIndex("cleaning_inspections_one_pending").on(table.runReference, table.stepIndex).where(sql`status = 'pending'`)]);
+
+// Talep yönlendirme: talep türü → birim. Kayıt yoksa kodda tanımlı varsayılan birim geçerlidir (lib/unit-directory.ts).
+export const routingRules = sqliteTable("routing_rules", {
+  requestCode: text("request_code").primaryKey(),
+  unitCode: text("unit_code").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// Birimden talep: personelin başka birimden istediği iş. Tek görev olarak hedef birim kuyruğuna düşer;
+// işi o birimin sorumlusu dağıtır. Bitince talep eden "tamam / sorun sürüyor" der.
+export const serviceRequests = sqliteTable("service_requests", {
+  reference: text("reference").primaryKey(),
+  typeCode: text("type_code").notNull(),
+  unitCode: text("unit_code").notNull(),
+  taskReference: text("task_reference").notNull().unique(),
+  requesterEmail: text("requester_email").notNull(),
+  requesterUnit: text("requester_unit"),
+  location: text("location"),
+  targetLocation: text("target_location"),
+  deviceCode: text("device_code"),
+  note: text("note"),
+  status: text("status").notNull().default("open"),
+  reopenedFrom: text("reopened_from"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  doneAt: integer("done_at", { mode: "timestamp_ms" }),
+  confirmedAt: integer("confirmed_at", { mode: "timestamp_ms" }),
+}, (table) => [index("service_requests_requester").on(table.requesterEmail, table.status), index("service_requests_unit").on(table.unitCode, table.status)]);

@@ -10,6 +10,7 @@ import { demoEnabled } from "./automation-policy";
 import { findUnit } from "./hospital-units";
 import { notificationStatements, unitRecipients } from "./notifications";
 import { completeStep } from "./playbook-store";
+import { completeRequestTask, myRequests, requestCatalog } from "./routing";
 import { decideInspection, inspectionPermission, inspectionsFor, isCleaningStep, submitForInspection } from "./cleaning-inspection";
 import { playbookOf } from "./playbooks";
 import { redactPII } from "./privacy";
@@ -26,9 +27,10 @@ function sourcePath(t: { sourceType: string; ticketReference: string | null; cal
   if (t.ticketReference) return `/requests/${t.ticketReference}`;
   if (t.callReference) return `/calls/${t.callReference}`;
   if (t.sourceType === "appointment" || t.sourceType === "calendar_confirmation") return "/access";
+  if (t.sourceType === "service_request" || t.sourceType === "inspection") return "";
   return "/playbooks";
 }
-const SOURCE_TITLES: Record<string, string> = { ticket: "Hasta talebi", call: "Çağrı", appointment: "Randevu bilgilendirme", calendar_confirmation: "Randevu teyidi", playbook: "Operasyon işi", pilot_task: "Eğitim görevi (kurgusal)", inspection: "Temizlik kontrolü" };
+const SOURCE_TITLES: Record<string, string> = { ticket: "Hasta talebi", call: "Çağrı", appointment: "Randevu bilgilendirme", calendar_confirmation: "Randevu teyidi", playbook: "Operasyon işi", pilot_task: "Eğitim görevi (kurgusal)", inspection: "Temizlik kontrolü", service_request: "Birim talebi" };
 /** Başlığı olmayan eski kayıtlar için anlaşılır ad (ör. "Yoğun Bakım · hasta talebi"). */
 export function fallbackTitle(t: { sourceType: string; unitCode: string }) { return `${SOURCE_TITLES[t.sourceType] ?? "Birim görevi"} · ${findUnit(t.unitCode).name}`; }
 
@@ -67,8 +69,8 @@ async function decorate(db: Db, actor: RequestActor, rows: TaskRow[], now: Date)
     else if (run && run.currentStep !== step!.stepIndex) { action = "none"; why = "Akış bu adımda değil."; }
     else if (t.status === "queued") action = "accept";
     else if (t.status === "accepted") action = "start";
-    else if (t.status === "in_progress") action = def ? (def.approval ? "approve" : "complete") : "open";
-    if (!def && (action === "complete")) action = "open";
+    else if (t.status === "in_progress") action = def ? (def.approval ? "approve" : "complete") : t.sourceType === "service_request" ? "complete" : "open";
+    if (!def && (action === "complete")) action = t.sourceType === "service_request" ? "complete" : "open";
     const due = t.dueAt ? new Date(t.dueAt) : null;
     return {
       reference: t.reference, title: t.title ?? (def ? def.task : fallbackTitle(t)), location: t.location ?? null,
@@ -78,7 +80,7 @@ async function decorate(db: Db, actor: RequestActor, rows: TaskRow[], now: Date)
       blockedReason: t.blockedReason ?? null, helpRequested: !!t.helpRequestedAt, escalationLevel: t.escalationLevel,
       action, actionLabel: ACTION_LABELS[action], why,
       flow: run && def ? { reference: run.reference, title: run.title, version: run.version, step: step!.stepIndex + 1, steps: run.stepCount, approval: def.approval } : null,
-      nextStep: nextDef ? `${findUnit(nextDef.unitCode).name}: ${nextDef.task}` : def ? "Akış bu adımla tamamlanır." : null,
+      nextStep: nextDef ? `${findUnit(nextDef.unitCode).name}: ${nextDef.task}` : def ? "Akış bu adımla tamamlanır." : t.sourceType === "service_request" ? "Tamamlayınca talep eden kişiye bildirilir." : null,
       link: sourcePath(t),
       inspection: ins ? { cleanedBy: labels.get(ins.cleanedBy) ?? (ins.cleanedBy === actor.email ? "Siz" : "Birim görevlisi"), flow: ins.runReference } : null,
     };
@@ -105,6 +107,9 @@ export async function myWork(db: Db, actor: RequestActor, now = new Date()) {
     handoffs: handoffs.map((h) => ({ id: h.id, task: handoffTasks.find((t) => t.reference === h.taskReference) ?? null, note: h.note })),
     faults: faults.map((f) => ({ reference: f.reference, category: f.category, status: f.status, createdAt: f.createdAt })),
     canReportFault: ["operations_manager", "unit_manager", "clinician", "call_agent"].includes(actor.role),
+    // Birimden talep: türler, gideceği birim ve o birimde işi dağıtan kişi; kişinin açık talepleri.
+    requestTypes: ["operations_manager", "unit_manager", "clinician", "call_agent"].includes(actor.role) ? await requestCatalog(db) : [],
+    requests: await myRequests(db, actor),
     myUnits: units.map((u) => ({ code: u, name: findUnit(u).name })),
     // Devir önerisi için: aynı birimin etkin üyeleri (yalnız ad ve birim; kişi kendisi hariç).
     teammates: units.length ? (await db.select({ email: unitMemberships.email, unitCode: unitMemberships.unitCode, label: staffAccounts.displayLabel }).from(unitMemberships)
@@ -152,6 +157,7 @@ export async function completeTask(db: Db, actor: RequestActor, reference: strin
   const t = await load(db, reference);
   if (t.assignedUser !== actor.email) throw new SecurityError(403, t.assignedUser ? "Yalnız işi üstlenen kişi tamamlayabilir." : "Önce işi kabul edin.", "NOT_OWNER");
   if (!["accepted", "in_progress"].includes(t.status)) throw new SecurityError(409, "İş tamamlanabilir durumda değil.", "TASK_STATE");
+  if (t.sourceType === "service_request") return completeRequestTask(db, actor, reference);
   if (t.sourceType !== "playbook") throw new SecurityError(400, "Bu iş kendi kayıt ekranında tamamlanır.", "OPEN_RECORD");
   const [step] = await db.select().from(playbookSteps).where(eq(playbookSteps.taskReference, reference)).limit(1);
   const [run] = step ? await db.select().from(playbookRuns).where(eq(playbookRuns.reference, step.runReference)).limit(1) : [];
