@@ -6,11 +6,12 @@ export const dynamic = "force-dynamic";
 
 // "merkez" = Operasyon Merkezi (önceden "/" idi; yenileyince pazarlama sayfasına düşülüyordu).
 // Türkçe adresler: /islerim → İşlerim, /birimim → Birimim.
-const ALIASES: Record<string, View> = { merkez: "dashboard", islerim: "mywork", birimim: "myunit" };
+const ALIASES: Record<string, View> = { merkez: "dashboard", islerim: "mywork", birimim: "myunit", yonlendirme: "routing" };
 const sections = new Set<string>([
   "merkez",
   "islerim",
   "birimim",
+  "yonlendirme",
   "inbox",
   "flow",
   "requests",

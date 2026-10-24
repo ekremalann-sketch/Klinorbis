@@ -1,5 +1,6 @@
 import { getDb } from "../../../db";
 import { confirmFault, reportFault } from "../../../lib/fault-report";
+import { confirmRequest, createRequest } from "../../../lib/routing";
 import { acceptTask, clearBlocker, inspectTask, completeTask, decideHandoff, myWork, proposeHandoff, reportBlocker, requestHelp, startTask } from "../../../lib/my-work";
 import { assertBrowserMutation, assertJsonRequest, enforceRateLimit, requireActor, requireOperationalWriter, SecurityError, securityResponse } from "../../../lib/security";
 
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // "İşlerim": kişinin kendi işleri. Bütün yetki ve sahiplik kontrolleri sunucuda (lib/my-work, lib/fault-report) yapılır.
 // GET → { mine, available, handoffs, faults, … }
-// POST { action: accept|start|complete|inspect|block|unblock|help|handoff|handoff.decide|fault.report|fault.confirm, … }
+// POST { action: accept|start|complete|inspect|block|unblock|help|handoff|handoff.decide|request|request.confirm|fault.report|fault.confirm, … }
 export async function GET(request: Request) {
   try {
     const actor = await requireActor(request);
@@ -41,6 +42,8 @@ export async function POST(request: Request) {
       case "help": result = await requestHelp(db, actor, ref); break;
       case "handoff": result = await proposeHandoff(db, actor, ref, str(b.email, 200).trim().toLowerCase(), b.note); break;
       case "handoff.decide": result = await decideHandoff(db, actor, Number(b.id), b.accept === true); break;
+      case "request": result = await createRequest(db, actor, b); break;
+      case "request.confirm": result = await confirmRequest(db, actor, ref, b.ok === true, b.note); break;
       case "fault.report": result = await reportFault(db, actor, b); break;
       case "fault.confirm": result = await confirmFault(db, actor, ref, b.resolved === true, b.note); break;
       default: throw new SecurityError(400, "Bilinmeyen işlem.", "UNKNOWN_ACTION");

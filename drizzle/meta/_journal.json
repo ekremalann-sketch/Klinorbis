@@ -99,6 +99,13 @@
       "when": 1792744608247,
       "tag": "0013_kullanilabilirlik",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792876146980,
+      "tag": "0014_birim_yonlendirme",
+      "breakpoints": true
     }
   ]
 }

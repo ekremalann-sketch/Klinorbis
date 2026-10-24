@@ -34,6 +34,7 @@ const Playbooks = lazy(() => import("./playbooks").then(m => ({default:m.Playboo
 const Simulation = lazy(() => import("./simulation").then(m => ({default:m.Simulation})));
 const MyWork = lazy(() => import("./my-work").then(m => ({default:m.MyWork})));
 const MyUnit = lazy(() => import("./my-unit").then(m => ({default:m.MyUnit})));
+const RoutingCenter = lazy(() => import("./routing-center").then(m => ({default:m.RoutingCenter})));
 const OpsFocus = lazy(() => import("./ops-focus").then(m => ({default:m.OpsFocus})));
 const ScreenLoading = () => <div className="screen-loading" role="status"><span /><span /><span /><p>Çalışma ekranı hazırlanıyor…</p></div>;
 
@@ -41,6 +42,7 @@ export type View =
   | "dashboard"
   | "mywork"
   | "myunit"
+  | "routing"
   | "inbox"
   | "flow"
   | "requests"
@@ -419,6 +421,7 @@ const viewPaths: Record<View, string> = {
   dashboard: "/merkez",
   mywork: "/islerim",
   myunit: "/birimim",
+  routing: "/yonlendirme",
   inbox: "/inbox",
   flow: "/flow",
   requests: "/requests",
@@ -442,6 +445,7 @@ const titles: Record<View, string> = {
   dashboard: "Operasyon",
   mywork: "İşlerim",
   myunit: "Birimim",
+  routing: "Birimler ve Yönlendirme",
   inbox: "Ortak İş Kutusu",
   flow: "Uçtan Uca Akış",
   requests: "Hasta Talepleri",
@@ -466,6 +470,7 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
     { view: "dashboard", icon: "▦", label: "Operasyon", group: "GÜNLÜK İŞ" },
     { view: "mywork", icon: "☑", label: "İşlerim" },
     { view: "myunit", icon: "◈", label: "Birimim" },
+    { view: "routing", icon: "⇆", label: "Birimler ve Yönlendirme" },
     { view: "inbox", icon: "◎", label: "Ortak İş Kutusu" },
     { view: "flow", icon: "⇢", label: "Uçtan Uca Akış" },
     { view: "requests", icon: "◉", label: "Hasta Talepleri" },
@@ -493,14 +498,14 @@ const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
 // Rol bazlı menü: her rol yalnız kendi işine ait ekranları görür; ilk eleman rolün ana ekranıdır.
 // Yetki sunucuda uygulanır; menüden gizlemek güvenlik değil kolaylıktır. Kalan ekranlar "Diğer ekranlar" altındadır.
 const ROLE_VIEWS: Record<string, View[]> = {
-  operations_manager: ["dashboard", "myunit", "inbox", "approvals", "playbooks", "capacity", "reports", "staff"],
+  operations_manager: ["dashboard", "myunit", "inbox", "approvals", "routing", "playbooks", "capacity", "reports", "staff"],
   unit_manager: ["myunit", "mywork", "approvals", "playbooks", "capacity", "staff"],
   clinician: ["mywork", "approvals", "access", "staff"],
   call_agent: ["calls", "mywork", "appointments", "staff"],
   // Çağrı merkezi dışındaki birim görevlileri (temizlik, transport, servis…): yalnız kendi işleri.
   unit_staff: ["mywork", "staff"],
   privacy_officer: ["privacy", "audit", "reports", "staff"],
-  security_officer: ["security", "integrations", "automation", "audit", "staff"],
+  security_officer: ["security", "routing", "integrations", "automation", "audit", "staff"],
 };
 // Teknik ve entegrasyon ekranları günlük iş rollerinin "Diğer ekranlar" listesinde de görünmez (sunucu ayrıca reddeder).
 const TECHNICAL_VIEWS: View[] = ["integrations", "security", "automation", "audit", "privacy"];
@@ -514,7 +519,7 @@ const NAV_GROUP_OF: Record<string, string> = (() => {
   return out;
 })();
 const MOBILE_LABELS: Partial<Record<View, string>> = {
-  mywork: "İşlerim", myunit: "Birimim",
+  mywork: "İşlerim", myunit: "Birimim", routing: "Yönlendirme",
   dashboard: "Operasyon", inbox: "İşler", calls: "Çağrı", approvals: "Onay", access: "Yokluk", units: "Birim",
   appointments: "Randevu", flow: "Akış", privacy: "KVKK", audit: "Denetim", reports: "Rapor", security: "Güvenlik",
   automation: "Otomasyon", integrations: "Entegr.", simulation: "Simülasyon", capacity: "Kapasite", staff: "Personel",
@@ -1232,7 +1237,8 @@ export default function Dashboard({
             <small>Son eşitleme {formatTime(snapshot.generatedAt)}</small>
           </div>
         </div>
-        <Link href="/yatak">Yatak panosu · Sentetik</Link><Link href="/temizlik">Temizlik kuyruğu · Sentetik</Link><Link href="/entegrasyon">Entegrasyon merkezi · Sentetik</Link><Link href="/hbys">Transport, vardiya ve devir · Sentetik</Link>
+        {/* Kurgusal (sentetik) çekirdek ekranlarına bağlantılar: yalnız operasyon ve teknik rollerde, sade bir kutuda. */}
+        {["operations_manager", "security_officer"].includes(menuRole) && <details className="sidebar-sim-links"><summary>Sentetik çekirdek ekranları</summary><Link href="/yatak">Yatak panosu</Link><Link href="/temizlik">Temizlik kuyruğu</Link><Link href="/entegrasyon">Entegrasyon merkezi</Link><Link href="/hbys">Transport, vardiya ve devir</Link></details>}
       </aside>
       <section className="content">
         <header>
@@ -1302,7 +1308,8 @@ export default function Dashboard({
             <button type="button" onClick={() => setPreviewRole(null)}>Önizlemeyi kapat</button>
           </div>
         )}
-        <ControlRibbon snapshot={snapshot} navigate={navigate} currentView={initialView} role={menuRole} />
+        {/* Günlük iş ekranlarının kendi özet şeritleri var; üst şerit yalnız diğer ekranlarda gösterilir (tekrar ve kalabalık olmasın). */}
+        {!["mywork", "myunit", "routing"].includes(initialView) && <ControlRibbon snapshot={snapshot} navigate={navigate} currentView={initialView} role={menuRole} />}
         <ScreenHelpBox key={initialView} view={initialView} />
         {receipt && (
           <ReceiptBar
@@ -1329,6 +1336,7 @@ export default function Dashboard({
         )}
         {initialView === "mywork" && <Suspense fallback={<ScreenLoading />}><MyWork /></Suspense>}
         {initialView === "myunit" && <Suspense fallback={<ScreenLoading />}><MyUnit /></Suspense>}
+        {initialView === "routing" && <Suspense fallback={<ScreenLoading />}><RoutingCenter /></Suspense>}
         {initialView === "inbox" && (
           <InboxWorkspace snapshot={snapshot} query={query} setQuery={setQuery} open={(task) => softGo(taskPath(task))} />
         )}

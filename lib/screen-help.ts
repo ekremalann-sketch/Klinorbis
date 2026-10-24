@@ -14,6 +14,17 @@ export const SCREEN_HELP: Record<string, ScreenHelp> = {
     ],
     tip: "Temizlik işinde “Tamamla” akışı hemen ilerletmez; kontrol birim sorumlusuna gider. Kendi temizliğinizi kontrol edemezsiniz.",
   },
+  routing: {
+    purpose: "Hangi talebin hangi birime gittiğini ve o birimde işi kimin dağıttığını gösterir. Birim rehberinde her birimin hizmetleri (ör. Radyoloji: röntgen, BT, MR, ultrason) ve ekibi görünür.",
+    who: "Operasyon yöneticisi, bilgi işlem, birim sorumluları",
+    steps: [
+      "“Talep yönlendirme” sekmesinde talep türünü bulun; yetkiniz varsa gideceği birimi listeden değiştirin.",
+      "Değişiklik yalnız yeni talepleri etkiler; açık işler bulunduğu birimde kalır. Her değişiklik denetim kaydına yazılır.",
+      "“Birim rehberi” sekmesinde birimler 6 grupta; aramaya “MR”, “kan alma” veya “yazıcı” yazarak doğru birimi bulun.",
+      "“Sorumlu yok” görünen birimlere Personel ve Yetki ekranından bir birim sorumlusu atayın; yoksa işi operasyon yöneticisi dağıtır.",
+    ],
+    tip: "Tetkik, görüntüleme, kan ürünü ve ilaç istemleri HBYS'de hekim tarafından yapılır; buradaki talepler yalnız lojistik ve koordinasyon içindir.",
+  },
   myunit: {
     purpose: "Biriminizin açık işleri: kontrol bekleyen temizlikler, sahipsiz, geciken, engelli, onay bekleyen ve devam eden işler; ekibin iş yükü ve vardiyası.",
     who: "Birim sorumluları",
