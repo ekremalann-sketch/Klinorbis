@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { api, Receipt, StaleBanner, StateBox, useLive } from "./work-ui";
 
 type TypeRow = { code: string; label: string; hint: string; clinicalNote: string | null; unit: { code: string; name: string }; defaultUnit: { code: string; name: string }; overridden: boolean; dispatchers: string[] };
-type UnitRow = { code: string; name: string; scope: string; services: string[]; dispatchers: string[]; members: number; open: number; unassigned: number; receives: string[] };
+type UnitRow = { code: string; name: string; scope: string; services: string[]; dispatchers: string[]; members: number | null; open: number | null; unassigned: number | null; receives: string[] };
 type Data = {
   canEdit: boolean;
   typeGroups: { group: string; types: TypeRow[] }[];
@@ -57,7 +57,7 @@ export function RoutingCenter() {
       {error && <div className="wk-alert" role="alert"><b>Değişiklik yapılmadı.</b> {error}</div>}
       <StateBox live={live}>
         {d && tab === "routes" && <>
-          {!d.canEdit && <p className="wk-note">Yönlendirmeyi operasyon yöneticisi, bilgi güvenliği yetkilisi veya Bilgi Teknolojileri birim sorumlusu değiştirir. Siz görüntülüyorsunuz.</p>}
+          {!d.canEdit && <p className="wk-note">Yönlendirmeyi operasyon yöneticisi veya Bilgi Teknolojileri birim sorumlusu değiştirir. Siz görüntülüyorsunuz. Diğer birimlerin iş ve ekip sayıları gizlenir.</p>}
           {d.typeGroups.map((g) => {
             const rows = g.types.filter((t) => match(t.label, t.hint, t.unit.name));
             if (!rows.length) return null;
@@ -87,13 +87,13 @@ export function RoutingCenter() {
             <summary><b>{g.label}</b> <span className="wk-count">{g.units.length}</span><small>{g.hint}</small></summary>
             <div className="rc-units">
               {g.units.map((u) => <article key={u.code} className="wk-card wk-card-compact">
-                <header><b>{u.name}</b>{u.unassigned > 0 && <span className="wk-tag">{u.unassigned} sahipsiz</span>}</header>
+                <header><b>{u.name}</b>{(u.unassigned ?? 0) > 0 && <span className="wk-tag">{u.unassigned} sahipsiz</span>}</header>
                 <p className="wk-meta">{u.scope}</p>
                 {u.services.length > 0 && <ul className="rc-chips" aria-label="Hizmetler">{u.services.map((s) => <li key={s}>{s}</li>)}</ul>}
                 <dl className="wk-facts">
                   <div><dt>İşi dağıtan</dt><dd>{u.dispatchers.length ? u.dispatchers.join(", ") : "Sorumlu tanımlı değil"}</dd></div>
-                  <div><dt>Ekip</dt><dd>{u.members} kişi</dd></div>
-                  <div><dt>Açık iş</dt><dd>{u.open}</dd></div>
+                  <div><dt>Ekip</dt><dd>{u.members === null ? "—" : `${u.members} kişi`}</dd></div>
+                  <div><dt>Açık iş</dt><dd>{u.open ?? "—"}</dd></div>
                 </dl>
                 {u.receives.length > 0 && <p className="wk-next"><span>Gelen talepler:</span> {u.receives.join(", ")}</p>}
               </article>)}

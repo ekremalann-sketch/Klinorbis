@@ -21,6 +21,15 @@ const task = (ref) => sqlite.prepare("SELECT unit_code, status, assigned_user, t
 const req = (ref) => sqlite.prepare("SELECT * FROM service_requests WHERE reference = ?").get(ref);
 const newest = () => sqlite.prepare("SELECT * FROM service_requests ORDER BY created_at DESC, rowid DESC LIMIT 1").get();
 
+await test("güvenlik gözetimi yönlendirmeyi değiştiremez; birim sorumlusu başka birimin iş sayılarını göremez", async () => {
+  staff.run("security@kurgu.test", "Güvenlik", "security_officer", now);
+  assert.equal((await rt("security@kurgu.test", { action: "set", code: "bt-bilgisayar", unitCode: "TKH" })).status, 403);
+  const view = await get(routing, "/api/routing", YTM);
+  const other = view.body.directory.flatMap(g => g.units).find(u => u.code === "BTI");
+  assert.equal(other.open, null); assert.equal(other.members, null); assert.equal(other.unassigned, null);
+  assert.equal(view.body.directory.flatMap(g => g.units).find(u => u.code === "YTK").open, 0);
+});
+
 await test("birim rehberi: kan alma, acil servis ve görüntüleme hizmetleri var; her talep türünün birimi gerçek", () => {
   const names = units.HOSPITAL_UNITS.map((u) => u.name);
   for (const n of ["Acil Servis", "Numune Kabul ve Kan Alma", "Laboratuvar", "Radyoloji", "Kan Merkezi", "Eczane", "Bilgi Teknolojileri", "Diyaliz Ünitesi", "Güvenlik Hizmetleri"]) assert.ok(names.includes(n), n);
@@ -96,4 +105,45 @@ await test("ekranlar: yönlendirme ekranını birim sorumlusu görür ama deği�
   assert.equal(ok.status, 200);
   const t = task(req((await ok.json()).result.reference).task_reference);
   assert.equal(t.unit_code, "ULS"); assert.equal(t.location, "Dahiliye 3-12 → Radyoloji BT");
+});
+
+await test("veritabanı hatası tamamlamayı yarım bırakmaz; birimden çıkarılan görevli başlatamaz veya tamamlayamaz", async () => {
+  const response = await mw(HEM, { action: "request", type: "bt-bilgisayar" });
+  const record = req((await response.json()).result.reference);
+  assert.equal((await mw(BTG, { action: "accept", reference: record.task_reference })).status, 200);
+  sqlite.prepare("UPDATE unit_memberships SET active=0 WHERE email=?").run(BTG);
+  for (const action of ["start", "complete"]) assert.equal((await mw(BTG, { action, reference: record.task_reference })).status, 403);
+  sqlite.prepare("UPDATE unit_memberships SET active=1 WHERE email=?").run(BTG);
+  sqlite.exec("CREATE TRIGGER fail_request_done BEFORE UPDATE OF status ON service_requests WHEN NEW.status='done' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
+  try {
+    assert.ok((await mw(BTG, { action: "complete", reference: record.task_reference })).status >= 400);
+    assert.equal(task(record.task_reference).status, "accepted"); assert.equal(req(record.reference).status, "open");
+  } finally { sqlite.exec("DROP TRIGGER fail_request_done"); }
+  assert.equal((await mw(BTG, { action: "complete", reference: record.task_reference })).status, 200);
+});
+
+await test("yeniden açma atomiktir; yönlendirme değişse de ilk birime döner ve eşzamanlı iki kez açılamaz", async () => {
+  const parent = newest(); assert.equal(parent.status, "done");
+  await rt(OWNER, { action: "set", code: parent.type_code, unitCode: "TKH" });
+  const before = sqlite.prepare("SELECT count(*) n FROM operational_tasks").get().n;
+  sqlite.exec("CREATE TRIGGER fail_reopen BEFORE INSERT ON service_requests WHEN NEW.reopened_from IS NOT NULL BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
+  try {
+    assert.ok((await mw(HEM, { action: "request.confirm", reference: parent.reference, ok: false })).status >= 400);
+    assert.equal(req(parent.reference).status, "done");
+    assert.equal(sqlite.prepare("SELECT count(*) n FROM operational_tasks").get().n, before);
+  } finally { sqlite.exec("DROP TRIGGER fail_reopen"); }
+  const responses = await Promise.all([1, 2].map(() => mw(HEM, { action: "request.confirm", reference: parent.reference, ok: false })));
+  assert.deepEqual(responses.map(r => r.status).sort(), [200, 409]);
+  const children = sqlite.prepare("SELECT * FROM service_requests WHERE reopened_from=?").all(parent.reference);
+  assert.equal(children.length, 1); assert.equal(children[0].unit_code, parent.unit_code);
+  await rt(OWNER, { action: "reset", code: parent.type_code });
+});
+
+await test("eşzamanlı tamamlama yalnız bir kez başarılı olur ve tek denetim kaydı üretir", async () => {
+  const response = await mw(HEM, { action: "request", type: "bt-bilgisayar" });
+  const record = req((await response.json()).result.reference);
+  assert.equal((await mw(BTG, { action: "accept", reference: record.task_reference })).status, 200);
+  const responses = await Promise.all([1,2].map(() => mw(BTG, { action: "complete", reference: record.task_reference })));
+  assert.deepEqual(responses.map(r => r.status).sort(), [200,409]);
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM audit_logs WHERE resource=? AND action='request.done'").get(record.reference).n, 1);
 });

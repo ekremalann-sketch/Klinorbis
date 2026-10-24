@@ -145,6 +145,8 @@ export async function acceptTask(db: Db, actor: RequestActor, reference: string,
 }
 
 export async function startTask(db: Db, actor: RequestActor, reference: string, now = new Date()) {
+  const current = await load(db, reference);
+  if (!canAccessUnit(actor, current.unitCode)) throw new SecurityError(403, "Bu iş biriminizin dışında.", "UNIT_ACCESS_DENIED");
   const changed = await db.update(operationalTasks).set({ status: "in_progress", startedAt: now, updatedAt: now })
     .where(and(eq(operationalTasks.reference, reference), eq(operationalTasks.status, "accepted"), eq(operationalTasks.assignedUser, actor.email))).returning({ reference: operationalTasks.reference });
   if (!changed.length) {
@@ -155,6 +157,7 @@ export async function startTask(db: Db, actor: RequestActor, reference: string, 
 
 export async function completeTask(db: Db, actor: RequestActor, reference: string, note?: unknown, conditions?: unknown) {
   const t = await load(db, reference);
+  if (!canAccessUnit(actor, t.unitCode)) throw new SecurityError(403, "Bu iş biriminizin dışında.", "UNIT_ACCESS_DENIED");
   if (t.assignedUser !== actor.email) throw new SecurityError(403, t.assignedUser ? "Yalnız işi üstlenen kişi tamamlayabilir." : "Önce işi kabul edin.", "NOT_OWNER");
   if (!["accepted", "in_progress"].includes(t.status)) throw new SecurityError(409, "İş tamamlanabilir durumda değil.", "TASK_STATE");
   if (t.sourceType === "service_request") return completeRequestTask(db, actor, reference);
