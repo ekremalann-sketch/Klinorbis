@@ -5142,3 +5142,8 @@ label:not(.required-field):not(:has(.field-star)):has(> :is(input, select, texta
 .rc-chips{list-style:none;display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0}
 .rc-chips li{padding:3px 9px;border-radius:999px;background:#f1f5f9;border:1px solid #dbe3ec;font-size:12.5px}
 @media (max-width:760px){.rc-row{grid-template-columns:1fr;gap:6px}.rc-headrow{display:none}}
+.rc-chips{align-items:flex-start}.rc-chips li{min-height:0;height:auto;line-height:1.35}
+.sidebar-sim-links{margin:10px 14px 4px;color:#b9c7d8;font-size:12.5px}
+.sidebar-sim-links summary{cursor:pointer;min-height:36px;display:flex;align-items:center}
+.sidebar-sim-links a{display:block;padding:6px 8px;color:#dbe7f3;text-decoration:none;border-radius:8px}
+.sidebar-sim-links a:hover,.sidebar-sim-links a:focus-visible{background:#ffffff14}

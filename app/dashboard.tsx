@@ -1237,7 +1237,8 @@ export default function Dashboard({
             <small>Son eşitleme {formatTime(snapshot.generatedAt)}</small>
           </div>
         </div>
-        <Link href="/yatak">Yatak panosu · Sentetik</Link><Link href="/temizlik">Temizlik kuyruğu · Sentetik</Link><Link href="/entegrasyon">Entegrasyon merkezi · Sentetik</Link><Link href="/hbys">Transport, vardiya ve devir · Sentetik</Link>
+        {/* Kurgusal (sentetik) çekirdek ekranlarına bağlantılar: yalnız operasyon ve teknik rollerde, sade bir kutuda. */}
+        {["operations_manager", "security_officer"].includes(menuRole) && <details className="sidebar-sim-links"><summary>Sentetik çekirdek ekranları</summary><Link href="/yatak">Yatak panosu</Link><Link href="/temizlik">Temizlik kuyruğu</Link><Link href="/entegrasyon">Entegrasyon merkezi</Link><Link href="/hbys">Transport, vardiya ve devir</Link></details>}
       </aside>
       <section className="content">
         <header>
