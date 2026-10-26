@@ -1,0 +1,28 @@
+:root {
+  --ui-brand: #0b213c;
+  --ui-surface: #f4f7fa;
+  --ui-paper: #ffffff;
+  --ui-text: #172033;
+  --ui-muted: #5b6676;
+  --ui-action: #0e6b55;
+  --ui-action-hover: #09513f;
+  --ui-line: #d5dfea;
+  --ui-shadow: #00000022;
+  --ui-focus: #0b5aa0;
+  --ui-font-label: 0.75rem;
+  --ui-font-small: 0.875rem;
+  --ui-font-body: 1rem;
+  --ui-font-20: 1.25rem;
+  --ui-font-24: 1.5rem;
+  --ui-font-32: 2rem;
+  --ui-font-48: 3rem;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 24px;
+  --ui-space-6: 32px;
+  --ui-space-7: 48px;
+  --ui-space-8: 64px;
+  --ui-radius: 10px;
+}
