@@ -1,0 +1,28 @@
+/* Only the Turkish public demo migrates to these tokens; /en/demo is unchanged. */
+.demo-v2{display:block;background:var(--ui-surface);font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:var(--ui-text)}
+.demo-v2 .demo-main{max-width:1400px;margin:auto;padding:24px 32px;min-width:0}
+.demo-compact-header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 32px;background:var(--ui-brand);color:var(--ui-paper)}
+.demo-compact-header>div{display:flex;align-items:center;gap:16px}.demo-compact-header a,.demo-compact-header summary{min-height:44px;display:inline-flex;align-items:center;color:var(--ui-paper);font-size:14px}
+.demo-compact-header details{position:relative}.demo-compact-header summary{cursor:pointer}.demo-compact-header nav{position:absolute;right:0;top:100%;width:250px;padding:16px;background:var(--ui-brand);z-index:20;border-radius:var(--ui-radius);box-shadow:0 8px 24px var(--ui-shadow)}
+.demo-compact-header nav a{display:flex}.demo-intro{margin-bottom:16px}.demo-intro h1{font-size:32px;line-height:1.2;margin:0 0 8px}.demo-intro p{color:var(--ui-muted);font-size:16px;line-height:1.5;margin:0}.demo-intro>a{display:inline-flex;align-items:center;min-height:44px;color:var(--ui-action);text-decoration:underline}
+.demo-compact-header>div>a,.demo-compact-header summary{min-width:44px;justify-content:center}
+.demo-v2 .sales-sandbox{margin:0;padding:24px}.demo-v2 .sales-sandbox>header h2{margin:4px 0;font-size:24px}.demo-v2 .sales-sandbox>header p{margin:8px 0;font-size:14px;color:var(--ui-muted)}
+.demo-v2 .sales-sandbox>nav{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:8px;scroll-snap-type:x proximity;max-width:100%;padding:12px 0;scrollbar-width:thin}
+.demo-v2 .sales-sandbox>nav button{white-space:nowrap;flex:0 0 auto;scroll-snap-align:start;min-height:44px;background:transparent;color:var(--ui-text)}
+.demo-v2 .sales-sandbox button[aria-current=page],.demo-v2 .sales-sandbox button[aria-pressed=true]{background:transparent;color:var(--ui-action);border:2px solid var(--ui-action);font-weight:700}
+.demo-v2 .sales-sandbox .demo-primary{background:var(--ui-action);color:var(--ui-paper);border:1px solid var(--ui-action);width:100%;min-height:48px;font-weight:700}.demo-v2 .sales-sandbox .demo-primary:hover{background:var(--ui-action-hover)}
+.demo-v2 .sales-sandbox button:focus-visible,.demo-v2 input:focus-visible,.demo-v2 select:focus-visible,.demo-v2 summary:focus-visible,.demo-v2 a:focus-visible{outline:3px solid var(--ui-focus);outline-offset:3px}
+.demo-v2 .sandbox-columns{grid-template-columns:repeat(3,minmax(0,1fr));align-items:start}.demo-v2 .sandbox-columns>article{margin-top:0}.demo-v2 .sandbox-columns h3{margin-top:0;min-height:48px}
+.demo-v2 .sandbox-columns>div,.demo-v2 .sandbox-queue-step{padding:18px;border:1px solid var(--ui-line);border-radius:12px}
+.demo-v2 .sandbox-queue-step{min-width:0}.demo-v2 .sandbox-queue{max-height:420px}.demo-v2 .sales-sandbox label{font-size:16px}
+.demo-unit-picker{position:relative}.demo-v2 .demo-unit-picker>label{margin-bottom:4px}.demo-v2 .demo-unit-picker>p{margin:0 0 8px;font-size:14px}.demo-unit-picker ul{position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;list-style:none;margin:0;padding:4px;background:var(--ui-paper);border:1px solid var(--ui-line);border-radius:var(--ui-radius);z-index:10;box-shadow:0 8px 24px var(--ui-shadow)}.demo-unit-picker li{padding:12px;min-height:44px;cursor:pointer;font-size:16px}.demo-unit-picker li[aria-selected=true]{outline:2px solid var(--ui-action);outline-offset:-2px;background:var(--ui-surface)}
+.demo-v2 .demo-kpis strong,.demo-v2 .sandbox-queue{font-variant-numeric:tabular-nums}.demo-v2 .approval button{background:transparent;color:var(--ui-action);border:1px solid var(--ui-action)}
+.sidebar nav svg,.mobile-work-nav svg{flex-shrink:0}
+@media(max-width:900px){.demo-v2 .sandbox-columns{grid-template-columns:1fr}.demo-v2 .sandbox-columns h3{min-height:0}.demo-v2 .sales-sandbox{padding:16px}}
+@media(max-width:600px){
+ .demo-compact-header{padding:8px 16px}.demo-compact-header .demo-brand{font-size:14px;gap:8px}.demo-compact-header .demo-brand span{width:32px;height:32px}
+ .demo-v2 .demo-main{padding:16px 12px}.demo-intro h1{font-size:24px}.demo-intro p{font-size:14px}.demo-intro>a{display:none}
+ .demo-v2 .sales-sandbox>header{display:flex;gap:8px}.demo-v2 .sales-sandbox>header>div{min-width:0}.demo-v2 .sales-sandbox>header h2{font-size:20px}.demo-v2 .sales-sandbox>header .kicker{font-size:12px}
+ .demo-v2 .sales-sandbox>header p{font-size:14px;line-height:1.4}.demo-v2 .sales-sandbox>header>button{font-size:12px;max-width:90px;padding:8px;flex-shrink:0}
+ .demo-v2 .sales-sandbox>nav{padding:8px 0}.demo-v2 .sandbox-feedback{font-size:14px;padding:8px;margin:8px 0 16px}.demo-v2 .sales-sandbox input,.demo-v2 .sales-sandbox select{font-size:16px}
+}

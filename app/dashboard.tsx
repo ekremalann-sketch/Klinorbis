@@ -1,4 +1,5 @@
 "use client";
+import { LayoutDashboard, ListTodo, Building2, GitBranch, Inbox, Route, ClipboardList, CalendarDays, UserRoundX, Phone, CheckCheck, Bot, Workflow, FlaskConical, ArrowLeftRight, Plug, PanelsTopLeft, Users, ChartColumn, ShieldCheck, Shield, ScrollText, type LucideIcon } from "lucide-react";
 import ExportMenu from "./export-menu";
 
 import { attentionItems } from "../lib/attention";
@@ -465,36 +466,37 @@ const titles: Record<View, string> = {
   security: "Siber Güvenlik Merkezi",
   audit: "Denetim İzleri",
 };
-const nav: Array<{ view: View; icon: string; label: string; group?: string }> =
+const nav: Array<{ view: View; icon: LucideIcon; label: string; group?: string }> =
   [
-    { view: "dashboard", icon: "▦", label: "Operasyon", group: "GÜNLÜK İŞ" },
-    { view: "mywork", icon: "☑", label: "İşlerim" },
-    { view: "myunit", icon: "◈", label: "Birimim" },
-    { view: "routing", icon: "⇆", label: "Birimler ve Yönlendirme" },
-    { view: "inbox", icon: "◎", label: "Ortak İş Kutusu" },
-    { view: "flow", icon: "⇢", label: "Uçtan Uca Akış" },
-    { view: "requests", icon: "◉", label: "Hasta Talepleri" },
-    { view: "appointments", icon: "▣", label: "Randevu Talepleri" },
-    { view: "access", icon: "✆", label: "Hekim Yokluğu ve Bilgilendirme" },
-    { view: "calls", icon: "☎", label: "Çağrı ve Konuşmalar" },
-    { view: "approvals", icon: "✓", label: "İnsan Onayları" },
+    { view: "dashboard", icon: LayoutDashboard, label: "Operasyon", group: "GÜNLÜK İŞ" },
+    { view: "mywork", icon: ListTodo, label: "İşlerim" },
+    { view: "myunit", icon: Building2, label: "Birimim" },
+    { view: "routing", icon: GitBranch, label: "Birimler ve yönlendirme" },
+    { view: "inbox", icon: Inbox, label: "Ortak iş kutusu" },
+    { view: "flow", icon: Route, label: "Uçtan uca akış" },
+    { view: "requests", icon: ClipboardList, label: "Hasta talepleri" },
+    { view: "appointments", icon: CalendarDays, label: "Randevu talepleri" },
+    { view: "access", icon: UserRoundX, label: "Hekim yokluğu ve bilgilendirme" },
+    { view: "calls", icon: Phone, label: "Çağrı ve konuşmalar" },
+    { view: "approvals", icon: CheckCheck, label: "İnsan onayları" },
     {
       view: "automation",
-      icon: "⌘",
-      label: "Canlı Otomasyon",
+      icon: Bot,
+      label: "Canlı otomasyon",
       group: "OPERASYON",
     },
-    { view: "playbooks", icon: "⇄", label: "Operasyon Akışları" },
-    { view: "simulation", icon: "◌", label: "Sanal Hastane" },
-    { view: "capacity", icon: "↔", label: "Kapasite ve Transfer" },
-    { view: "integrations", icon: "⌁", label: "Entegrasyon Sağlığı" },
-    { view: "units", icon: "◇", label: "Birim Çalışma Masaları" },
-    { view: "staff", icon: "♙", label: "Personel ve Yetki", group: "YÖNETİM" },
-    { view: "reports", icon: "▥", label: "Raporlar" },
-    { view: "privacy", icon: "⌾", label: "KVKK ve Etik", group: "GÜVENCE" },
-    { view: "security", icon: "⬡", label: "Siber Güvenlik" },
-    { view: "audit", icon: "≡", label: "Denetim İzleri" },
+    { view: "playbooks", icon: Workflow, label: "Operasyon akışları" },
+    { view: "simulation", icon: FlaskConical, label: "Sanal hastane" },
+    { view: "capacity", icon: ArrowLeftRight, label: "Kapasite ve transfer" },
+    { view: "integrations", icon: Plug, label: "Entegrasyon sağlığı" },
+    { view: "units", icon: PanelsTopLeft, label: "Birim çalışma masaları" },
+    { view: "staff", icon: Users, label: "Personel ve yetki", group: "YÖNETİM" },
+    { view: "reports", icon: ChartColumn, label: "Raporlar" },
+    { view: "privacy", icon: ShieldCheck, label: "KVKK ve etik", group: "GÜVENCE" },
+    { view: "security", icon: Shield, label: "Siber güvenlik" },
+    { view: "audit", icon: ScrollText, label: "Denetim izleri" },
   ];
+function NavigationIcon({view}:{view:View}){const Icon=nav.find(item=>item.view===view)?.icon;return Icon?<Icon aria-hidden="true" size={20}/>:null;}
 // Rol bazlı menü: her rol yalnız kendi işine ait ekranları görür; ilk eleman rolün ana ekranıdır.
 // Yetki sunucuda uygulanır; menüden gizlemek güvenlik değil kolaylıktır. Kalan ekranlar "Diğer ekranlar" altındadır.
 const ROLE_VIEWS: Record<string, View[]> = {
@@ -1217,7 +1219,7 @@ export default function Dashboard({
                   className={initialView === item.view ? "active" : ""}
                   onClick={() => navigate(item.view)}
                 >
-                  <span>{item.icon}</span>
+                  <item.icon aria-hidden="true" size={20}/>
                   {item.label}
                   {badge > 0 && <i>{badge}</i>}
                 </button>
@@ -1458,7 +1460,7 @@ export default function Dashboard({
               <button className="mobile-create" aria-label="Yeni talep" onClick={() => setDialog("ticket")}><span>＋</span></button>
             )}
             <button className={initialView === view ? "active" : ""} onClick={() => navigate(view)}>
-              <span>{nav.find((item) => item.view === view)?.icon}</span>{MOBILE_LABELS[view] ?? titles[view]}
+              <NavigationIcon view={view}/>{MOBILE_LABELS[view] ?? titles[view]}
             </button>
           </Fragment>
         ))}
