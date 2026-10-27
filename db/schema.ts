@@ -134,7 +134,14 @@ export const operationalTasks = sqliteTable("operational_tasks", {
   // Gecikme yükseltmesi: 0 = yok, 1 = birim sorumlusuna, 2 = operasyon yöneticisine bildirildi.
   escalationLevel: integer("escalation_level").notNull().default(0),
   escalatedAt: integer("escalated_at", { mode: "timestamp_ms" }),
-}, (table) => [index("operational_tasks_overdue").on(table.status, table.dueAt)]);
+  // İşlerim ekranı: iş adı ve konumu (kart başlığı), başlama zamanı, bildirilen engel ve yardım isteği.
+  title: text("title"),
+  location: text("location"),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }),
+  blockedReason: text("blocked_reason"),
+  blockedAt: integer("blocked_at", { mode: "timestamp_ms" }),
+  helpRequestedAt: integer("help_requested_at", { mode: "timestamp_ms" }),
+}, (table) => [index("operational_tasks_overdue").on(table.status, table.dueAt), index("operational_tasks_assignee").on(table.assignedUser, table.status)]);
 
 export const callSessions = sqliteTable("call_sessions", {
   reference: text("reference").primaryKey(),
@@ -264,6 +271,8 @@ export const staffShifts = sqliteTable("staff_shifts", {
   shiftCode: text("shift_code").notNull(),
   status: text("status").notNull().default("active"),
   handoffTo: text("handoff_to"),
+  // Kişiye bağlı vardiya (uygunluk kontrolü için). Eski kayıtlarda boş olabilir.
+  staffEmail: text("staff_email"),
   training: integer("training", { mode: "boolean" }).notNull().default(true),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   endsAt: integer("ends_at", { mode: "timestamp_ms" }).notNull(),
@@ -453,6 +462,8 @@ export const playbookRuns = sqliteTable("playbook_runs", {
   patientRef: text("patient_ref"),
   // Son adımda işaretlenen zincir koşulları (JSON dizi).
   chainChoices: text("chain_choices"),
+  // Nakil akışlarında hedef konum (kaynak = location).
+  targetLocation: text("target_location"),
 }, (table) => [
   uniqueIndex("playbook_runs_trigger_once").on(table.triggerEvent).where(sql`trigger_event is not null`),
   // Bir akış kapanınca aynı bağlı akış iki kez açılmaz (çift tıklama, yarış).
@@ -498,3 +509,73 @@ export const simulationRuns = sqliteTable("simulation_runs", {
   params: text("params").notNull(),
   result: text("result").notNull(),
 });
+
+// Görev devri: hedef kişi kabul edene kadar eski sahiplik korunur.
+export const taskHandoffs = sqliteTable("task_handoffs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  taskReference: text("task_reference").notNull(),
+  fromEmail: text("from_email").notNull(),
+  toEmail: text("to_email").notNull(),
+  note: text("note"),
+  status: text("status").notNull().default("pending"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
+}, (table) => [uniqueIndex("task_handoffs_one_pending").on(table.taskReference).where(sql`status = 'pending'`)]);
+
+// Arıza bildirimi: bildiren kişi, açılan akış ve bitişte kullanıcı onayı (giderildi / sorun sürüyor) ayrı izlenir.
+export const faultReports = sqliteTable("fault_reports", {
+  reference: text("reference").primaryKey(),
+  runReference: text("run_reference").notNull().unique(),
+  category: text("category").notNull(),
+  reporterEmail: text("reporter_email").notNull(),
+  reporterUnit: text("reporter_unit"),
+  status: text("status").notNull().default("open"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
+  confirmedAt: integer("confirmed_at", { mode: "timestamp_ms" }),
+  reopenedRunReference: text("reopened_run_reference"),
+}, (table) => [index("fault_reports_reporter").on(table.reporterEmail, table.status)]);
+
+// Temizlik bağımsız kontrolü (bulut uygulaması): temizlik adımı "tamamlandı" denince akış ilerlemez; kontrol işi açılır.
+// Temizliği yapan kişi kontrol edemez. Geçmezse gerekçeyle yeniden temizlik işi açılır. Bir adım için tek bekleyen kontrol.
+export const cleaningInspections = sqliteTable("cleaning_inspections", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  runReference: text("run_reference").notNull(),
+  stepIndex: integer("step_index").notNull(),
+  cleaningTaskReference: text("cleaning_task_reference").notNull(),
+  inspectionTaskReference: text("inspection_task_reference").notNull().unique(),
+  cleanedBy: text("cleaned_by").notNull(),
+  status: text("status").notNull().default("pending"),
+  inspectorEmail: text("inspector_email"),
+  reason: text("reason"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
+}, (table) => [uniqueIndex("cleaning_inspections_one_pending").on(table.runReference, table.stepIndex).where(sql`status = 'pending'`)]);
+
+// Talep yönlendirme: talep türü → birim. Kayıt yoksa kodda tanımlı varsayılan birim geçerlidir (lib/unit-directory.ts).
+export const routingRules = sqliteTable("routing_rules", {
+  requestCode: text("request_code").primaryKey(),
+  unitCode: text("unit_code").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// Birimden talep: personelin başka birimden istediği iş. Tek görev olarak hedef birim kuyruğuna düşer;
+// işi o birimin sorumlusu dağıtır. Bitince talep eden "tamam / sorun sürüyor" der.
+export const serviceRequests = sqliteTable("service_requests", {
+  reference: text("reference").primaryKey(),
+  typeCode: text("type_code").notNull(),
+  unitCode: text("unit_code").notNull(),
+  taskReference: text("task_reference").notNull().unique(),
+  requesterEmail: text("requester_email").notNull(),
+  requesterUnit: text("requester_unit"),
+  location: text("location"),
+  targetLocation: text("target_location"),
+  deviceCode: text("device_code"),
+  note: text("note"),
+  status: text("status").notNull().default("open"),
+  reopenedFrom: text("reopened_from"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  doneAt: integer("done_at", { mode: "timestamp_ms" }),
+  confirmedAt: integer("confirmed_at", { mode: "timestamp_ms" }),
+}, (table) => [index("service_requests_requester").on(table.requesterEmail, table.status), index("service_requests_unit").on(table.unitCode, table.status)]);

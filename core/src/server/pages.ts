@@ -26,6 +26,10 @@ button.primary{background:var(--navy);border-color:var(--navy);color:#fff}button
 section.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:14px 0}section.card h2{font-size:16px;margin:0 0 8px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}.row label{display:flex;flex-direction:column;gap:3px;font-size:13px;font-weight:600}
 .row input,.row select,textarea{border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-height:34px}small.note{color:var(--muted)}
+dialog.ask{border:1px solid var(--line);border-radius:14px;padding:18px;max-width:min(440px,calc(100vw - 32px));width:100%}dialog.ask::backdrop{background:#0b1a2a88}
+dialog.ask h2{margin:0 0 8px;font-size:18px}dialog.ask label{display:flex;flex-direction:column;gap:4px;margin:10px 0;font-weight:600;font-size:14px}dialog.ask em{font-style:normal;font-weight:400;color:var(--muted);font-size:12px}
+dialog.ask input,dialog.ask select{min-height:44px;border:1px solid var(--line);border-radius:8px;padding:8px}.ask-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}.ask-actions button{min-height:44px;padding:8px 16px}.ask-err{color:var(--bad);min-height:1em;margin:4px 0}
+:focus-visible{outline:3px solid #2b7bd6;outline-offset:2px}
 @media (max-width:720px){th:not(:first-child):not(:nth-child(2)):not(:last-child),td:not(:first-child):not(:nth-child(2)):not(:last-child){display:none}header .who{margin-left:0}.actions{flex-direction:column}}
 `;
 
@@ -38,6 +42,14 @@ function stamp(ok){const el=$("#stamp");if(ok){lastOk=new Date();el.innerHTML="S
 function say(t,ok){const m=$("#msg");m.textContent=t;m.className="msg "+(ok?"okm":"err");}
 async function get(u){const r=await fetch(u,{cache:"no-store"});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||"Bilgi alınamadı.");return d;}
 async function post(u,b){const r=await fetch(u,{method:"POST",headers:H,body:JSON.stringify(b||{})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||"İşlem tamamlanamadı.");return d;}
+// Erişilebilir form penceresi (tarayıcı prompt kutusu yerine). Esc veya Vazgeç → null; zorunlu alanlar tarayıcıda da denetlenir.
+function ask(o){return new Promise((res)=>{const d=document.createElement("dialog");d.className="ask";d.setAttribute("aria-labelledby","ask-t");
+d.innerHTML='<form method="dialog" novalidate><h2 id="ask-t">'+e(o.title)+'</h2>'+(o.text?'<p>'+e(o.text)+'</p>':'')+o.fields.map((f,i)=>'<label>'+e(f.label)+' <em>'+(f.required?'zorunlu':'isteğe bağlı')+'</em>'+(f.options?'<select name="f'+i+'">'+f.options.map((x)=>'<option value="'+e(x[0])+'"'+(x[0]===f.value?' selected':'')+'>'+e(x[1])+'</option>').join("")+'</select>':'<input name="f'+i+'"'+(f.type?' type="'+f.type+'"':'')+(f.type==="number"?' min="'+f.min+'" max="'+f.max+'"':' maxlength="'+(f.maxlen||200)+'"')+(f.minlength?' minlength="'+f.minlength+'"':'')+(f.required?' required':'')+' value="'+e(f.value||"")+'">')+(f.hint?'<small class="note">'+e(f.hint)+'</small>':'')+'</label>').join("")+'<p class="ask-err" role="alert"></p><div class="ask-actions"><button type="button" data-x="cancel">Vazgeç</button><button class="primary" type="submit">'+e(o.ok||"Kaydet")+'</button></div></form>';
+document.body.appendChild(d);const form=d.querySelector("form");let done=false;
+d.querySelector('[data-x=cancel]').addEventListener("click",()=>d.close());
+form.addEventListener("submit",(ev)=>{ev.preventDefault();if(!form.checkValidity()){d.querySelector(".ask-err").textContent="Zorunlu alanları kurallara uygun doldurun.";form.reportValidity();return;}done=true;d.close();});
+d.addEventListener("close",()=>{const v=o.fields.map((f,i)=>form.elements["f"+i].value.trim());d.remove();res(done?v:null);});
+d.showModal();const first=d.querySelector("input,select");if(first)first.focus();});}
 async function act(u,b,okText){try{await post(u,b);say(okText,true);await load();}catch(x){say(x.message,false);}}
 `;
 
@@ -67,8 +79,8 @@ function render(d){
 document.addEventListener("click",async(ev)=>{
   const f=ev.target.closest("[data-f]");if(f){filter=f.dataset.f;document.querySelectorAll("[data-f]").forEach(x=>x.setAttribute("aria-pressed",String(x===f)));return load();}
   const b=ev.target.closest("button[data-a]");if(!b)return;const id=b.dataset.id,a=b.dataset.a;
-  if(a==="block"){const r=prompt("Engel nedeni: teknik / personel / izolasyon / diger","teknik");if(!r)return;const n=prompt("Kısa not (hasta bilgisi yazmayın)","")||"";return act("/api/beds/"+id+"/block",{reason:r.trim(),note:n},"Engel kaydedildi.");}
-  if(a==="reserve"){const ref=prompt("Hasta kısa kodu (P-…) veya akış referansı (AKS-…)","");if(!ref)return;const m=Number(prompt("Kaç dakika ayrılsın? (5–240)","60"));return act("/api/beds/"+id+"/reserve",{forRef:ref,minutes:m},"Yatak ayrıldı.");}
+  if(a==="block"){const v=await ask({title:"Yatağı engelle",ok:"Engeli kaydet",fields:[{label:"Engel nedeni",required:true,options:Object.entries(BLK),value:"teknik"},{label:"Kısa not",maxlen:200,hint:"Hasta bilgisi yazmayın."}]});if(!v)return;return act("/api/beds/"+id+"/block",{reason:v[0],note:v[1]},"Engel kaydedildi.");}
+  if(a==="reserve"){const v=await ask({title:"Yatağı ayır",text:"Yalnız hazır yatak ayrılabilir; aynı anda gelen iki istekten yalnız biri kazanır.",ok:"Yatağı ayır",fields:[{label:"Hasta kısa kodu (P-…) veya akış referansı (AKS-…)",required:true,maxlen:40},{label:"Süre (dakika, 5–240)",type:"number",min:5,max:240,value:"60",required:true}]});if(!v)return;return act("/api/beds/"+id+"/reserve",{forRef:v[0],minutes:Number(v[1])},"Yatak ayrıldı.");}
   return act("/api/beds/"+id+"/"+a,{},a==="unblock"?"Engel kaldırıldı.":"Ayırma kaldırıldı.");
 });
 load();setInterval(load,30000);`,
@@ -91,7 +103,7 @@ function render(jobs){
 document.addEventListener("click",async(ev)=>{const b=ev.target.closest("button[data-a]");if(!b)return;const id=b.dataset.id,a=b.dataset.a;
   if(a==="pass")return act("/api/cleaning/"+id+"/inspect",{passed:true},"Kontrol tamam: yatak temiz.");
   if(a==="fail")return act("/api/cleaning/"+id+"/inspect",{passed:false},"Yeniden temizlik işi açıldı.");
-  if(a==="cancel"){const r=prompt("İptal nedeni (en az 5 karakter)","");if(!r)return;return act("/api/cleaning/"+id+"/cancel",{reason:r},"İş iptal edildi.");}
+  if(a==="cancel"){const v=await ask({title:"Temizlik işini iptal et",ok:"İşi iptal et",fields:[{label:"İptal nedeni",required:true,minlength:5,maxlen:200,hint:"En az 5 karakter."}]});if(!v)return;return act("/api/cleaning/"+id+"/cancel",{reason:v[0]},"İş iptal edildi.");}
   if(a==="complete")return act("/api/cleaning/"+id+"/complete",{checklist:["yuzey","carsaf","atik","dezenfeksiyon"]},"Tamamlandı; bağımsız kontrol bekleniyor.");
   return act("/api/cleaning/"+id+"/"+a,{},a==="accept"?"İş kabul edildi.":"Temizlik başladı.");});
 load();setInterval(load,20000);`,
@@ -116,7 +128,7 @@ $("#recform").addEventListener("submit",async(ev)=>{ev.preventDefault();
     $("#recrows").innerHTML=r.items.map(i=>'<tr><td>'+({missing_in_klinorbis:"HBYS'de var, Klinorbis'te yok",missing_in_hbys:"Klinorbis'te var, HBYS'de yok",location_mismatch:"Konum farkı"}[i.kind])+'</td><td>'+e(i.detail)+'</td></tr>').join("")||'<tr><td colspan="2">Fark yok.</td></tr>';$("#census").value="";}catch(x){say(x.message,false);}});
 document.addEventListener("click",async(ev)=>{const b=ev.target.closest("button[data-a]");if(!b)return;const id=b.dataset.id;
   if(b.dataset.a==="retry")return act("/api/integration/messages/"+id+"/retry",{},"Mesaj yeniden işlendi (sonuç tabloda).");
-  const r=prompt("Yok sayma gerekçesi (en az 10 karakter; denetim kaydına yazılır)","");if(!r)return;return act("/api/integration/messages/"+id+"/ignore",{reason:r},"Mesaj yok sayıldı.");});
+  const v=await ask({title:"Mesajı yok say",text:"Gerekçe denetim kaydına yazılır.",ok:"Yok say",fields:[{label:"Yok sayma gerekçesi",required:true,minlength:10,maxlen:300,hint:"En az 10 karakter."}]});if(!v)return;return act("/api/integration/messages/"+id+"/ignore",{reason:v[0]},"Mesaj yok sayıldı.");});
 load();setInterval(load,30000);`,
 };
 
