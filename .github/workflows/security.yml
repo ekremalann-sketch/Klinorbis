@@ -1,0 +1,53 @@
+name: Security checks
+on:
+  push:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Audit every tracked npm lockfile without installing or executing project code
+        id: audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          status=0
+          while IFS= read -r -d '' lock; do
+            count=$((count + 1))
+            folder="$(dirname "$lock")"
+            printf 'Auditing lockfile: %s\n' "$lock"
+            (cd "$folder" && npm audit --package-lock-only --ignore-scripts --audit-level=high) || status=1
+          done < <(git ls-files -z -- '**/package-lock.json' 'package-lock.json')
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No tracked npm lockfile was found; audit was not performed."
+            exit 1
+          fi
+          exit "$status"
+      - name: Record outcome
+        if: always()
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          printf '## Bağımlılık güvenlik kontrolü\nSonuç: %s\n' "$AUDIT_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Kök ve alt projelerin kilitleri; geliştirme bağımlılıkları dahil. Başarısızlık açık bulgusu veya araç/ağ hatası olabilir. Bu kontrol yapay zekâ incelemesi değildir.' >> "$GITHUB_STEP_SUMMARY"

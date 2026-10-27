@@ -1,0 +1,731 @@
+{
+  "version": 1,
+  "reviewedOn": "2026-10-23",
+  "scope": "AI, agent, database, cloud and data acquisition review baseline; not exhaustive and not a certification",
+  "sources": {
+    "LLM": "https://genai.owasp.org/llm-top-10/",
+    "AGENT": "https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/",
+    "DB": "https://cheatsheetseries.owasp.org/cheatsheets/Database_Security_Cheat_Sheet.html",
+    "AI": "https://owaspai.org/docs/2_threats_through_use/",
+    "NIST": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf",
+    "KVKK": "https://www.kvkk.gov.tr/Icerik/7048/Yapay-Zeka-Alaninda-Kisisel-Verilerin-Korunmasina-Dair-Tavsiyeler",
+    "BDDK": "https://www.bddk.gov.tr/Mevzuat/Liste/134",
+    "RLS": "https://www.postgresql.org/docs/current/ddl-rowsecurity.html",
+    "OPENAI": "https://developers.openai.com/api/docs/guides/your-data",
+    "ANTHROPIC": "https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data",
+    "CLOUD": "https://aws.amazon.com/compliance/shared-responsibility-model/",
+    "LLM01": "https://genai.owasp.org/llmrisk/llm01-prompt-injection/",
+    "LLM02": "https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/",
+    "LLM03": "https://genai.owasp.org/llmrisk/llm032025-supply-chain/",
+    "LLM04": "https://genai.owasp.org/llmrisk/llm042025-data-and-model-poisoning/",
+    "LLM05": "https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/",
+    "LLM06": "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/",
+    "LLM08": "https://genai.owasp.org/llmrisk/llm082025-vector-and-embedding-weaknesses/",
+    "LLM09": "https://genai.owasp.org/llmrisk/llm092025-misinformation/",
+    "LLM10": "https://genai.owasp.org/llmrisk/llm102025-unbounded-consumption/"
+  },
+  "controls": [
+    {
+      "id": "LLM01",
+      "category": "AI",
+      "name": "Prompt Injection",
+      "risk": "Girdi veya belge modele yetkisiz talimat verir.",
+      "requiredControl": "Veriyi talimattan ayır; araç yetkisini model dışında denetle.",
+      "verification": "Belgedeki yetkisiz veri dışa aktarma talimatıyla hiçbir araç çağrısı oluşmamalı.",
+      "sourceRefs": [
+        "LLM01"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM02",
+      "category": "AI",
+      "name": "Sensitive Information Disclosure",
+      "risk": "Yanıt, prompt, log veya izleme hassas veri açığa çıkarır.",
+      "requiredControl": "Dış istekten önce veri politikası; çıktı ve loglarda en az veri.",
+      "verification": "Sentetik hasta/müşteri ayrıntıları sağlayıcı istek kaydına ulaşmamalı.",
+      "sourceRefs": [
+        "LLM02"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM03",
+      "category": "AI",
+      "name": "AI Supply Chain Compromise",
+      "risk": "Model, paket, veri kümesi veya eklenti ele geçirilir.",
+      "requiredControl": "Kaynak/lisans/imza/sürüm doğrulaması ve SBOM.",
+      "verification": "Değiştirilmiş model/eklenti özeti kabul edilmemeli.",
+      "sourceRefs": [
+        "LLM03"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM04",
+      "category": "AI",
+      "name": "Data and Model Poisoning",
+      "risk": "Eğitim veya arama verisi zehirlenerek sonuç değiştirilir.",
+      "requiredControl": "Veri kökeni, karantina, sürüm ve onaylı içeri alma.",
+      "verification": "Onaysız değişen veri kümesi üretim dizinine girmemeli.",
+      "sourceRefs": [
+        "LLM04"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM05",
+      "category": "AI",
+      "name": "Improper Output Handling",
+      "risk": "Model çıktısı SQL, HTML veya komut olarak çalıştırılır.",
+      "requiredControl": "Parametreli sorgu, çıktı kodlama ve sabit araç şeması.",
+      "verification": "Üretilen script/SQL metni veri olarak kalmalı; yürütülmemeli.",
+      "sourceRefs": [
+        "LLM05"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM06",
+      "category": "AI",
+      "name": "Excessive Agency",
+      "risk": "Model gereğinden geniş araç yetkisiyle işlem yapar.",
+      "requiredControl": "Salt okuma başlangıcı; işlem bazında sunucu yetkisi ve insan onayı.",
+      "verification": "Okuma ajanı silme/ödeme/dağıtım aracı çağıramamalı.",
+      "sourceRefs": [
+        "LLM06"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM07",
+      "category": "AI",
+      "name": "System Prompt Leakage",
+      "risk": "İç talimat açığa çıkınca sır ve yetki de açılır.",
+      "requiredControl": "Promptta sır tutma; gizliliği güvenlik sınırı sayma.",
+      "verification": "Prompt bilinse bile erişim kontrolü aşılamamalı.",
+      "sourceRefs": [
+        "LLM"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM08",
+      "category": "AI",
+      "name": "Vector and Embedding Weaknesses",
+      "risk": "Arama ve vektör dizininden başka kurumun içeriği gelir.",
+      "requiredControl": "Sunucu kaynaklı kurum/ACL filtresi ve vektör kaydı saklama politikası.",
+      "verification": "İki sentetik kurumla komşu vektör aramasında çapraz sonuç dönmemeli.",
+      "sourceRefs": [
+        "LLM08"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM09",
+      "category": "AI",
+      "name": "Misinformation / Hallucination",
+      "risk": "Uydurulmuş bilgi doğru kayıt veya karar gibi sunulur.",
+      "requiredControl": "Kaynak ve tarih; belirsizlik görünümü; kritik kararda yetkili insan.",
+      "verification": "Kaynağı olmayan yanıt karar/ödeme/klinik kayıt oluşturmamalı.",
+      "sourceRefs": [
+        "LLM09"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "LLM10",
+      "category": "AI",
+      "name": "Unbounded Consumption / Denial of Wallet",
+      "risk": "Sınırsız sorgu/döngü maliyet veya hizmet kesintisi yaratır.",
+      "requiredControl": "Kullanıcı/kurum kotası, süre/token sınırı, devre kesici.",
+      "verification": "Sentetik uzun döngü kota sonunda kesilmeli; retry bütçesi aşılmamalı.",
+      "sourceRefs": [
+        "LLM10"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI01",
+      "category": "AGENT",
+      "name": "Agent Goal Hijack",
+      "risk": "Ajanın hedefi kötü amaçlı içeriğe kayar.",
+      "requiredControl": "Hedefi ve yetkili kapsamı araç katmanında sabitle.",
+      "verification": "Dış belgenin hedef değiştir talebi kapsamı genişletememeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI02",
+      "category": "AGENT",
+      "name": "Tool Misuse and Exploitation",
+      "risk": "Meşru araç tehlikeli parametrelerle kötüye kullanılır.",
+      "requiredControl": "Araç/parametre izin listesi ve etki sınırlaması.",
+      "verification": "Dosya veya URL parametresi izinli kapsamdan çıkamamalı.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI03",
+      "category": "AGENT",
+      "name": "Identity and Privilege Abuse",
+      "risk": "Ajan kullanıcının yetkisinden fazlasını kullanır.",
+      "requiredControl": "Kısa ömürlü dar kimlik; her çağrıda kullanıcı ve kurum doğrulama.",
+      "verification": "Düşük yetkili kullanıcı ajan yoluyla yönetici işlemi yapamamalı.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI04",
+      "category": "AGENT",
+      "name": "Agentic Supply Chain Vulnerabilities",
+      "risk": "MCP, skill veya araç tanımı sonradan değiştirilir.",
+      "requiredControl": "Onaylı sunucu/skill sürümü ve bütünlük doğrulaması.",
+      "verification": "Araç açıklaması değişince yeniden onay olmadan yeni yetki verilmemeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI05",
+      "category": "AGENT",
+      "name": "Unexpected Code Execution",
+      "risk": "Model veya araç içeriği beklenmeyen kod çalıştırır.",
+      "requiredControl": "İzole yürütme, sınırlı ağ ve kapalı kabuk yetkisi.",
+      "verification": "Belgeden gelen komut runner veya üretimde yürütülmemeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI06",
+      "category": "AGENT",
+      "name": "Memory and Context Poisoning",
+      "risk": "Kalıcı bellek ileriki oturumlara zararlı talimat taşır.",
+      "requiredControl": "Bellek kökeni/süresi/kurum kapsamı; talimat yetkisi vermeme.",
+      "verification": "Önceki bellekten gelen yetki genişletme sonraki oturumda reddedilmeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI07",
+      "category": "AGENT",
+      "name": "Insecure Inter-Agent Communication",
+      "risk": "Ajanlar arası mesajda kimlik veya veri sınırı aşılır.",
+      "requiredControl": "İmzalı kimlik, alıcı kapsamı, en az veri ve mesaj şeması.",
+      "verification": "Sahte ajan mesajı veya diğer kurum alıcısı kabul edilmemeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI08",
+      "category": "AGENT",
+      "name": "Cascading Failures",
+      "risk": "Bir ajan hatası zincir boyunca işlemleri bozarak yayılır.",
+      "requiredControl": "Retry sınırı, devre kesici, idempotency ve kısmi başarı kaydı.",
+      "verification": "Alt servis arızası sınırsız görev/ödeme tekrarı üretmemeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI09",
+      "category": "AGENT",
+      "name": "Human-Agent Trust Exploitation",
+      "risk": "İkna edici çıktı kullanıcıdan yanlış onay alır.",
+      "requiredControl": "Gerçek işlem özeti, kapsam ve risk; kritik işlemde ayrık onay.",
+      "verification": "Görünen onay ile çalışacak araç parametreleri aynı olmalı.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "ASI10",
+      "category": "AGENT",
+      "name": "Rogue Agents",
+      "risk": "Ajan yetkili hedef dışında bağımsız işlem sürdürür.",
+      "requiredControl": "Durdurma, kimlik iptali, zaman sınırı ve bağımsız denetim.",
+      "verification": "Durdurma sonrası bekleyen ve yeni araç çağrısı yürümemeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA01",
+      "category": "DATA",
+      "name": "SQL / NoSQL Injection",
+      "risk": "Kötü girdi sorgu yapısını veya filtreyi değiştirir.",
+      "requiredControl": "Parametreli sorgu; operatör/alan izin listesi.",
+      "verification": "Sentetik bozuk filtre veri kapsamını genişletememeli.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA02",
+      "category": "DATA",
+      "name": "BOLA / IDOR / Broken Tenant Isolation",
+      "risk": "Kimlik veya URL değiştirerek başka kayda erişilir.",
+      "requiredControl": "Her nesnede kullanıcı, kurum, birim ve işlem yetkisi.",
+      "verification": "İki kurum ve üç rolle nesne erişim matrisi reddetmeleri doğrulanmalı.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA03",
+      "category": "DATA",
+      "name": "RLS Bypass",
+      "risk": "DB sahibi/superuser/bağlam sızıntısı satır korumasını aşar.",
+      "requiredControl": "Dar uygulama hesabı, FORCE RLS; işlem yerel bağlam.",
+      "verification": "Gerçek PostgreSQL'de sahip/BYPASSRLS ve havuz geçişleri denenmeli.",
+      "sourceRefs": [
+        "RLS"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA04",
+      "category": "DATA",
+      "name": "Public Database / Bucket Exposure",
+      "risk": "Veritabanı, depo veya yönetim aracı internete açılır.",
+      "requiredControl": "Özel ağ, kapalı genel erişim ve güvenli yönetim düzlemi.",
+      "verification": "Yetkili IaC/ayar kanıtında genel okuma ve DB port açığı olmamalı.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA05",
+      "category": "DATA",
+      "name": "Exposed Snapshots and Backups",
+      "risk": "Yedek veya dışa aktarım ana sistemden zayıf korunur.",
+      "requiredControl": "Ayrı yedek yetkisi, şifreleme ve erişim süresi.",
+      "verification": "Sentetik yedek yetkisiz hesapça indirilememeli.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA06",
+      "category": "DATA",
+      "name": "Overprivileged IAM / Service Accounts",
+      "risk": "Tek hesap tüm kurumlara veya veriye yönetici olur.",
+      "requiredControl": "En az yetki, servis başına kimlik, düzenli erişim incelemesi.",
+      "verification": "Okuma hesabı yazma/rol verme/anahtar erişimi yapamamalı.",
+      "sourceRefs": [
+        "CLOUD"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA07",
+      "category": "DATA",
+      "name": "Token Leakage and OAuth Consent Abuse",
+      "risk": "Token/izin üzerinden geniş veri erişimi alınır.",
+      "requiredControl": "Dar kapsam, kısa ömür, iptal, güvenli yönlendirme ve PKCE gereken yerde.",
+      "verification": "İptal tokenı ve farklı alıcı/audience kabul edilmemeli.",
+      "sourceRefs": [
+        "NIST"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA08",
+      "category": "DATA",
+      "name": "SSRF / Metadata Credential Theft",
+      "risk": "Dış adres alanı iç ağ/metadata servisine erişir.",
+      "requiredControl": "İzinli hedef, DNS/redirect kontrolü ve egress sınırı.",
+      "verification": "Yerel metadata benzetimi, özel IP ve yönlendirme reddedilmeli.",
+      "sourceRefs": [
+        "NIST"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA09",
+      "category": "DATA",
+      "name": "Bulk Exfiltration / Excessive Data Exposure",
+      "risk": "API veya rapor gereğinden çok veriyi dışarı verir.",
+      "requiredControl": "Alan seçimi, sayfalama, dışa aktarım onayı ve kota.",
+      "verification": "Düşük yetkili rol ham/toplu dışa aktarımı alamamalı.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA10",
+      "category": "DATA",
+      "name": "Encryption / Key Management Failure",
+      "risk": "Şifreleme, anahtar ve sertifika yapılandırması veriyi açar.",
+      "requiredControl": "Taşıma/depolama şifrelemesi, ayrı KMS yetkisi ve rotasyon.",
+      "verification": "Geçersiz sertifika reddi; yanlış anahtar erişimi engeli gösterilmeli.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA11",
+      "category": "DATA",
+      "name": "Logs, Telemetry and Prompt Trace Leakage",
+      "risk": "Hata izleme veya prompt izi veri/sır kopyası oluşturur.",
+      "requiredControl": "Alan izin listesi, maskeleme, kısa saklama ve kapalı ham gövde.",
+      "verification": "Sentetik hassas alanlar log/trace/destek kaydında bulunmamalı.",
+      "sourceRefs": [
+        "NIST"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA12",
+      "category": "DATA",
+      "name": "Training Opt-in / Secondary Use Drift",
+      "risk": "Veri sonradan eğitim/iyileştirme amacıyla kullanılır.",
+      "requiredControl": "Ürün/hesap bazlı sözleşme, opt-in ve veri amacı doğrulaması.",
+      "verification": "Hesap ayarı kanıtı yoksa eğitimde kullanılmıyor sonucu verilmemeli.",
+      "sourceRefs": [
+        "OPENAI"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA13",
+      "category": "DATA",
+      "name": "Retention / Zero-Retention Misconfiguration",
+      "risk": "Eğitim dışı veri dosya/önbellek/izleme sisteminde kalır.",
+      "requiredControl": "Uç nokta ve özellik bazında süre, silme, alt işleyen ve istisna kaydı.",
+      "verification": "ZDR onayı ve kullanılan özelliğin uygunluğu ayrı kanıtlanmalı.",
+      "sourceRefs": [
+        "ANTHROPIC"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA14",
+      "category": "DATA",
+      "name": "Unlawful Acquisition / Data Provenance Gap",
+      "risk": "Satın alınan veri lisanslı veya hukuka uygun olmayabilir.",
+      "requiredControl": "Satıcı yetkisi, kaynak, amaç, lisans, hukuki dayanak ve sözleşme.",
+      "verification": "Kaynak/dayanak eksik veri kümesi içeri alınmamalı.",
+      "sourceRefs": [
+        "KVKK"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA15",
+      "category": "DATA",
+      "name": "Re-identification / Linkage Attack",
+      "risk": "Takma ad/toplu veri başka veriyle yeniden kişiye bağlanır.",
+      "requiredControl": "Minimizasyon, küçük grup baskılama ve yeniden belirleme analizi.",
+      "verification": "Nadir olay/zaman/birim kombinasyonlarıyla sentetik yeniden bağlama denenmeli.",
+      "sourceRefs": [
+        "KVKK"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA16",
+      "category": "DATA",
+      "name": "Model Inversion / Data Reconstruction",
+      "risk": "Model sorgularından eğitim verisi tahmin edilir.",
+      "requiredControl": "Hassas eğitim verisini dışlama ve çıktı/erişim koruması.",
+      "verification": "Yalnız yerel sentetik model/veri üzerinde çıkarım riski değerlendirilmeli.",
+      "sourceRefs": [
+        "AI"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA17",
+      "category": "DATA",
+      "name": "Membership Inference",
+      "risk": "Bir kişinin eğitim verisinde bulunup bulunmadığı çıkarılır.",
+      "requiredControl": "Eğitim veri minimizasyonu; uygun modelde mahremiyet değerlendirmesi.",
+      "verification": "Sentetik üyelik denemesi ve saldırı avantajı raporu gerekir.",
+      "sourceRefs": [
+        "AI"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA18",
+      "category": "DATA",
+      "name": "Embedding Inversion / Vector Leakage",
+      "risk": "Vektörlerden kaynak metin veya hassas özellik çıkarılır.",
+      "requiredControl": "Vektörü hassas kabul et; şifreleme, ACL ve aktarım sınırı.",
+      "verification": "Vektör dışa aktarımı ve kaynak geri çıkarımı sentetik veriyle incelenmeli.",
+      "sourceRefs": [
+        "LLM"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA19",
+      "category": "DATA",
+      "name": "Cross-Border / Subprocessor Drift",
+      "risk": "Bölge, destek veya alt işleyen değişince aktarım değişir.",
+      "requiredControl": "Bölge/uzaktan destek/alt işleyen envanteri ve yeniden değerlendirme.",
+      "verification": "DPA, alt işleyen ve gerçek hesap bölgesi ayrı doğrulanmalı.",
+      "sourceRefs": [
+        "KVKK"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA20",
+      "category": "DATA",
+      "name": "Migration / CDC / ETL Exposure",
+      "risk": "Taşıma kuyruğu, geçici dosya veya CDC veriyi sızdırır.",
+      "requiredControl": "Şifreli aktarım, dar hesap, kuyruk TTL, checksum ve mutabakat.",
+      "verification": "Kesinti/tekrar sırasında kayıt kaybı ve çift yazma olmamalı.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA21",
+      "category": "DATA",
+      "name": "Deletion Gaps in Derived Data",
+      "risk": "Ana kaydı silmek vektör, cache, yedek ve dosyayı silmez.",
+      "requiredControl": "Türetilmiş veri haritası, imha işi ve yedek geri dönüş sonrası uygulama.",
+      "verification": "Sentetik silme isteği tüm türetilmiş kopyalarda izlenmeli.",
+      "sourceRefs": [
+        "KVKK"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA22",
+      "category": "DATA",
+      "name": "Production Data in Test / Demo",
+      "risk": "Gerçek veri geliştirme, satış demosu veya CI'a taşınır.",
+      "requiredControl": "Sentetik veri ve üretimden bağımsız test hesapları.",
+      "verification": "Test/demo/CI veri kökeni ve maskeleme istisnaları incelenmeli.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA23",
+      "category": "DATA",
+      "name": "Ransomware / Destructive Agent Action",
+      "risk": "Ajan veya hesap üretim ve yedekleri birlikte siler.",
+      "requiredControl": "Ayrı yedek kimliği, değişmez kopya ve geri yükleme tatbikatı.",
+      "verification": "İzole sentetik kurtarma ile RTO/RPO ölçülmeli.",
+      "sourceRefs": [
+        "NIST"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA24",
+      "category": "DATA",
+      "name": "TOCTOU / Duplicate Financial or Task Action",
+      "risk": "Onaydan sonra parametre değişir veya işlem iki kez yürür.",
+      "requiredControl": "Onayı işlem özeti/sürümüne bağla; atomik geçiş/idempotency.",
+      "verification": "İki eşzamanlı istek tek geçerli durum değişikliği üretmeli.",
+      "sourceRefs": [
+        "NIST"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA25",
+      "category": "DATA",
+      "name": "Insider / Vendor Support Abuse",
+      "risk": "Çalışan veya destek hesabı izinsiz erişir.",
+      "requiredControl": "Süreli gerekçeli erişim, MFA ve bağımsız denetim.",
+      "verification": "Destek süresi dolunca erişim kapanmalı ve iz bırakmalı.",
+      "sourceRefs": [
+        "DB"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA26",
+      "category": "DATA",
+      "name": "Shared Responsibility Gap",
+      "risk": "Sağlayıcının sertifikası uygulama ayarlarını koruyor sanılır.",
+      "requiredControl": "Sağlayıcı/kurum/geliştirici sorumluluk matrisi.",
+      "verification": "Ağ, kimlik, veri, yedek ve olay sahipleri ayrı belirlenmeli.",
+      "sourceRefs": [
+        "CLOUD"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA27",
+      "category": "DATA",
+      "name": "Unverified Certifications / Banking Claims",
+      "risk": "Ürün banka standardında veya onaylı diye sunulur.",
+      "requiredControl": "Sektörel kapsam ve sertifika kapsamı/kuruluşu doğrulaması.",
+      "verification": "BDDK kapsam analizi olmadan banka uyumluluğu iddiası reddedilmeli.",
+      "sourceRefs": [
+        "BDDK"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA28",
+      "category": "DATA",
+      "name": "Uncontrolled Agent Egress",
+      "risk": "Ajan aracı izinli olmayan dış alıcıya veri yollar.",
+      "requiredControl": "Ağ ve araç katmanında alıcı izin listesi; veri sınıfına göre engel.",
+      "verification": "Sentetik hassas veri yeni e-posta/URL/MCP alıcısına gitmemeli.",
+      "sourceRefs": [
+        "AGENT"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA29",
+      "category": "DATA",
+      "name": "Model / Provider Change Drift",
+      "risk": "Model veya sağlayıcı değişince güvenlik koşulları değişir.",
+      "requiredControl": "Sürüm, sözleşme, bölge ve retention değişiklik kapısı.",
+      "verification": "Model değişimi önceki sağlayıcı onayını otomatik devralmamalı.",
+      "sourceRefs": [
+        "NIST"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    },
+    {
+      "id": "DATA30",
+      "category": "DATA",
+      "name": "Unverified Automated Security Findings",
+      "risk": "Tarama uyarısı doğrulanmış açık veya temiz sonuç sayılır.",
+      "requiredControl": "Kanıt, SHA, yöntem, kapsam ve atlanan kontrolleri ayır.",
+      "verification": "Araç hatası/eksik yetki/sıfır eşleşme güvenli durumuna dönüşmemeli.",
+      "sourceRefs": [
+        "NIST"
+      ],
+      "status": "UNVERIFIED",
+      "evidence": [],
+      "severity": "ASSESS_IN_CONTEXT"
+    }
+  ],
+  "repository": "Klinorbis",
+  "safetyBoundary": "Hasta ile ilişkilendirilebilen veri ve tokenlar dış AI servislerine gönderilmez; yalnız risk değerlendirmesi yapılmış anonim toplu bilgi veya sentetik veri. Klinik karar/triyaj yok."
+}
