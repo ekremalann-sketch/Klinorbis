@@ -237,6 +237,7 @@ export function TaskCard({ task: t, busy, onPrimary, secondary, extra }: { task:
         <span className={`wk-prio wk-prio-${t.priority === "Acil" ? "high" : t.priority === "Yüksek" ? "mid" : "low"}`}>{t.priority}</span>
       </header>
       <dl className="wk-facts">
+        <div><dt>Kayıt</dt><dd><a href={t.link} onClick={e => { e.preventDefault(); window.dispatchEvent(new CustomEvent("klinorbis:go", {detail:t.link})); }}>{t.reference} · İşi aç</a></dd></div>
         <div><dt>Nerede</dt><dd>{t.location ?? t.unitName}</dd></div>
         <div><dt>Kimde</dt><dd>{t.owner ? t.owner.label : "Sahipsiz"}</dd></div>
         {due && <div><dt>Hedef</dt><dd className={t.overdue ? "wk-overdue" : ""}>{t.overdue ? "⚠ " : ""}{due}</dd></div>}

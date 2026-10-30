@@ -2,7 +2,7 @@
 // "Birimim": birim sorumlusunun ana ekranı. Önce kontrol bekleyen temizlikler (ayrı kuyruk), sonra sahipsiz,
 // geciken, engelli/yardım isteyen, onay bekleyen ve devam eden işler; altta ekip iş yükü ve vardiya durumu.
 // Görevlendirme sunucuda denetlenir: vardiya dışındaki kişiye veya başkasının üstündeki işe sessiz atama yapılmaz.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TaskCard, type WorkTask } from "./my-work";
 import { api, ApiError, FormDialog, Receipt, Req, StaleBanner, StateBox, useLive } from "./work-ui";
 
@@ -23,6 +23,13 @@ const SECTIONS: [keyof NonNullable<Data["groups"]>, string, string][] = [
 
 export function MyUnit() {
   const [unit, setUnit] = useState<string>(() => { try { return new URLSearchParams(window.location.search).get("birim") ?? ""; } catch { return ""; } });
+  const [unitSearch, setUnitSearch] = useState("");
+  useEffect(() => {
+    const sync = () => setUnit(new URLSearchParams(window.location.search).get("birim") ?? "");
+    window.addEventListener("popstate", sync);
+    window.addEventListener("klinorbis:location", sync);
+    return () => { window.removeEventListener("popstate", sync); window.removeEventListener("klinorbis:location", sync); };
+  }, []);
   const live = useLive<Data>(`/api/my-unit${unit ? `?birim=${encodeURIComponent(unit)}` : ""}`);
   const [receipt, setReceipt] = useState("");
   const [error, setError] = useState("");
@@ -62,8 +69,9 @@ export function MyUnit() {
           <p>Birimin açık işleri: kim, nerede, ne kadar süredir. Görevlendirme açık sahiplikle yapılır; devir kabul edilene kadar eski sahip sorumludur.</p>
         </div>
         {d && d.units.length > 1 && <label className="wk-field wk-inline"><span>Birim</span>
+          <input aria-label="Birim ara" value={unitSearch} onChange={e => setUnitSearch(e.target.value)} placeholder="Birim adıyla ara" />
           <select value={d.selected?.code ?? ""} onChange={(e) => { setUnit(e.target.value); window.history.replaceState(window.history.state, "", `/birimim?birim=${encodeURIComponent(e.target.value)}`); }}>
-            {d.units.map((u) => <option key={u.code} value={u.code}>{u.name}</option>)}
+            {d.units.filter(u => u.code === d.selected?.code || u.name.toLocaleLowerCase("tr").includes(unitSearch.toLocaleLowerCase("tr"))).map((u) => <option key={u.code} value={u.code}>{u.name}</option>)}
           </select></label>}
       </div>
       <StaleBanner live={live} />
@@ -111,6 +119,7 @@ export function MyUnit() {
           }
         }}>
         <fieldset className="wk-choice"><legend>Kime <Req /></legend>
+          {!d?.people.length && <p role="status">Bu birimde etkin personel yok. Personel ve Yetki ekranından birime personel ekleyin; ardından bu listeyi yenileyin.</p>}
           {(d?.people ?? []).map((p) => <label key={p.email}><input type="radio" name="who" checked={target === p.email} onChange={() => { setTarget(p.email); setConfirm({}); setConfirmed(false); }} />
             <span>{p.label} <small>· {p.open} açık iş · {SHIFT[p.shift]}</small></span></label>)}
         </fieldset>

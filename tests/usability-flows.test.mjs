@@ -20,6 +20,16 @@ const mw = (email, body) => myWork.POST(browserJson("/api/my-work", body, email)
 const wl = (email, body) => workload.POST(browserJson("/api/workload", body, email));
 const getJson = async (route, path, email) => { const r = await route.GET(new Request(`${ORIGIN}${path}`, { headers: { "oai-authenticated-user-email": email } })); return { status: r.status, body: await r.json() }; };
 const task = (ref) => sqlite.prepare("SELECT status, assigned_user, title, location FROM operational_tasks WHERE reference = ?").get(ref);
+await test("operations manager keeps all unit choices after selecting a unit", async () => {
+  const result = await getJson(myUnit, "/api/my-unit?birim=YOG", OWNER);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.selected.code, "YOG");
+  assert.ok(result.body.units.length > 20);
+  assert.ok(result.body.units.some(u => u.code === "YTK"));
+  const second = await getJson(myUnit, "/api/my-unit?birim=YTK", OWNER);
+  assert.equal(second.body.selected.code, "YTK");
+  assert.equal((await getJson(myUnit, "/api/my-unit?birim=INVALID-SIM", OWNER)).status, 400);
+});
 const run = (ref) => sqlite.prepare("SELECT status, current_step, version FROM playbook_runs WHERE reference = ?").get(ref);
 
 /** yatak-hazirlik başlatır ve TBR adımını geçirir → temizlik işi CTM kuyruğunda. */
