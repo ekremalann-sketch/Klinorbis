@@ -4,7 +4,7 @@ import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import { operationalTasks, staffAccounts, unitMemberships } from "../db/schema";
 import { demoEnabled } from "./automation-policy";
-import { findUnit } from "./hospital-units";
+import { findUnit, HOSPITAL_UNITS } from "./hospital-units";
 import { myWorkDecorate, shiftAvailability } from "./my-work";
 import { SecurityError, type RequestActor } from "./security";
 
@@ -12,8 +12,9 @@ type Db = ReturnType<typeof getDb>;
 
 export async function myUnit(db: Db, actor: RequestActor, unitCode?: string, now = new Date()) {
   if (!["unit_manager", "operations_manager"].includes(actor.role)) throw new SecurityError(403, "Birimim ekranını birim sorumlusu ve operasyon yöneticisi kullanır.", "MANAGER_REQUIRED");
-  const units = actor.role === "operations_manager" ? (unitCode ? [unitCode] : actor.unitCodes.length ? actor.unitCodes : ["YTK"]) : actor.unitCodes;
-  const selected = unitCode && units.includes(unitCode) ? unitCode : units[0];
+  const units = actor.role === "operations_manager" ? HOSPITAL_UNITS.map((u) => u.code) : actor.unitCodes;
+  if (actor.role === "operations_manager" && unitCode && !units.includes(unitCode)) throw new SecurityError(400, "Birim kodu geçersiz.", "INVALID_UNIT");
+  const selected = unitCode && units.includes(unitCode) ? unitCode : (actor.role === "operations_manager" ? actor.unitCodes.find((u) => units.includes(u)) || "YTK" : units[0]);
   if (!selected) return { units: [], selected: null, groups: null, people: [] };
   if (actor.role !== "operations_manager" && !actor.unitCodes.includes(selected)) throw new SecurityError(403, "Bu birimin sorumlusu değilsiniz.", "UNIT_ACCESS_DENIED");
   const rows = await db.select().from(operationalTasks).where(and(eq(operationalTasks.unitCode, selected), notInArray(operationalTasks.status, ["completed", "cancelled", "scheduled"]),
@@ -22,11 +23,11 @@ export async function myUnit(db: Db, actor: RequestActor, unitCode?: string, now
   const work = tasks.filter((t) => t.status !== "completed");
   const groups = {
     inspection: work.filter((t) => t.inspection),
-    unassigned: work.filter((t) => !t.owner && !t.inspection),
-    overdue: work.filter((t) => t.overdue && !t.inspection),
-    blocked: work.filter((t) => t.blockedReason || t.helpRequested),
-    awaitingApproval: work.filter((t) => t.flow?.approval),
-    inProgress: work.filter((t) => t.owner && !t.flow?.approval && !t.inspection),
+    unassigned: work.filter((t) => !t.owner && !t.inspection && !t.overdue && !t.blockedReason && !t.helpRequested && !t.flow?.approval),
+    overdue: work.filter((t) => t.overdue && !t.inspection && !t.blockedReason && !t.helpRequested && !t.flow?.approval),
+    blocked: work.filter((t) => !t.inspection && (t.blockedReason || t.helpRequested)),
+    awaitingApproval: work.filter((t) => !t.inspection && !t.blockedReason && !t.helpRequested && t.flow?.approval),
+    inProgress: work.filter((t) => t.owner && !t.flow?.approval && !t.inspection && !t.overdue && !t.blockedReason && !t.helpRequested),
   };
   const members = await db.select({ email: unitMemberships.email, label: staffAccounts.displayLabel, role: staffAccounts.systemRole }).from(unitMemberships)
     .innerJoin(staffAccounts, eq(staffAccounts.email, unitMemberships.email))

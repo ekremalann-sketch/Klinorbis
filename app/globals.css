@@ -5147,3 +5147,7 @@ label:not(.required-field):not(:has(.field-star)):has(> :is(input, select, texta
 .sidebar-sim-links summary{cursor:pointer;min-height:36px;display:flex;align-items:center}
 .sidebar-sim-links a{display:block;padding:6px 8px;color:#dbe7f3;text-decoration:none;border-radius:8px}
 .sidebar-sim-links a:hover,.sidebar-sim-links a:focus-visible{background:#ffffff14}
+
+/* Keep daily work content away from the viewport edge. */
+.wk{box-sizing:border-box;width:100%;padding:0 32px 24px}
+@media(max-width:640px){.wk{padding:0 16px 24px}}

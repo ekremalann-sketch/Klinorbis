@@ -5,7 +5,7 @@ export function attentionItems(source:AttentionSource,at=Date.now()){
  const overdue=open.filter(t=>t.dueAt&&new Date(t.dueAt).getTime()<at).length;
  return [
   {view:"inbox",label:urgent?"Kritik işler":"İş kutusu",value:open.length,detail:urgent?`${urgent} acil · ${overdue} geciken`:`${overdue} geciken`,critical:urgent>0},
-  {view:"approvals",label:"Onay bekleyen",value:source.approvals.filter(a=>a.status==="pending").length,detail:"Yetkili kişinin kararı",critical:false},
+  {view:"approvals",label:"Onay bekleyen",value:source.approvals.filter(a=>a.status==="pending").length,detail:"Yetkili onayı gerekiyor",critical:false},
   {view:"calls",label:"İnsan devri",value:source.calls.filter(c=>c.requiresHuman&&!["completed","cancelled"].includes(c.status)).length,detail:"Görüşmeyi devralın",critical:false},
  ];
 }

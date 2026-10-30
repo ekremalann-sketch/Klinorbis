@@ -152,7 +152,7 @@ function AbsenceBoard({ data, busy, canReport, canRespond, canReview, run, doc, 
               {c.status === "review" && canReview && absence.status === "approved" && <div className="pa-review">
                 <select aria-label="Hekim" value={r.physicianCode} onChange={(e) => setReview({ ...review, [c.id]: { ...r, physicianCode: e.target.value } })}><option value="">Hekim seçin</option>{data.physicians.filter((p) => p.unitCode === a?.unitCode && p.code !== absence.physicianCode).map((p) => <option key={p.code} value={p.code}>{p.displayLabel}</option>)}</select>
                 <input aria-label="Zaman" type="datetime-local" value={r.startsAt} onChange={(e) => setReview({ ...review, [c.id]: { ...r, startsAt: e.target.value } })} />
-                <button type="button" disabled={busy || !r.physicianCode || !r.startsAt} onClick={() => void run({ action: "review.decide", changeId: c.id, physicianCode: r.physicianCode, startsAt: new Date(r.startsAt).getTime() }, "Hekim kararı işlendi; hastaya öneri gönderilecek.")}>Öneriyi gönder</button>
+                <button type="button" disabled={busy || !r.physicianCode || !r.startsAt} onClick={() => void run({ action: "review.decide", changeId: c.id, physicianCode: r.physicianCode, startsAt: new Date(r.startsAt).getTime() }, "Randevu değişikliği onaylandı; hastaya randevu teklifi gönderilecek.")}>Öneriyi gönder</button>
                 <button type="button" disabled={busy} onClick={() => void run({ action: "review.decide", changeId: c.id, callback: true }, "Hasta öncelikli aranacak.")}>Öncelikli arasın</button>
               </div>}
             </td></tr>; })}</tbody></table></div>

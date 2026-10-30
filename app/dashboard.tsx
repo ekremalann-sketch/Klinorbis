@@ -620,6 +620,9 @@ export default function Dashboard({
   const [previewRole, setPreviewRole] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [callConfirm, setCallConfirm] = useState<{ reference: string; action: string; targetUnitCode?: string } | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const knownCalls = useRef<Set<string>>(new Set());
   const initialized = useRef(false);
@@ -642,6 +645,7 @@ export default function Dashboard({
       const sameView = view === viewRef.current;
       if (replace) window.history.replaceState({ klinorbis: true }, "", url);
       else window.history.pushState({ klinorbis: true }, "", url);
+      window.dispatchEvent(new Event('klinorbis:location'));
       viewRef.current = view;
       setViewState(view);
       setReferenceState(reference);
@@ -663,6 +667,7 @@ export default function Dashboard({
     navigate(view, ref ? decodeURIComponent(ref) : undefined);
     // Bağlantıdaki filtre (ör. /birimim?birim=CTM) adres çubuğunda kalır; yenileyince aynı ekran açılır.
     if (search) window.history.replaceState({ klinorbis: true }, "", `${window.location.pathname}?${search}`);
+    window.dispatchEvent(new Event('klinorbis:location'));
   }, [navigate, router]);
   useEffect(() => {
     const onPop = () => {
@@ -720,6 +725,7 @@ export default function Dashboard({
           throw new Error(data.error || "Çalışma alanı okunamadı.");
         }
         setAuthProblem("");
+        setLastSyncedAt(Date.now());
         pollFailures.current = 0;
         firstLoadDone.current = true;
         const identity = `${data.identity.email}|${data.identity.role}`;
@@ -1258,7 +1264,7 @@ export default function Dashboard({
                 {snapshot.identity.canSeeAllUnits
                   ? "Tüm hastane operasyon kapsamı"
                   : `${snapshot.identity.unitCodes.length} yetkili birim`}{" "}
-                · sunucu rolü
+                · {error ? "Eşitleme başarısız" : lastSyncedAt ? `Son güncelleme · ${Math.max(0, Math.floor((clockNow - lastSyncedAt) / 1000))} sn önce` : "Güncelleniyor…"}
               </p>
             </div>
           </div>
@@ -1548,9 +1554,10 @@ function ReceiptBar({
 }) {
   return (
     <div
+      role={receipt.title.includes("uygulanmadı") || receipt.title.includes("oluşturulmadı") ? "alert" : "status"}
       className={`receipt-bar ${receipt.title.includes("uygulanmadı") || receipt.title.includes("oluşturulmadı") ? "error" : ""}`}
     >
-      <span>✓</span>
+      <span aria-hidden="true">{receipt.title.includes("uygulanmadı") || receipt.title.includes("oluşturulmadı") ? "⚠" : "✓"}</span>
       <div>
         <b>{receipt.title}</b>
         <p>{receipt.detail}</p>
@@ -2917,7 +2924,7 @@ function IntegrationWorkspace({
             <h3>{connector.name}</h3>
             <p>{connector.detail}</p>
             {connector.id === "klinorbis-worker" && <button onClick={openAutomation}>Canlı çalıştırmaları aç →</button>}
-            {connector.id === "capacity-orchestrator" && <button onClick={openCapacity}>Kapasite kararlarını aç →</button>}
+            {connector.id === "capacity-orchestrator" && <button onClick={openCapacity}>Kapasite planını aç →</button>}
             {connector.id === "n8n-self-hosted" && (
               <Link className="button-link" href="/integrations/klinorbis-n8n-workflows.json" download>Entegrasyon akış dosyasını indir →</Link>
             )}
@@ -3187,7 +3194,7 @@ function UnitWorkspace({
                 <span className="approval-icon">!</span>
                 <span>
                   <b>{approval.reference}</b>
-                  <small>{approvalLabel(approval.approvalType)} · karar bekliyor</small>
+                  <small>{approvalLabel(approval.approvalType)} · onay bekliyor</small>
                 </span>
                 <em>→</em>
               </button>
@@ -3780,8 +3787,10 @@ function CreateDialog({
             maxLength={40}
             placeholder="HST-0001"
             pattern="(?:HST|PAT|TRN|DEMO|TEST)-(?:[A-Z0-9]{1,12}-)*[0-9]{1,6}"
+            aria-describedby="patient-alias-help"
             title="Ad yerine HST-0001 gibi kurum kayıt kodu kullanın."
           />
+          <small id="patient-alias-help">Gerçek ad yazmayın. HST-0001 gibi bir kod kullanın; büyük harf ve rakam, bölümler arasında tire kullanılır.</small>
         </label>
         {kind === "call" ? (
           <label>
@@ -3842,7 +3851,7 @@ function CreateDialog({
           durur ve insan devri açılır.
         </div>
         <button className="primary" disabled={busy}>
-          {busy ? "Sunucuya kaydediliyor…" : "Güvenli akışı başlat"}
+          {busy ? "Sunucuya kaydediliyor…" : "Talebi gönder"}
         </button>
       </form>
     </div>
