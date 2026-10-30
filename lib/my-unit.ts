@@ -23,11 +23,11 @@ export async function myUnit(db: Db, actor: RequestActor, unitCode?: string, now
   const work = tasks.filter((t) => t.status !== "completed");
   const groups = {
     inspection: work.filter((t) => t.inspection),
-    unassigned: work.filter((t) => !t.owner && !t.inspection),
-    overdue: work.filter((t) => t.overdue && !t.inspection),
-    blocked: work.filter((t) => t.blockedReason || t.helpRequested),
-    awaitingApproval: work.filter((t) => t.flow?.approval),
-    inProgress: work.filter((t) => t.owner && !t.flow?.approval && !t.inspection),
+    unassigned: work.filter((t) => !t.owner && !t.inspection && !t.overdue && !t.blockedReason && !t.helpRequested && !t.flow?.approval),
+    overdue: work.filter((t) => t.overdue && !t.inspection && !t.blockedReason && !t.helpRequested && !t.flow?.approval),
+    blocked: work.filter((t) => !t.inspection && (t.blockedReason || t.helpRequested)),
+    awaitingApproval: work.filter((t) => !t.inspection && !t.blockedReason && !t.helpRequested && t.flow?.approval),
+    inProgress: work.filter((t) => t.owner && !t.flow?.approval && !t.inspection && !t.overdue && !t.blockedReason && !t.helpRequested),
   };
   const members = await db.select({ email: unitMemberships.email, label: staffAccounts.displayLabel, role: staffAccounts.systemRole }).from(unitMemberships)
     .innerJoin(staffAccounts, eq(staffAccounts.email, unitMemberships.email))

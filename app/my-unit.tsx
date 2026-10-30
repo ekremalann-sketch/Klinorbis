@@ -43,7 +43,7 @@ export function MyUnit() {
   const [reason, setReason] = useState("");
   const d = live.data;
   const g = d?.groups;
-  const total = g ? g.inspection.length + g.unassigned.length + g.inProgress.length + g.awaitingApproval.length : 0;
+  const total = g ? Object.values(g).reduce((n, items) => n + items.length, 0) : 0;
 
   async function act(t: WorkTask, action: string, message: string) {
     if (busy) return;

@@ -31,6 +31,14 @@ await test("operations manager keeps all unit choices after selecting a unit", a
   assert.equal((await getJson(myUnit, "/api/my-unit?birim=INVALID-SIM", OWNER)).status, 400);
 });
 const run = (ref) => sqlite.prepare("SELECT status, current_step, version FROM playbook_runs WHERE reference = ?").get(ref);
+await test("a late unassigned task appears once across unit queues", async () => {
+  const f = await cleaningTask("SIM-UNIQUE");
+  sqlite.prepare("UPDATE operational_tasks SET due_at=? WHERE reference=?").run(Date.now()-60000,f.taskRef);
+  const r = await getJson(myUnit, "/api/my-unit?birim=CTM", M);
+  const all = Object.values(r.body.groups).flat();
+  assert.equal(all.filter(t => t.reference === f.taskRef).length,1);
+  assert.ok(r.body.groups.overdue.some(t => t.reference === f.taskRef));
+});
 
 /** yatak-hazirlik başlatır ve TBR adımını geçirir → temizlik işi CTM kuyruğunda. */
 async function cleaningTask(location = "312-B") {
