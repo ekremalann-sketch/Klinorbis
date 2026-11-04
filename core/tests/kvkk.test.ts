@@ -44,7 +44,13 @@ test("ihlal: 72 saat sayacı; bildirim adımları zaman çizelgesine yazılır",
 test("erişim listesi: hasta belirtecine erişimler kişiye verilebilir biçimde listelenir", async () => {
   await run(async (tx) => { await logAccess(tx, A.tenantId, "ytk@a.test", "P-00AB12", "gorev", "TSK-1"); await logAccess(tx, A.tenantId, "hekim@a.test", "P-00AB12", "onay", "AKS-1"); });
   const list = await run((tx) => accessReport(tx, "P-00AB12"));
-  assert.deepEqual(list.map((x) => x.actor), ["ytk@a.test", "hekim@a.test"]);
+  // PostgreSQL now() gives both rows the same timestamp in this transaction.
+  // Their order on a timestamp tie is unspecified; verify contents and chronology separately.
+  assert.deepEqual(list.map(({ actor, purpose, resource }) => ({ actor, purpose, resource })).sort((a, b) => a.actor.localeCompare(b.actor)), [
+    { actor: "hekim@a.test", purpose: "onay", resource: "AKS-1" },
+    { actor: "ytk@a.test", purpose: "gorev", resource: "TSK-1" },
+  ]);
+  assert.ok(list.every((row, i) => i === 0 || new Date(list[i - 1].at).getTime() <= new Date(row.at).getTime()));
 });
 
 test("imha: onaysız politika etkinleşmez; beyaz liste dışı hedef reddedilir; yasal saklama atlanır; tutanak üretilir; kasa anonimleşir", async () => {
