@@ -21,7 +21,7 @@ export function OpsFocus({ showDetail, detailOpen }: { showDetail: () => void; d
       <div className="wk-head">
         <div>
           <h2 id="of-title">Müdahale gerektirenler</h2>
-          <p>Yalnız sizin karar vermeniz gereken konular. Rutin işler birimlerde ilerliyor.</p>
+          <p>Yalnız sizin müdahale etmeniz gereken konular. Rutin işler birimlerde ilerliyor.</p>
         </div>
         <button type="button" className="wk-secondary" aria-expanded={detailOpen} onClick={showDetail}>{detailOpen ? "Ayrıntılı panoyu gizle" : "Ayrıntılı panoyu göster"}</button>
       </div>
