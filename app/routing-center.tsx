@@ -83,7 +83,7 @@ export function RoutingCenter() {
           <nav className="wk-summary" aria-label="Birim grupları">
             {dir.map((g) => <a key={g.key} href={`#rc-${g.key}`} onClick={() => setOpenGroup(g.key)}><b>{g.units.length}</b><span>{g.label}</span></a>)}
           </nav>
-          {dir.map((g) => g.units.length > 0 && <details key={g.key} id={`rc-${g.key}`} className="rc-group" open={!!term || openGroup === g.key || g.key === "tani"}>
+          {dir.map((g) => g.units.length > 0 && <details key={g.key} id={`rc-${g.key}`} className="rc-group" open={!!term || openGroup === g.key}>
             <summary><b>{g.label}</b> <span className="wk-count">{g.units.length}</span><small>{g.hint}</small></summary>
             <div className="rc-units">
               {g.units.map((u) => <article key={u.code} className="wk-card wk-card-compact">

@@ -2,6 +2,7 @@ import { SecurityError, type RequestActor } from './security';
 import { sha256 } from './security';
 import { automationStopped } from './automation-policy';
 import { getDb } from '../db';
+export const TRANSPORT_HOLD_MS = 30 * 60_000;
 export const COORD_LABEL='SİMÜLASYON · Kurgusal hastane · Rakamlar varsayımlara dayanır, gerçek pilot sonucu değildir.';
 export type Bed={tenant:string;id:string;campus:string;building:string;floor:string;unit:string;room:string;physical:string;hbys:string;cleaning:string;technical:number;staffed:number;review:number;source_version:number;observed_at:number|null;version:number};
 export type Job={tenant:string;id:string;kind:string;bed:string;target:string|null;unit:string;status:string;owner:string|null;authority:string;patient:string|null;reason:string;version:number;created_at:number;updated_at:number};
@@ -34,10 +35,19 @@ export async function coordView(actor:RequestActor,tenant:string){
  if(!membership){if(tenant==='SIM-KURUM-A'&&admin(actor))return {initialized:false,label:COORD_LABEL,realConnection:'Kapalı',beds:[],jobs:[],messages:[],audit:[],canManage:true};await coordScope(actor,tenant);}
  await coordScope(actor,tenant);
  const beds=await rows<Bed>('SELECT * FROM simops_beds WHERE tenant=? ORDER BY id',tenant);
- const allJobs=await rows<Job>('SELECT * FROM simops_jobs WHERE tenant=? ORDER BY created_at DESC LIMIT 200',tenant);
- const jobs=allJobs.filter(j=>admin(actor)||actor.unitCodes.includes(j.unit));
+ const unitCodes = actor.unitCodes;
+ const scope = admin(actor) ? '' : ' AND unit IN (' + (unitCodes.map(() => '?').join(',') || 'NULL') + ')';
+ const bindings = admin(actor) ? [tenant] : [tenant, ...unitCodes];
+ const open = await rows<Job>("SELECT * FROM simops_jobs WHERE tenant=?" + scope + " AND status NOT IN ('done','cancelled') ORDER BY created_at DESC, id", ...bindings);
+ const closed = await rows<Job>("SELECT * FROM simops_jobs WHERE tenant=?" + scope + " AND status IN ('done','cancelled') ORDER BY created_at DESC, id LIMIT 200", ...bindings);
+ const now = Date.now();
+ const jobs = [...open, ...closed].map(job =>
+  job.kind==='transport' && ['queued','accepted'].includes(job.status) && job.created_at<=now-TRANSPORT_HOLD_MS
+   ? {...job,status:'expired',reason:'Yatak ayırma süresi doldu'}
+   : job
+ );
  const messages=admin(actor)?await rows<Message>('SELECT * FROM simops_messages WHERE tenant=? ORDER BY received_at DESC LIMIT 100',tenant):[];
- const reservations=await rows<{bed:string;job:string}>('SELECT bed,job FROM simops_reservations WHERE tenant=?',tenant);
+ const reservations=await rows<{bed:string;job:string}>("SELECT r.bed,r.job FROM simops_reservations r JOIN simops_jobs j ON j.tenant=r.tenant AND j.id=r.job WHERE r.tenant=? AND (j.status='active' OR (j.status IN ('queued','accepted') AND j.created_at>?))",tenant,Date.now()-TRANSPORT_HOLD_MS);
  const last=messages.filter(m=>m.status==='processed').reduce((a,m)=>Math.max(a,m.observed_at),0);
  return {initialized:true,label:COORD_LABEL,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at||Date.now()-b.observed_at>900000,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
 }
@@ -84,13 +94,17 @@ export async function transitionCoord(actor:RequestActor,tenant:string,id:string
  if(j.version!==version)fail('CONFLICT','Görev başka işlemle değişti.');if(j.owner&&j.owner!==actor.email&&!['inspect','cancel','handoff.accept'].includes(action))fail('OWNER_REQUIRED','Görev başka personelde.');
  const steps:Record<string,Record<string,string>>={cleaning:{accept:'accepted',start:'active',complete:'check',inspect:'done',rework:'active'},transport:{accept:'accepted',start:'active',deliver:'done'}};
  const prior:Record<string,string[]>={accept:['queued'],start:['accepted'],complete:['active'],inspect:['check'],rework:['check'],deliver:['active']};const next=steps[j.kind]?.[action];if(!next||!prior[action]?.includes(j.status))fail('INVALID_TRANSITION','Bu adım sırası geçersiz.');
+ const beforeTransport = j.kind==='transport' && (action==='accept'||action==='start');
+ if(beforeTransport && j.created_at<=Date.now()-TRANSPORT_HOLD_MS)fail('RESERVATION_EXPIRED','Yatak ayırma süresi doldu. Yeni transfer talebi açın.');
  if(action==='inspect'&&(!['operations_manager','unit_manager'].includes(actor.role)||j.owner===actor.email))fail('INDEPENDENT_INSPECTION','Temizliği yapan kişiden farklı yetkili kontrol etmelidir.',403);
  if(action==='deliver'){
   const c=confirmation as Record<string,unknown>|undefined;
   if(!c||Object.keys(c).some(k=>!['target','twoIdentifiersVerified','receiverConfirmed','receiver'].includes(k))||c.target!==j.target||c.twoIdentifiersVerified!==true||c.receiverConfirmed!==true||typeof c.receiver!=='string'||!/^PRS-SIM-[A-Z0-9-]{1,30}$/.test(c.receiver)||c.receiver===j.owner)fail('DELIVERY_CONFIRMATION','Doğru hedef, iki kimlik unsurunun kurum prosedürüyle doğrulanması ve alıcı teslim onayı gerekli.',422);
  }
  const duty=await dutyGuard(tenant,actor.email,j.unit);
- const now=Date.now(),st=[...duty,...guard('SELECT 1 FROM simops_jobs WHERE tenant=? AND id=? AND version=?',[tenant,id,version]),q('UPDATE simops_jobs SET status=?,owner=coalesce(owner,?),reason=?,version=version+1,updated_at=? WHERE tenant=? AND id=?',next,actor.email,next==='done'?'DONE':next==='check'?'WAIT_INSPECTION':'IN_PROGRESS',now,tenant,id)];
+ const now=Date.now(),st=[...duty,...guard(
+  'SELECT 1 FROM simops_jobs WHERE tenant=? AND id=? AND version=?' + (beforeTransport ? ' AND created_at>?' : ''),
+  beforeTransport ? [tenant,id,version,now-TRANSPORT_HOLD_MS] : [tenant,id,version]),q('UPDATE simops_jobs SET status=?,owner=coalesce(owner,?),reason=?,version=version+1,updated_at=? WHERE tenant=? AND id=?',next,actor.email,next==='done'?'DONE':next==='check'?'WAIT_INSPECTION':'IN_PROGRESS',now,tenant,id)];
  if(j.kind==='cleaning')st.push(q('UPDATE simops_beds SET cleaning=?,version=version+1 WHERE tenant=? AND id=?',next==='done'?'ready':next==='check'?'check':next==='active'?'active':'queued',tenant,j.bed));
  if(j.kind==='transport'&&action==='deliver'){
   st.push(q('UPDATE simops_jobs SET delivery_evidence=? WHERE tenant=? AND id=?',JSON.stringify(confirmation),tenant,id));
@@ -102,7 +116,31 @@ export async function reserveTransport(actor:RequestActor,tenant:string,raw:Reco
  if(typeof raw.patient!=='string'||!/^HST-SIM-\d{3}$/.test(raw.patient)||typeof raw.authority!=='string'||!/^YTKL-SIM-[A-Z0-9-]{1,40}$/.test(raw.authority)||!Number.isSafeInteger(raw.decidedAt)||Number(raw.decidedAt)>Date.now()||Date.now()-Number(raw.decidedAt)>86400000)fail('AUTHORITY_REQUIRED','Kurgusal hasta, yetkili karar kodu ve son 24 saatteki karar zamanı gerekli.',422);
  const beds=await rows<Bed>('SELECT * FROM simops_beds WHERE tenant=? AND id IN(?,?)',tenant,raw.bed,raw.target),source=beds.find(b=>b.id===raw.bed),target=beds.find(b=>b.id===raw.target);
  if(!source||!target||source.id===target.id||source.physical!=='occupied'||source.review||!bedReady(target))fail('BED_UNAVAILABLE','Kaynak dolu ve hedefsiz inceleme yok; hedef doğrulanmış hazır yatak olmalı.');if(!admin(actor)&&!actor.unitCodes.includes(source.unit))fail('UNIT_DENIED','Kaynak birim yetkiniz yok.',403);
- const id=`SIM-TRN-${crypto.randomUUID().slice(0,8)}`,now=Date.now();await batch([...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,target.id,target.version]),...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,source.id,source.version]),q('INSERT INTO simops_reservations(tenant,bed,patient,job) VALUES(?,?,?,?)',tenant,target.id,raw.patient,id),q("INSERT INTO simops_jobs(tenant,id,kind,bed,target,unit,authority,patient,decision_at,created_at,updated_at) VALUES(?,?,'transport',?,?,'ULS',?,?,?,?,?)",tenant,id,source.id,target.id,raw.authority,raw.patient,raw.decidedAt,now,now),log(tenant,actor,'transport.request',id)]);return {id};
+ const id=`SIM-TRN-${crypto.randomUUID().slice(0,8)}`,now=Date.now();await batch([...expireTransportReservations(actor,tenant,now),...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,target.id,target.version]),...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,source.id,source.version]),q('INSERT INTO simops_reservations(tenant,bed,patient,job) VALUES(?,?,?,?)',tenant,target.id,raw.patient,id),q("INSERT INTO simops_jobs(tenant,id,kind,bed,target,unit,authority,patient,decision_at,created_at,updated_at) VALUES(?,?,'transport',?,?,'ULS',?,?,?,?,?)",tenant,id,source.id,target.id,raw.authority,raw.patient,raw.decidedAt,now,now),log(tenant,actor,'transport.request',id)]);return {id};
+}
+function expireTransportReservations(actor: RequestActor, tenant: string, now: number) {
+ const expired = "tenant=? AND kind='transport' AND status IN ('queued','accepted') AND created_at<=?";
+ const cutoff = now - TRANSPORT_HOLD_MS;
+ return [
+  q("INSERT INTO simops_log(tenant,actor,action,resource,at) SELECT tenant,?,'transport.expire',id,? FROM simops_jobs WHERE " + expired, actor.email, now, tenant, cutoff),
+  q("DELETE FROM simops_reservations WHERE tenant=? AND job IN (SELECT id FROM simops_jobs WHERE " + expired + ")", tenant, tenant, cutoff),
+  q("UPDATE simops_jobs SET status='cancelled',reason='RESERVATION_EXPIRED',version=version+1,updated_at=? WHERE " + expired, now, tenant, cutoff),
+ ];
+}
+export async function cancelTransport(actor: RequestActor, tenant: string, id: string, version: number, reason: unknown) {
+ await coordScope(actor, tenant);
+ if (!admin(actor)) fail('MANAGER_REQUIRED', 'Rezervasyonu operasyon yöneticisi iptal eder.', 403);
+ await writable();
+ if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 250) {
+  fail('REASON_REQUIRED', 'En fazla 250 karakterlik iptal nedeni girin.', 422);
+ }
+ await batch([
+  ...guard("SELECT 1 FROM simops_jobs WHERE tenant=? AND id=? AND version=? AND kind='transport' AND status IN ('queued','accepted')", [tenant, id, version]),
+  q("UPDATE simops_jobs SET status='cancelled',reason=?,version=version+1,updated_at=? WHERE tenant=? AND id=?", reason.trim(), Date.now(), tenant, id),
+  q('DELETE FROM simops_reservations WHERE tenant=? AND job=?', tenant, id),
+  log(tenant, actor, 'transport.cancel', id),
+ ]);
+ return {id, status:'cancelled'};
 }
 // Synthetic duty uses the existing active staff/unit directory; it never grants real staff permissions.
 export async function setCoordDuty(actor:RequestActor,tenant:string,body:Record<string,unknown>){await coordScope(actor,tenant);if(!admin(actor))fail('MANAGER_REQUIRED','Vardiyayı operasyon yöneticisi planlar.',403);await writable();
@@ -113,6 +151,7 @@ export async function setCoordDuty(actor:RequestActor,tenant:string,body:Record<
 }
 async function dutyGuard(tenant:string,email:string,unit:string){const now=Date.now();const sql="SELECT 1 FROM simops_duty d JOIN staff_accounts s ON s.email=d.email WHERE d.tenant=? AND d.email=? AND d.unit=? AND d.available=1 AND d.starts_at<=? AND d.ends_at>? AND s.active=1 AND s.system_role IN ('operations_manager','unit_manager','clinician','call_agent') AND (s.system_role='operations_manager' OR EXISTS (SELECT 1 FROM unit_memberships m WHERE m.email=d.email AND m.unit_code=d.unit AND m.active=1))";const args=[tenant,email,unit,now,now];if(!await q(sql,...args).first())fail('OFF_DUTY','Etkin birim üyeliği, uygunluk ve bu saatte geçerli vardiya gerekli.',403);return guard(sql,args);}
 export async function coordHandoff(actor:RequestActor,tenant:string,id:string,version:number,to:string,accept=false){await coordScope(actor,tenant);await writable();const j=await q('SELECT * FROM simops_jobs WHERE tenant=? AND id=?',tenant,id).first<Job&{handoff_to:string|null}>();if(!j||['done','cancelled'].includes(j.status)||j.version!==version)fail('CONFLICT','Açık görev veya sürüm değişti.');
+ if(j.kind==='transport'&&['queued','accepted'].includes(j.status)&&j.created_at<=Date.now()-TRANSPORT_HOLD_MS)fail('RESERVATION_EXPIRED','Süresi dolmuş taşıma devredilemez.');
  if(accept){if(j.handoff_to!==actor.email)fail('HANDOFF_RECIPIENT','Yalnız belirtilen devralan onaylayabilir.',403);const d=await dutyGuard(tenant,actor.email,j.unit);await batch([...d,...guard('SELECT 1 FROM simops_jobs WHERE tenant=? AND id=? AND version=?',[tenant,id,version]),q('UPDATE simops_jobs SET owner=?,handoff_to=NULL,version=version+1,updated_at=? WHERE tenant=? AND id=?',actor.email,Date.now(),tenant,id),log(tenant,actor,'handoff.accept',id)]);
  }else{if(j.owner!==actor.email||to===actor.email||j.handoff_to)fail('HANDOFF_OWNER','Devri görev sahibi başlatır; bekleyen devri tekrar başlatamaz.',403);await coordScope({...actor,email:to},tenant);await dutyGuard(tenant,to,j.unit);await batch([...guard('SELECT 1 FROM simops_jobs WHERE tenant=? AND id=? AND version=?',[tenant,id,version]),q('UPDATE simops_jobs SET handoff_to=?,version=version+1,updated_at=? WHERE tenant=? AND id=?',to,Date.now(),tenant,id),log(tenant,actor,'handoff.request',id)]);}
  return {id};}
