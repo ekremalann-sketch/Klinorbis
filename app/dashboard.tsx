@@ -1671,7 +1671,7 @@ function ClinicianHome({ snapshot, navigate }: { snapshot: Snapshot; navigate: (
   const myShifts = snapshot.shifts.filter((shift) => shift.status === "active" || shift.status === "handoff").slice(0, 4);
   return (
     <>
-      <Hero title="Bugün sizi bekleyenler" text="Onaylar ve biriminizin açık işleri." />
+      <Hero title="Bugün sizi bekleyenler" text="Onaylar ve biriminizin açık işleri. Sistem klinik öneri üretmez; karar sizindir." />
       <section className="stats">
         <Stat value={pending.length} label="Onayınızı bekleyen" />
         <Stat value={open.filter((task) => task.priority === "Acil").length} label="Acil açık iş" />
