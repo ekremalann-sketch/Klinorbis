@@ -85,3 +85,39 @@ await test('mutabakat: bilinmeyen HBYS durumu onaylanamaz; güncel doğrulama es
 await test('kapasite engelleri sürümle ve yetkiyle değiştirilir; açık kontrol zorlanamaz',async()=>{
  let b=bed('YTK-SIM-003');assert.equal((await post({action:'bed-control',id:b.id,version:b.version,technical:false,staffed:false},CLEAN)).status,403);assert.equal((await post({action:'bed-control',id:b.id,version:b.version,technical:false,staffed:false})).status,200);assert.equal(bed(b.id).technical,0);assert.equal((await post({action:'bed-control',id:b.id,version:b.version,technical:true,staffed:true})).status,409);
 });
+
+await test('rezervasyon iptali yetki ve sürüm denetiminden sonra yatağı serbest bırakır',async()=>{
+ const insert=sqlite.prepare("INSERT INTO simops_jobs(tenant,id,kind,bed,target,unit,authority,status,created_at,updated_at) VALUES('SIM-KURUM-A',?,'transport','YTK-SIM-002','YTK-SIM-001','ULS','YTKL-SIM-001',?,?,?)");
+ insert.run('SIM-CANCEL','queued',Date.now(),Date.now());
+ sqlite.prepare("INSERT INTO simops_reservations VALUES('SIM-KURUM-A','YTK-SIM-001','HST-SIM-001','SIM-CANCEL')").run();
+ const body={action:'transport-cancel',id:'SIM-CANCEL',version:0,reason:'Kurgusal taşıma ertelendi'};
+ assert.equal((await post(body,CLEAN)).status,403);
+ assert.equal((await post({...body,version:1})).status,409);
+ assert.equal((await post(body)).status,200);
+ assert.equal(job('SIM-CANCEL').status,'cancelled');
+ assert.equal(sqlite.prepare("SELECT count(*) n FROM simops_reservations WHERE job='SIM-CANCEL'").get().n,0);
+ insert.run('SIM-ACTIVE','active',Date.now(),Date.now());
+ assert.equal((await post({...body,id:'SIM-ACTIVE'})).status,409);
+});
+await test('eski açık iş kapalı kayıtlar tarafından kuyruktan düşürülmez',async()=>{
+ const insert=sqlite.prepare("INSERT INTO simops_jobs(tenant,id,kind,bed,unit,authority,status,created_at,updated_at) VALUES('SIM-KURUM-A',?,'review','YTK-SIM-002',?,'YTKL-SIM-001',?,?,?)");
+ insert.run('SIM-OLD-OPEN','CTM','queued',1,1);
+ for(let i=0;i<205;i++)insert.run('SIM-CLOSED-'+i,'YTK','done',Date.now(),Date.now());
+ const response=await get(CLEAN);
+ assert.equal(response.status,200);
+ const view=await response.json();
+ assert.ok(view.jobs.some(j=>j.id==='SIM-OLD-OPEN'));
+ assert.ok(view.jobs.every(j=>j.unit==='CTM'));
+});
+await test('süresi dolan rezervasyon başlatılamaz ve yeni talep yatağı alabilir',async()=>{
+ const old=Date.now()-lib.TRANSPORT_HOLD_MS-1;
+ sqlite.prepare("UPDATE simops_beds SET physical='departed',hbys='vacant',cleaning='ready',review=0,observed_at=? WHERE tenant='SIM-KURUM-A' AND id='YTK-SIM-001'").run(Date.now());
+ sqlite.prepare("UPDATE simops_beds SET physical='occupied',review=0 WHERE tenant='SIM-KURUM-A' AND id='YTK-SIM-008'").run();
+ sqlite.prepare("INSERT INTO simops_jobs(tenant,id,kind,bed,target,unit,authority,status,created_at,updated_at) VALUES('SIM-KURUM-A','SIM-EXPIRED','transport','YTK-SIM-008','YTK-SIM-001','ULS','YTKL-SIM-001','accepted',?,?)").run(old,old);
+ sqlite.prepare("INSERT INTO simops_reservations VALUES('SIM-KURUM-A','YTK-SIM-001','HST-SIM-003','SIM-EXPIRED')").run();
+ assert.equal((await transition('SIM-EXPIRED','start')).status,409);
+ const response=await post({action:'transport',bed:'YTK-SIM-008',target:'YTK-SIM-001',patient:'HST-SIM-004',authority:'YTKL-SIM-002',decidedAt:Date.now()});
+ assert.equal(response.status,200,await response.clone().text());
+ assert.equal(job('SIM-EXPIRED').status,'cancelled');
+ assert.equal(sqlite.prepare("SELECT job FROM simops_reservations WHERE bed='YTK-SIM-001'").get().job,(await response.json()).id);
+});
