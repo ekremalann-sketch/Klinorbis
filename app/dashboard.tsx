@@ -1241,7 +1241,7 @@ export default function Dashboard({
         <div className="system">
           <span className={`pulse ${error ? "off" : ""}`} />
           <div>
-            <b>{error ? "Eşitleme uyarısı" : "Sunucu akışı bağlı"}</b>
+            <b>{error ? "Güncelleme bekleniyor" : "Güncel"}</b>
             <small>Son eşitleme {formatTime(snapshot.generatedAt)}</small>
           </div>
         </div>
@@ -1309,7 +1309,7 @@ export default function Dashboard({
             )}
           </div>
         </header>
-        {snapshot.features?.profileNotice && <p className="profile-banner" role="note">{snapshot.features.profileNotice}</p>}
+        {snapshot.features?.profileNotice && <details className="profile-banner"><summary>Demo ortamı: yalnız kurgusal veri girin.</summary><p>{snapshot.features.profileNotice}</p></details>}
         {previewRole && realRole === "operations_manager" && (
           <div className="preview-banner" role="status">
             <span><b>Önizleme:</b> {roleNames[previewRole]} gözünden görüyorsunuz. Veriler ve yetki sizin oturumunuzdan gelir.</span>
@@ -1653,8 +1653,8 @@ function ControlRibbon({ snapshot, navigate, currentView, role }: { snapshot: Sn
  const allowed=ROLE_VIEWS[role ?? snapshot.identity.role];
  const items=attentionItems(snapshot).filter(item=>!allowed||allowed.includes(item.view as View));
  return <section className="attention-bar" aria-label="Öncelikli işler">{items.map(item=>{
-  const content=<><span className={item.critical?"attention-mark critical":"attention-mark"} aria-hidden="true">{item.critical?"!":"•"}</span><span><small>{item.label}</small><b>{item.value}</b><em>{item.detail}</em></span></>;
-  return item.view===currentView?<div key={item.view} className="attention-item current">{content}</div>:<button type="button" className="attention-item" key={item.view} onClick={()=>navigate(item.view as View)} aria-label={`${item.label}: ${item.value}. ${item.detail}`}>{content}<span aria-hidden="true">→</span></button>;
+  const content=<><span className="attention-label">{item.label === "Onay bekleyen" ? "Onaylar" : item.label}</span><b>{item.value}</b></>;
+  return item.view===currentView?<div key={item.view} className="attention-item current" aria-current="page">{content}</div>:<button type="button" className="attention-item" key={item.view} onClick={()=>navigate(item.view as View)} aria-label={`${item.label}: ${item.value}. ${item.detail}`}>{content}</button>;
  })}</section>;
 }
 
@@ -1671,7 +1671,7 @@ function ClinicianHome({ snapshot, navigate }: { snapshot: Snapshot; navigate: (
   const myShifts = snapshot.shifts.filter((shift) => shift.status === "active" || shift.status === "handoff").slice(0, 4);
   return (
     <>
-      <Hero title="Bugün sizi bekleyenler" text="Kararınızı bekleyen onaylar ve biriminizin açık işleri. Sistem klinik öneri üretmez; karar sizindir." />
+      <Hero title="Bugün sizi bekleyenler" text="Onaylar ve biriminizin açık işleri. Sistem klinik öneri üretmez; karar sizindir." />
       <section className="stats">
         <Stat value={pending.length} label="Onayınızı bekleyen" />
         <Stat value={open.filter((task) => task.priority === "Acil").length} label="Acil açık iş" />
@@ -1679,7 +1679,7 @@ function ClinicianHome({ snapshot, navigate }: { snapshot: Snapshot; navigate: (
       </section>
       <div className="ops-grid">
         <section className="panel">
-          <div className="panel-head"><div><h3>Kararınızı bekleyen onaylar</h3><p>En eski en üstte.</p></div><button className="text-button" onClick={() => navigate("approvals")}>Onaylar →</button></div>
+          <div className="panel-head"><div><h3>Sizi bekleyen onaylar</h3><p>En eski en üstte.</p></div><button className="text-button" onClick={() => navigate("approvals")}>Onaylar →</button></div>
           {pending.length ? (
             <ul className="plain-list">
               {[...pending].sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()).slice(0, 6).map((approval) => (
@@ -2002,8 +2002,8 @@ function InboxWorkspace({ snapshot, query, setQuery, open }: { snapshot: Snapsho
   const rows = filterInboxTasks(searchable, scope, snapshot.identity.email ?? "", query);
   const filters = [["open", "Açık"], ["mine", "Benim üstlendiklerim"], ["urgent", "Acil / yüksek"], ["scheduled", "Zamanı beklenen"], ["all", "Tümü"]] as const;
   return <><Hero title="Ortak iş kutusu" text="Talep, çağrı, operasyon akışı ve hasta bilgilendirme görevleri aynı kuyrukta. Görevi açınca kendi işlem ekranına geçersiniz." />
-    <label>Görev ara<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Referans, birim veya sorumlu rol" /></label>
-    <div className="quick-row" role="group" aria-label="Görev filtresi">{filters.map(([key, label]) => <button key={key} type="button" aria-pressed={scope === key} onClick={() => setScope(key)}>{label} {filterInboxTasks(searchable, key, snapshot.identity.email ?? "", "").length}</button>)}</div>
+    <div className="toolbar"><label>Görev ara<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Referans, birim veya sorumlu rol" /></label></div>
+    <div className="scope-chips" role="group" aria-label="Görev filtresi">{filters.map(([key, label]) => <button key={key} type="button" aria-pressed={scope === key} onClick={() => setScope(key)}>{label} {filterInboxTasks(searchable, key, snapshot.identity.email ?? "", "").length}</button>)}</div>
     <p role="status">{rows.length} görev · {scope === "scheduled" ? "Bu işler zamanı gelmeden işleme alınmaz." : "Acil ve yüksek öncelik, ardından en erken hedef süre önce gösterilir."}</p>
     <TaskList snapshot={snapshot} tasks={rows} open={open} />
     {!rows.length && <p>Bu filtrede görev yok. Tümü filtresini veya arama ifadesini kontrol edin.</p>}
@@ -3790,7 +3790,7 @@ function CreateDialog({
             aria-describedby="patient-alias-help"
             title="Ad yerine HST-0001 gibi kurum kayıt kodu kullanın."
           />
-          <small id="patient-alias-help">Gerçek ad yazmayın. HST-0001 gibi bir kod kullanın; büyük harf ve rakam, bölümler arasında tire kullanılır.</small>
+          <small id="patient-alias-help">Takma ad kod olmalı, ör. HST-2026-041. Gerçek ad yazmayın.</small>
         </label>
         {kind === "call" ? (
           <label>
