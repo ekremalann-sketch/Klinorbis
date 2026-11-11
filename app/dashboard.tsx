@@ -12,6 +12,7 @@ import { FhirValidator, OperationsForms } from "./operations-forms";
 import { workspaceContentKey } from "../lib/workspace-content";
 import { filterInboxTasks } from "../lib/inbox";
 import { ScreenHelpBox } from "./screen-help-box";
+import { bMenu, SETTINGS_LINKS } from "../lib/b-menu";
 
 import {
   lazy,
@@ -286,6 +287,7 @@ type Snapshot = {
     label: string;
     role: string;
     unitCodes: string[];
+    unitRoles?: string[];
     canSeeAllUnits: boolean;
   };
   units: Unit[];
@@ -498,28 +500,12 @@ const nav: Array<{ view: View; icon: LucideIcon; label: string; group?: string }
   ];
 function NavigationIcon({view}:{view:View}){const Icon=nav.find(item=>item.view===view)?.icon;return Icon?<Icon aria-hidden="true" size={20}/>:null;}
 // Rol bazlı menü: her rol yalnız kendi işine ait ekranları görür; ilk eleman rolün ana ekranıdır.
-// Yetki sunucuda uygulanır; menüden gizlemek güvenlik değil kolaylıktır. Kalan ekranlar "Diğer ekranlar" altındadır.
-const ROLE_VIEWS: Record<string, View[]> = {
-  operations_manager: ["dashboard", "myunit", "inbox", "approvals", "routing", "playbooks", "capacity", "reports", "staff"],
-  unit_manager: ["myunit", "mywork", "approvals", "playbooks", "capacity", "staff"],
-  clinician: ["mywork", "approvals", "access", "staff"],
-  call_agent: ["calls", "mywork", "appointments", "staff"],
-  // Çağrı merkezi dışındaki birim görevlileri (temizlik, transport, servis…): yalnız kendi işleri.
-  unit_staff: ["mywork", "staff"],
-  privacy_officer: ["privacy", "audit", "reports", "staff"],
-  security_officer: ["security", "routing", "integrations", "automation", "audit", "staff"],
-};
-// Teknik ve entegrasyon ekranları günlük iş rollerinin "Diğer ekranlar" listesinde de görünmez (sunucu ayrıca reddeder).
-const TECHNICAL_VIEWS: View[] = ["integrations", "security", "automation", "audit", "privacy"];
-const TECHNICAL_ROLES = ["operations_manager", "security_officer", "privacy_officer"];
+// Yetki sunucuda uygulanır; menüden gizlemek güvenlik değil kolaylıktır. Rol ekranları lib/b-menu.ts (K14) kaynağından türetilir.
+const ROLE_VIEWS: Record<string, View[]> = Object.fromEntries(
+  ["operations_manager", "unit_manager", "clinician", "call_agent", "unit_staff", "privacy_officer", "security_officer"].map((role) => [role, [...new Set(bMenu(role).flatMap((item) => (item.view ? [item.view as View] : [])))]]),
+);
 /** Menü rolü: sistem rolü "call_agent" olan ama çağrı merkezinde çalışmayan personel "birim görevlisi" menüsünü görür. */
 function menuRoleOf(role: string, unitCodes: string[]) { return role === "call_agent" && !unitCodes.includes("CAG") ? "unit_staff" : role; }
-const NAV_GROUP_OF: Record<string, string> = (() => {
-  let current = "";
-  const out: Record<string, string> = {};
-  for (const item of nav) { if (item.group) current = item.group; out[item.view] = current; }
-  return out;
-})();
 const MOBILE_LABELS: Partial<Record<View, string>> = {
   mywork: "İşlerim", myunit: "Birimim", routing: "Yönlendirme",
   dashboard: "Operasyon", inbox: "İşler", calls: "Çağrı", approvals: "Onay", access: "Yokluk", units: "Birim",
@@ -529,7 +515,7 @@ const MOBILE_LABELS: Partial<Record<View, string>> = {
 const roleNames: Record<string, string> = {
   operations_manager: "Operasyon Yöneticisi",
   unit_manager: "Birim Sorumlusu",
-  clinician: "Hekim / Klinik Rol",
+  clinician: "Hekim",
   call_agent: "Çağrı Merkezi Görevlisi",
   privacy_officer: "KVKK Yetkilisi",
   security_officer: "Bilgi Güvenliği Yetkilisi",
@@ -614,7 +600,6 @@ export default function Dashboard({
   const [personal, setPersonal] = useState<{ items: PersonalNotice[]; unread: number }>({ items: [], unread: 0 });
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [query, setQuery] = useState("");
-  const [showAllNav, setShowAllNav] = useState(false);
   // Rol önizlemesi: operasyon yöneticisi "hekim / çağrı görevlisi … bu ekranı nasıl görüyor?" diye bakabilir.
   // Yalnız menü, ana ekran ve dikkat şeridi değişir; veriler ve yetki yöneticinin kendi oturumundan gelir.
   const [previewRole, setPreviewRole] = useState<string | null>(null);
@@ -1194,53 +1179,31 @@ export default function Dashboard({
           </div>
         </div>
         <nav>
-          {(() => {
-            const allowed = ROLE_VIEWS[menuRole];
-            const visible = nav.filter((item) => TECHNICAL_ROLES.includes(menuRole) || !TECHNICAL_VIEWS.includes(item.view));
-            // Rolün ekranları ROLE_VIEWS sırasıyla (ilk eleman ana ekran); açık olan ekran listede yoksa sona eklenir.
-            const own = allowed ? visible.filter((item) => allowed.includes(item.view)).sort((a, b) => allowed.indexOf(a.view) - allowed.indexOf(b.view)) : visible;
-            const list = !allowed ? visible : showAllNav
-              ? [...own, ...visible.filter((item) => !allowed.includes(item.view)).map((item, i) => ({ ...item, other: i === 0 }))]
-              : [...own, ...visible.filter((item) => !allowed.includes(item.view) && item.view === initialView)];
-            return list.map((item, index) => ({ ...item, group: "other" in item && item.other ? "DİĞER EKRANLAR" : allowed ? (index === 0 ? "BENİM İŞİM" : undefined) : index === 0 || NAV_GROUP_OF[list[index - 1].view] !== NAV_GROUP_OF[item.view] ? NAV_GROUP_OF[item.view] || undefined : undefined }));
-          })().map((item) => {
-            const badge =
-              item.view === "inbox"
-                ? snapshot.tasks.filter(
-                    (task) => !["completed", "cancelled", "scheduled"].includes(task.status),
-                  ).length
-                : item.view === "approvals"
-                  ? snapshot.approvals.filter(
-                      (approval) => approval.status === "pending",
-                    ).length
-                  : item.view === "calls"
-                    ? snapshot.calls.filter((call) =>
-                        [
-                          "ringing",
-                          "active",
-                          "human_handoff",
-                          "transferred",
-                        ].includes(call.status),
-                      ).length
-                    : 0;
+          {/* K14: menü B listesindeki ekranlardır (lib/b-menu.ts); ürün dışı ekranlar menüde yok. */}
+          {bMenu(menuRole, previewRole ? [] : snapshot.identity.unitRoles).map((item, index) => {
+            const active = item.view ? initialView === item.view : false;
+            const badge = item.view === "capacity" ? snapshot.approvals.filter((approval) => approval.status === "pending").length : 0;
             return (
-              <span key={item.view}>
-                {item.group && <p>{item.group}</p>}
-                <button
-                  className={initialView === item.view ? "active" : ""}
-                  onClick={() => navigate(item.view)}
-                >
-                  <item.icon aria-hidden="true" size={20}/>
-                  {item.label}
-                  {badge > 0 && <i>{badge}</i>}
-                </button>
+              <span key={item.key}>
+                {index === 0 && <p>BENİM İŞİM</p>}
+                {item.href ? (
+                  <Link className="nav-link" href={item.href}>{item.label}</Link>
+                ) : (
+                  <button className={active ? "active" : ""} onClick={() => navigate(item.view as View)}>
+                    {item.label}
+                    {badge > 0 && <i>{badge}</i>}
+                  </button>
+                )}
               </span>
             );
           })}
-          {ROLE_VIEWS[menuRole] && (
-            <button type="button" className="nav-toggle" aria-expanded={showAllNav} onClick={() => setShowAllNav((v) => !v)}>
-              {showAllNav ? "Diğer ekranları gizle" : "Diğer ekranlar"}
-            </button>
+          {SETTINGS_LINKS[menuRole] && (
+            <details className="nav-settings" open={SETTINGS_LINKS[menuRole].some((link) => link.view === initialView)}>
+              <summary>Ayarlar altı</summary>
+              {SETTINGS_LINKS[menuRole].map((link) => (
+                <button key={link.view} type="button" className={initialView === link.view ? "active" : ""} onClick={() => navigate(link.view as View)}>{link.label}</button>
+              ))}
+            </details>
           )}
         </nav>
         <div className="system">
@@ -1250,8 +1213,6 @@ export default function Dashboard({
             <small>Son eşitleme {formatTime(snapshot.generatedAt)}</small>
           </div>
         </div>
-        {/* Kurgusal (sentetik) çekirdek ekranlarına bağlantılar: yalnız operasyon ve teknik rollerde, sade bir kutuda. */}
-        {["operations_manager", "security_officer"].includes(menuRole) && <details className="sidebar-sim-links"><summary>Sentetik çekirdek ekranları</summary><Link href="/yatak">Yatak panosu</Link><Link href="/temizlik">Temizlik kuyruğu</Link><Link href="/entegrasyon">Entegrasyon merkezi</Link><Link href="/hbys">Transport, vardiya ve devir</Link></details>}
       </aside>
       <section className="content">
         <header>

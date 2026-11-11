@@ -10,6 +10,8 @@ export type RequestActor = {
   label: string;
   role: SystemRole;
   unitCodes: string[];
+  /** K14: birimdeki iş rolü metinleri (ör. "Temizlik personeli"); menü sadeleştirmesi için. */
+  unitRoles?: string[];
   canSeeAllUnits: boolean;
 };
 
@@ -100,6 +102,7 @@ export async function requireActor(request: Request): Promise<RequestActor> {
     label: account.displayLabel,
     role: account.systemRole as SystemRole,
     unitCodes: memberships.map((membership) => membership.unitCode),
+    unitRoles: memberships.map((membership) => membership.unitRole),
     canSeeAllUnits: account.systemRole === "operations_manager" || account.systemRole === "privacy_officer" || account.systemRole === "security_officer",
   };
 }
