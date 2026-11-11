@@ -76,12 +76,12 @@ const REPORT_SEED = [
 ] as const;
 
 const TRANSFER_BASELINE = [
-  ["XFR-PILOT-001", "KRM-PİLOT-01", "Kurum-A", "F01", "YOG", "ICU_BED", "Yoğun bakım yatağı", "Acil", "auto_accepted", "capacity_available", "Kapasite ön kabulü otomatik verildi; klinik uygunluk kararı ayrı yetkili süreçtedir."],
-  ["XFR-PILOT-002", "KRM-PİLOT-02", "Kurum-B", "F03", "NEO", "NICU_BED", "Yenidoğan yoğun bakım yatağı", "Acil", "auto_rejected", "capacity_unavailable", "Güvenli kullanılabilir kaynak görünmüyor; koordinatöre alternatif listesi sunuldu (eğitim senaryosu)."],
-  ["XFR-PILOT-003", "KRM-PİLOT-03", "Kurum-C", "F02", "ORT", "WARD_BED", "Ortopedi servis yatağı", "Yüksek", "scheduled", "capacity_available", "Kapasite ayrıldı; transport ve varış penceresi otomatik planlandı."],
-  ["XFR-PILOT-004", "KRM-PİLOT-04", "Kurum-D", "F01", "KVC", "WARD_BED", "Kalp-damar cerrahisi yatağı", "Yüksek", "checking", null, "Kaynak, personel ve blokaj verileri kontrol ediliyor."],
-  ["XFR-PILOT-005", "KRM-PİLOT-05", "Kurum-E", "F02", "YOG", "ICU_BED", "Yoğun bakım yatağı", "Acil", "auto_rerouted", "alternate_capacity", "İlk hedef dolu; uygun kaynak bulunan alternatif kampüse otomatik yönlendirildi."],
-  ["XFR-PILOT-006", "KRM-PİLOT-06", "Kurum-F", "F04", "FTR", "REHAB_BED", "Rehabilitasyon yatağı", "Normal", "auto_accepted", "capacity_available", "Uygun kaynak ve vardiya kapsaması doğrulandı."],
+  ["XFR-PILOT-001", "KRM-PİLOT-01", "Kurum-A", "F01", "YOG", "ICU_BED", "Yoğun bakım yatağı", "Acil", "awaiting_decision", "human_decision_required", "Kapasite bilgisi hazır; kabul veya ret kararı yetkili hekimde (eğitim senaryosu)."],
+  ["XFR-PILOT-002", "KRM-PİLOT-02", "Kurum-B", "F03", "NEO", "NICU_BED", "Yenidoğan yoğun bakım yatağı", "Acil", "rejected", "human_rejected", "Yetkili hekim gerekçeyle reddetti: hedefte uygun kaynak yok (eğitim senaryosu)."],
+  ["XFR-PILOT-003", "KRM-PİLOT-03", "Kurum-C", "F02", "ORT", "WARD_BED", "Ortopedi servis yatağı", "Yüksek", "scheduled", "human_accepted", "Yetkili hekim kabul etti; taşıma planlandı (eğitim senaryosu)."],
+  ["XFR-PILOT-004", "KRM-PİLOT-04", "Kurum-D", "F01", "KVC", "WARD_BED", "Kalp-damar cerrahisi yatağı", "Yüksek", "checking", null, "Kaynak, personel ve blokaj bilgileri toplanıyor."],
+  ["XFR-PILOT-005", "KRM-PİLOT-05", "Kurum-E", "F02", "YOG", "ICU_BED", "Yoğun bakım yatağı", "Acil", "awaiting_decision", "human_decision_required", "Hedefte kaynak görünmüyor; diğer kampüs bilgisi gösterildi. Karar yetkili hekimde."],
+  ["XFR-PILOT-006", "KRM-PİLOT-06", "Kurum-F", "F04", "FTR", "REHAB_BED", "Rehabilitasyon yatağı", "Normal", "accepted", "human_accepted", "Yetkili hekim kabul etti (eğitim senaryosu)."],
 ] as const;
 
 type TransferScenario = {
@@ -311,26 +311,17 @@ async function executeControlStep(
     await decideCapacity(db, scenario, state);
   }
 
-  if (state.index === 3) {
-    const [request] = await db.select().from(transferRequests).where(eq(transferRequests.reference, state.transferReference)).limit(1);
-    if (request?.status === "auto_rejected") await rerouteToAlternative(db, request, state.stepAt);
-    else if (request?.status === "auto_accepted") {
-      await db.update(transferRequests).set({ status: "scheduled", decisionDetail: `${request.decisionDetail} Transfer ve kaynak rezervasyonu otomatik planlandı.`, updatedAt: state.stepAt }).where(eq(transferRequests.reference, request.reference));
-      await db.update(operationalTasks).set({ status: "in_progress", updatedAt: state.stepAt }).where(eq(operationalTasks.ticketReference, state.ticketReference));
-      await db.update(tickets).set({ status: "Otomatik planlandı", updatedAt: state.stepAt }).where(eq(tickets.reference, state.ticketReference));
-    }
-  }
-
+  // Adım 3: sistem karar vermez. Kabul veya ret yalnız yetkili hekimin kaydıyla olur (decideTransferRequest).
   if (state.index === 4) {
     const [request] = await db.select().from(transferRequests).where(eq(transferRequests.reference, state.transferReference)).limit(1);
-    if (request && ["scheduled", "auto_rerouted", "auto_accepted"].includes(request.status)) {
+    if (request && ["scheduled"].includes(request.status)) {
       await db.update(transferRequests).set({ status: "transport_assigned", decisionDetail: `${request.decisionDetail || "Kapasite ayrıldı."} Transport penceresi ve hedef birim eşleştirildi.`, updatedAt: state.stepAt }).where(eq(transferRequests.reference, request.reference));
     }
   }
 
   if (state.index === 5) {
     const [request] = await db.select().from(transferRequests).where(eq(transferRequests.reference, state.transferReference)).limit(1);
-    if (request && ["transport_assigned", "scheduled", "auto_rerouted"].includes(request.status)) {
+    if (request && ["transport_assigned", "scheduled"].includes(request.status)) {
       await db.update(transferRequests).set({ status: "in_transit", updatedAt: state.stepAt }).where(eq(transferRequests.reference, request.reference));
       await db.update(tickets).set({ status: "Sevk başladı", updatedAt: state.stepAt }).where(eq(tickets.reference, state.ticketReference));
     }
@@ -387,36 +378,13 @@ async function decideCapacity(
     .filter((row) => row.facilityCode !== scenario.targetFacilityCode && row.available >= scenario.requestedCount)
     .sort((a, b) => b.available - a.available);
   const available = target ? availableCapacity(target) : 0;
-  const accepted = Boolean(target && available >= scenario.requestedCount && target.status !== "unavailable");
-  const detail = accepted
-    ? `${scenario.targetFacilityCode} için ${available} güvenli kullanılabilir ${scenario.resourceLabel.toLocaleLowerCase("tr-TR")} bulundu. Kapasite ön kabulü otomatik verildi; klinik uygunluk kararı üretilmedi.`
-    : `${scenario.targetFacilityCode} için güvenli kullanılabilir ${scenario.resourceLabel.toLocaleLowerCase("tr-TR")} yok. Kabul verilmedi${ranked.length ? `; ${ranked[0].facilityCode} alternatifi bulundu` : "; uygun alternatif bulunamadı"}.`;
+  // Klinik sınır: sistem kabul/ret veya yönlendirme kararı üretmez; yalnız kapasite bilgisini gösterir.
+  const detail = `${scenario.targetFacilityCode} için ${available} uygun ${scenario.resourceLabel.toLocaleLowerCase("tr-TR")} görünüyor${ranked.length ? `; diğer kampüslerde de uygun kaynak var (${ranked.map((r) => r.facilityCode).join(", ")})` : ""}. Kabul veya ret kararı yetkili hekim tarafından verilir.`;
   await db.update(transferRequests).set({
-    status: accepted ? "auto_accepted" : "auto_rejected", decisionCode: accepted ? "capacity_available" : "capacity_unavailable",
-    decisionDetail: detail, alternatives: JSON.stringify(ranked), decidedAt: state.stepAt, updatedAt: state.stepAt,
+    status: "awaiting_decision", decisionCode: "human_decision_required",
+    decisionDetail: detail, alternatives: JSON.stringify(ranked), updatedAt: state.stepAt,
   }).where(eq(transferRequests.reference, state.transferReference));
-  await db.update(tickets).set({
-    status: accepted ? "Otomatik kabul" : "Kapasite yok", acceptedBy: "capacity-orchestrator", acceptedAt: state.stepAt, updatedAt: state.stepAt,
-  }).where(eq(tickets.reference, state.ticketReference));
-  await db.update(operationalTasks).set({
-    status: accepted ? "accepted" : "completed", assignedUser: "capacity-orchestrator", acceptedBy: "capacity-orchestrator", acceptedAt: state.stepAt, updatedAt: state.stepAt,
-  }).where(eq(operationalTasks.ticketReference, state.ticketReference));
-  if (accepted && target) {
-    await db.update(capacitySnapshots).set({ reserved: sql`${capacitySnapshots.reserved} + ${scenario.requestedCount}`, updatedAt: state.stepAt })
-      .where(and(eq(capacitySnapshots.facilityCode, target.facilityCode), eq(capacitySnapshots.unitCode, target.unitCode), eq(capacitySnapshots.resourceCode, target.resourceCode)));
-  }
-}
-
-async function rerouteToAlternative(db: Db, request: typeof transferRequests.$inferSelect, at: Date) {
-  const alternatives = safeAlternatives(request.alternatives);
-  const next = alternatives[0];
-  if (!next) return;
-  await db.update(capacitySnapshots).set({ reserved: sql`${capacitySnapshots.reserved} + ${request.requestedCount}`, updatedAt: at })
-    .where(and(eq(capacitySnapshots.facilityCode, next.facilityCode), eq(capacitySnapshots.unitCode, request.requestedUnitCode), eq(capacitySnapshots.resourceCode, request.resourceCode)));
-  const detail = `${request.targetFacilityCode} kapasitesi uygun değildi; ${next.facilityCode} kampüsündeki ${next.available} uygun kaynak doğrulandı ve talep otomatik yeniden yönlendirildi.`;
-  await db.update(transferRequests).set({ targetFacilityCode: next.facilityCode, status: "auto_rerouted", decisionCode: "alternate_capacity", decisionDetail: detail, decidedAt: at, updatedAt: at }).where(eq(transferRequests.reference, request.reference));
-  await db.update(tickets).set({ status: "Alternatife otomatik aktarıldı", acceptedBy: "capacity-orchestrator", acceptedAt: at, updatedAt: at }).where(eq(tickets.reference, request.ticketReference || ""));
-  await db.update(operationalTasks).set({ status: "in_progress", assignedUser: "capacity-orchestrator", acceptedBy: "capacity-orchestrator", acceptedAt: at, updatedAt: at }).where(eq(operationalTasks.ticketReference, request.ticketReference || ""));
+  await db.update(tickets).set({ status: "Hekim kararı bekliyor", updatedAt: state.stepAt }).where(eq(tickets.reference, state.ticketReference));
 }
 
 async function runScheduledReports(db: Db, at: Date) {
@@ -432,9 +400,9 @@ async function runScheduledReports(db: Db, at: Date) {
   const dischargeForecast = capacityRows.reduce((sum, row) => sum + row.dischargeForecast, 0);
   const result = {
     generatedAt: at.toISOString(), facilities: PILOT_FACILITIES.length, resources: capacityRows.length, available,
-    dischargeForecast, transfersOpen: transfers.filter((item) => !["completed", "auto_rejected"].includes(item.status)).length,
-    autoAccepted: transfers.filter((item) => ["auto_accepted", "auto_rerouted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(item.status)).length,
-    autoRejected: transfers.filter((item) => item.status === "auto_rejected").length,
+    dischargeForecast, transfersOpen: transfers.filter((item) => !["completed", "rejected"].includes(item.status)).length,
+    autoAccepted: transfers.filter((item) => ["accepted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(item.status)).length,
+    autoRejected: transfers.filter((item) => item.status === "rejected").length,
     activeTasks: tasks.filter((item) => !["completed", "cancelled"].includes(item.status)).length,
     activeShifts: shifts.filter((item) => item.status === "active").length,
     handoffs: shifts.filter((item) => item.status === "handoff").length,
@@ -489,16 +457,16 @@ function safeAlternatives(value: string): Array<{ facilityCode: string; availabl
 }
 
 function transferTaskStatus(status: string) {
-  if (["auto_rejected", "completed"].includes(status)) return "completed";
-  if (["scheduled", "auto_rerouted", "transport_assigned", "in_transit"].includes(status)) return "in_progress";
-  if (status === "auto_accepted") return "accepted";
+  if (["rejected", "completed"].includes(status)) return "completed";
+  if (["scheduled", "transport_assigned", "in_transit"].includes(status)) return "in_progress";
+  if (status === "accepted") return "accepted";
   return "queued";
 }
 
 function transferTicketStatus(status: string) {
   const labels: Record<string, string> = {
-    received: "Sistem talebi alındı", checking: "Otomatik kontrol", auto_accepted: "Otomatik kabul",
-    auto_rejected: "Kapasite yok · koordinatör kararı", auto_rerouted: "Alternatif önerildi", scheduled: "Otomatik planlandı",
+    received: "Sistem talebi alındı", checking: "Kapasite bilgisi toplanıyor", awaiting_decision: "Hekim kararı bekliyor",
+    accepted: "Hekim kabul etti", rejected: "Hekim gerekçeyle reddetti", scheduled: "Planlandı",
     transport_assigned: "Transport atandı", in_transit: "Sevk başladı", completed: "Çözüldü",
   };
   return labels[status] || status;
@@ -506,8 +474,8 @@ function transferTicketStatus(status: string) {
 
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
-    received: "Sistem talebi alındı", checking: "Otomatik kontrol sürüyor", auto_accepted: "Kapasite ön kabulü verildi",
-    auto_rejected: "Kapasite görünmüyor; kabul/ret kararı koordinatörde", auto_rerouted: "Alternatif kampüs önerildi (eğitim senaryosu)",
+    received: "Sistem talebi alındı", checking: "Kapasite bilgisi toplanıyor", awaiting_decision: "Yetkili hekim kararı bekleniyor",
+    accepted: "Yetkili hekim kabul etti", rejected: "Yetkili hekim gerekçeyle reddetti",
     scheduled: "Transfer planlandı", transport_assigned: "Transport atandı", in_transit: "Sevk sürüyor", completed: "Devir tamamlandı",
   };
   return labels[status] || status;
@@ -551,4 +519,44 @@ async function controlOutcome(
     "Sonraki kimliksiz sistem olayı hazır",
   ];
   return labels[state.index] || current;
+}
+
+/**
+ * Transfer kararı yalnız insan tarafından kaydedilir: yetkili hekim kabul eder veya gerekçeyle reddeder.
+ * Sistem kapasite bilgisini gösterir ama karar üretmez (tıbbi cihaz sınırı, MDCG 2019-11).
+ * Kabulde hedef kampüs, kapasite bilgisinde görünen kampüslerden biri olarak hekim tarafından seçilebilir.
+ */
+export async function decideTransferRequest(
+  db: Db,
+  actor: { email: string },
+  input: { reference: string; decision: "accept" | "reject"; physician: string; reason: string; facilityCode?: string },
+  at = new Date(),
+): Promise<{ status: "accepted" | "rejected" } | { error: string; status: number }> {
+  if (!/^HKM-SIM-[A-Z0-9-]{1,30}$/.test(input.physician)) return { error: "Kararı veren yetkili hekim kodu gerekli (kurgusal: HKM-SIM-…).", status: 422 };
+  const reason = input.reason.trim();
+  if (input.decision === "reject" && (reason.length < 3 || reason.length > 300)) return { error: "Ret için 3–300 karakterlik gerekçe girin.", status: 422 };
+  const [request] = await db.select().from(transferRequests).where(eq(transferRequests.reference, input.reference)).limit(1);
+  if (!request) return { error: "Transfer talebi bulunamadı.", status: 404 };
+  if (request.status !== "awaiting_decision") return { error: "Bu talep karar beklemiyor.", status: 409 };
+  const facility = input.facilityCode ?? request.targetFacilityCode;
+  if (input.decision === "accept" && facility !== request.targetFacilityCode && !safeAlternatives(request.alternatives).some((a) => a.facilityCode === facility)) {
+    return { error: "Seçilen kampüs kapasite bilgisinde yok.", status: 422 };
+  }
+  const accepted = input.decision === "accept";
+  const detail = accepted
+    ? `${input.physician} kabul etti${facility !== request.targetFacilityCode ? ` (hedef: ${facility})` : ""}.${reason ? ` Not: ${reason}` : ""}`
+    : `${input.physician} reddetti. Gerekçe: ${reason}`;
+  const updated = await db.update(transferRequests).set({
+    status: accepted ? "accepted" : "rejected", targetFacilityCode: facility,
+    decisionCode: accepted ? "human_accepted" : "human_rejected", decisionDetail: detail, decidedAt: at, updatedAt: at,
+  }).where(and(eq(transferRequests.reference, input.reference), eq(transferRequests.status, "awaiting_decision"))).returning({ reference: transferRequests.reference });
+  if (!updated.length) return { error: "Bu talep başka bir kararla değişti.", status: 409 };
+  if (accepted) {
+    await db.update(capacitySnapshots).set({ reserved: sql`${capacitySnapshots.reserved} + ${request.requestedCount}`, updatedAt: at })
+      .where(and(eq(capacitySnapshots.facilityCode, facility), eq(capacitySnapshots.unitCode, request.requestedUnitCode), eq(capacitySnapshots.resourceCode, request.resourceCode)));
+  }
+  await db.update(tickets).set({ status: accepted ? "Hekim kabul etti" : "Hekim reddetti", acceptedBy: actor.email, acceptedAt: at, updatedAt: at })
+    .where(eq(tickets.reference, request.ticketReference || ""));
+  await appendAudit(db, { actor: actor.email, action: accepted ? "transfer.accept" : "transfer.reject", resource: input.reference, detail });
+  return { status: accepted ? "accepted" : "rejected" };
 }

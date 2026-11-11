@@ -198,9 +198,9 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
     dischargeForecast: capacityRows.reduce((sum, row) => sum + row.dischargeForecast, 0),
     incoming: capacityRows.reduce((sum, row) => sum + row.incoming, 0),
     outgoing: capacityRows.reduce((sum, row) => sum + row.outgoing, 0),
-    transfersOpen: transferRows.filter((row) => !["completed", "auto_rejected"].includes(row.status)).length,
-    autoAccepted: transferRows.filter((row) => ["auto_accepted", "auto_rerouted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(row.status)).length,
-    autoRejected: transferRows.filter((row) => row.status === "auto_rejected").length,
+    transfersOpen: transferRows.filter((row) => !["completed", "rejected"].includes(row.status)).length,
+    autoAccepted: transferRows.filter((row) => ["accepted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(row.status)).length,
+    autoRejected: transferRows.filter((row) => row.status === "rejected").length,
     checking: transferRows.filter((row) => ["received", "checking"].includes(row.status)).length,
   };
   const reportResult = {

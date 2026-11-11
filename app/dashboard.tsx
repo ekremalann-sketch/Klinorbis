@@ -1418,6 +1418,7 @@ export default function Dashboard({
             snapshot={snapshot}
             openUnit={(code) => navigate("units", code)}
             openTicket={(reference) => navigate("requests", reference)}
+            decideTransfer={async (body) => { await secureMutation("/api/transfer-decisions", body); await refresh(true); }}
           />
         )}
         {initialView === "integrations" && ["operations_manager", "security_officer"].includes(snapshot.identity.role) && <FhirValidator />}
@@ -2113,8 +2114,8 @@ function FlowWorkspace({
     { key: "queued", title: "Kural kontrolü", text: "Kapasite, vardiya ve politika" },
     {
       key: "accepted",
-      title: "Otomatik kabul",
-      text: "Kaynak ayrıldı ve hedef oluştu",
+      title: "Hekim kabulü",
+      text: "Yetkili hekim kabul etti, kaynak ayrıldı",
     },
     { key: "in_progress", title: "Sistemler arası işlem", text: "Sevk, devir veya birim işi sürüyor" },
     { key: "completed", title: "Sonuçlandı", text: "Kapanış ve denetim izi" },
@@ -2155,7 +2156,7 @@ function FlowWorkspace({
     <>
       <Hero
         title="Uçtan uca hastane iş akışı"
-        text="Kayıt hangi sistemden gelirse gelsin; kural kontrolü, otomatik kabul/ret, alternatif kampüs, işlem ve kapanış aynı panoda izlenir."
+        text="Kayıt hangi sistemden gelirse gelsin; kapasite bilgisi, yetkili hekim kararı, işlem ve kapanış aynı panoda izlenir."
       />
       <section className="stats">
         <Stat value={items.length} label="Toplam aktif kayıt" />
@@ -2805,10 +2806,12 @@ function CapacityWorkspace({
   snapshot,
   openUnit,
   openTicket,
+  decideTransfer,
 }: {
   snapshot: Snapshot;
   openUnit: (code: string) => void;
   openTicket: (reference: string) => void;
+  decideTransfer: (body: Record<string, unknown>) => Promise<void>;
 }) {
   const [facilityFilter, setFacilityFilter] = useState("ALL");
   const capacity = facilityFilter === "ALL" ? snapshot.capacity : snapshot.capacity.filter((row) => row.facilityCode === facilityFilter);
@@ -2834,9 +2837,9 @@ function CapacityWorkspace({
         <Stat value={visibleAvailable} label="Güvenli kullanılabilir kaynak" />
         <Stat value={visibleOccupied} label="Dolu / kullanımda" sub={`${visibleTotal} toplam tanımlı kaynak`} />
         <Stat value={visibleDischarge} label="Beklenen taburculuk" />
-        <Stat value={transfers.filter((row) => !["completed", "auto_rejected"].includes(row.status)).length} label="Açık sevk / transfer" />
-        <Stat value={transfers.filter((row) => ["auto_accepted", "auto_rerouted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(row.status)).length} label="Otomatik kabul / alternatif" />
-        <Stat value={transfers.filter((row) => row.status === "auto_rejected").length} label="Gerekçeli otomatik ret" />
+        <Stat value={transfers.filter((row) => !["completed", "rejected"].includes(row.status)).length} label="Açık sevk / transfer" />
+        <Stat value={transfers.filter((row) => ["accepted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(row.status)).length} label="Hekim kabulü" />
+        <Stat value={transfers.filter((row) => row.status === "rejected").length} label="Gerekçeli ret (hekim)" />
         <Stat value={transfers.filter((row) => ["received", "checking"].includes(row.status)).length} label="Kural kontrolünde" />
         <Stat value={snapshot.shifts.filter((shift) => shift.status === "active" && (facilityFilter === "ALL" || shift.facilityCode === facilityFilter)).length} label="Aktif vardiya ekibi" />
       </section>
@@ -2870,7 +2873,7 @@ function CapacityWorkspace({
           {!capacity.length && <div className="empty"><b>Kapasite verisi henüz yok</b><p>Bu kapsamda kaynak kaydı alınmadı. Sıfır değeri hastanenin dolu olduğunu göstermez. Gerçek kapasite için kurumun kaynak entegrasyonu ve personelli kapasite tanımları tamamlanmalıdır.</p><Link href="/demo">Kurgusal kapasite akışını demo üzerinden dene →</Link></div>}
         </section>
         <section className="panel transfer-decisions">
-          <div className="panel-head"><div><h3>Otomatik kabul / ret / alternatif kararları</h3><p>Her kararın gerekçesi ve hedef hastanesi görünür.</p></div><span>{transfers.length}</span></div>
+          <div className="panel-head"><div><h3>Transfer kararları</h3><p>Kabul veya ret yalnız yetkili hekim tarafından verilir; sistem kapasite bilgisini gösterir.</p></div><span>{transfers.length}</span></div>
           {transfers.map((transfer) => (
             <button key={transfer.reference} onClick={() => openTransfer(transfer)}>
               <span className={`decision-mark ${transfer.status}`}>{transferStatusIcon(transfer.status)}</span>
@@ -2879,6 +2882,7 @@ function CapacityWorkspace({
             </button>
           ))}
           {!transfers.length && <div className="empty">Yetki kapsamınızda sevk kaydı yok.</div>}
+          {transfers.filter((t) => t.status === "awaiting_decision").map((t) => <TransferDecision key={"d" + t.reference} reference={t.reference} decide={decideTransfer} />)}
         </section>
       </div>
       <div className="legal-note">
@@ -3058,7 +3062,7 @@ function UnitWorkspace({
         />
         <Stat value={capacityForUnit.reduce((sum, row) => sum + row.available, 0)} label="Uygun kaynak" />
         <Stat value={shiftsForUnit.filter((shift) => shift.status === "active").length} label="Aktif vardiya" />
-        <Stat value={transfersForUnit.filter((transfer) => !["completed", "auto_rejected"].includes(transfer.status)).length} label="Açık sevk" />
+        <Stat value={transfersForUnit.filter((transfer) => !["completed", "rejected"].includes(transfer.status)).length} label="Açık sevk" />
       </section>
       <div className="unit-workspace-grid">
         {capacityForUnit.length > 0 && (
@@ -3315,7 +3319,7 @@ function ReportsWorkspace({ snapshot }: { snapshot: Snapshot }) {
       />
       <section className="stats">
         <Stat value={`${occupancy}%`} label="Kaynak kullanımı" />
-        <Stat value={`${acceptance}%`} label="Otomatik kabul / alternatif" />
+        <Stat value={`${acceptance}%`} label="Hekim kabulü" />
         <Stat value={snapshot.capacitySummary.dischargeForecast} label="Taburculuk tahmini" />
         <Stat value={snapshot.capacitySummary.transfersOpen} label="Açık sevk" />
         <Stat value={snapshot.tasks.length} label="Görev kaydı" />
@@ -3867,19 +3871,20 @@ function facilityName(snapshot: Snapshot, code: string) {
 function transferStatus(status: string) {
   return ({
     received: "Sistem talebi alındı",
-    checking: "Otomatik kontrol",
-    auto_accepted: "Otomatik ön kabul",
-    auto_rejected: "Kapasite yok · ret",
-    auto_rerouted: "Alternatife yönlendirildi",
-    scheduled: "Otomatik planlandı",
+    checking: "Kapasite bilgisi toplanıyor",
+    awaiting_decision: "Hekim kararı bekliyor",
+    accepted: "Hekim kabul etti",
+    rejected: "Hekim gerekçeyle reddetti",
+    scheduled: "Planlandı",
     transport_assigned: "Transport atandı",
     in_transit: "Sevk sürüyor",
     completed: "Devir tamamlandı",
   } as Record<string, string>)[status] || status;
 }
 function transferStatusIcon(status: string) {
-  if (["auto_accepted", "auto_rerouted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(status)) return "✓";
-  if (status === "auto_rejected") return "×";
+  if (status === "awaiting_decision") return "?";
+  if (["accepted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(status)) return "✓";
+  if (status === "rejected") return "×";
   return "⌘";
 }
 function capacityStatus(row: Capacity) {
@@ -3897,8 +3902,8 @@ function shiftStatus(status: string) {
 function reportMetricLabel(key: string) {
   return ({
     generatedAt: "Oluşturma", facilities: "Hastane", resources: "Kaynak satırı", available: "Uygun kaynak",
-    dischargeForecast: "Taburculuk tahmini", transfersOpen: "Açık sevk", autoAccepted: "Otomatik kabul/alternatif",
-    autoRejected: "Otomatik ret", activeTasks: "Aktif görev", activeShifts: "Aktif vardiya", handoffs: "Devir",
+    dischargeForecast: "Taburculuk tahmini", transfersOpen: "Açık sevk", autoAccepted: "Hekim kabulü",
+    autoRejected: "Gerekçeli ret", activeTasks: "Aktif görev", activeShifts: "Aktif vardiya", handoffs: "Devir",
   } as Record<string, string>)[key] || key;
 }
 function formatMetricValue(value: unknown) {
@@ -3942,11 +3947,10 @@ function statusLabel(status?: string | null) {
         running: "Çalışıyor",
         dead_letter: "Karantina",
         received: "Sistem talebi alındı",
-        checking: "Otomatik kontrol",
-        auto_accepted: "Otomatik ön kabul",
-        auto_rejected: "Kapasite yok · ret",
-        auto_rerouted: "Alternatife yönlendirildi",
-        scheduled: "Otomatik planlandı",
+        checking: "Kapasite bilgisi toplanıyor",
+        awaiting_decision: "Hekim kararı bekliyor",
+        rejected: "Hekim gerekçeyle reddetti",
+        scheduled: "Planlandı",
         transport_assigned: "Transport atandı",
         in_transit: "Sevk sürüyor",
       } as Record<string, string>
@@ -3992,4 +3996,25 @@ function maskActor(actor: string) {
   if (!actor.includes("@")) return actor;
   const [name, domain] = actor.split("@");
   return `${name.slice(0, 2)}***@${(domain || "").split(".")[0]}`;
+}
+
+// Transfer kararı: yalnız yetkili hekim kabul eder veya gerekçeyle reddeder. Sistem öneri sunmaz.
+function TransferDecision({ reference, decide }: { reference: string; decide: (body: Record<string, unknown>) => Promise<void> }) {
+  const [physician, setPhysician] = useState("HKM-SIM-");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  async function send(decision: "accept" | "reject") {
+    setBusy(true); setMessage("");
+    try { await decide({ reference, decision, physician, reason }); setMessage(decision === "accept" ? "Kabul kaydedildi." : "Ret kaydedildi."); }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : "Karar kaydedilemedi."); }
+    finally { setBusy(false); }
+  }
+  return <form className="transfer-decision" onSubmit={(e) => e.preventDefault()} aria-label={`${reference} kararı`}>
+    <b>{reference} · Hekim kararı</b>
+    <label>Kararı veren hekim kodu<input value={physician} onChange={(e) => setPhysician(e.target.value.toUpperCase())} /></label>
+    <label>Gerekçe / not<input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="Ret için zorunlu" /></label>
+    <div><button type="button" className="primary" disabled={busy} onClick={() => void send("accept")}>Kabul et</button><button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void send("reject")}>Gerekçeyle reddet</button></div>
+    <small role="status">{message}</small>
+  </form>;
 }
