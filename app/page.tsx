@@ -154,7 +154,7 @@ export default function Home() {
       <h2 id="kh-limits">Klinorbis ne yapmaz?</h2>
       <ul className="kh-limits">
         <li>Tanı, tedavi, triyaj veya sevk kararı üretmez; tıbbi cihaz değildir.</li>
-        <li>HBYS'nin yerine geçmez, reçete veya mali kayıt yazmaz.</li>
+        <li>HBYS’nin yerine geçmez, reçete veya mali kayıt yazmaz.</li>
         <li>Gerçek HBYS bağlantısı bugün kapalıdır; bağlıymış gibi gösterilmez.</li>
         <li>Demo yalnız kurgusal kayıtlarla çalışır.</li>
       </ul>
