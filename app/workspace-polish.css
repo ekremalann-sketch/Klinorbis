@@ -53,3 +53,9 @@
 
 /* K3: kullanım amacı beyanı */
 .usage-statement{margin:0 0 12px;font-size:.82rem;line-height:1.4;color:rgb(84 98 114)}
+
+/* K14: B listesi menüsü — bağlantılar düğmelerle aynı görünür; Ayarlar altı katlanır */
+.sidebar nav .nav-link{display:flex;align-items:center;padding:11px 13px;border-radius:9px;font-size:13px;color:rgb(169 187 206);text-decoration:none}
+.sidebar nav .nav-link:hover{background:rgb(24 57 91);color:rgb(255 255 255)}
+.sidebar nav .nav-settings summary{cursor:pointer;padding:11px 13px;font-size:12px;color:rgb(110 138 166);list-style:none}
+.sidebar nav .nav-settings button{padding-left:26px}

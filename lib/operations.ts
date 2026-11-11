@@ -222,7 +222,7 @@ export async function workspaceSnapshot(db: Db, actor: RequestActor) {
     // İstemci "canlı / yapay zekâ" ifadelerini yalnız gerçekten açık olan özellikler için gösterir.
     features: { demo: demoEnabled(), ai: aiConfigured(), profile: CLOUD_PROFILE.key, profileNotice: CLOUD_PROFILE.notice },
     aiSuggestion,
-    identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: actor.unitCodes, canSeeAllUnits: actor.canSeeAllUnits },
+    identity: { email: actor.email, label: actor.label, role: actor.role, unitCodes: actor.unitCodes, unitRoles: actor.unitRoles ?? [], canSeeAllUnits: actor.canSeeAllUnits },
     units: unitRows.map((unit) => ({ ...unit, queue: queueByUnit.get(unit.code) || 0, assignedRole: findUnit(unit.code).assignedRole })),
     tickets: ticketRows.map((ticket) => ({ ...ticket, task: taskRows.find((task) => task.ticketReference === ticket.reference) || null, history: historyRows.filter((event) => event.ticketReference === ticket.reference).reverse() })),
     tasks: taskRows,

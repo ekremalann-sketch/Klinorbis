@@ -2,29 +2,9 @@
 // ("Benim üstlendiklerim" filtresi için) ve başkasınınkini döndürmez.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile } from "node:fs/promises";
 import { createD1, loadRoute, ORIGIN, setRuntime } from "./helpers/route-harness.mjs";
 
-test("rol menüsü: her rol Personel ve Yetki'yi (Benim işim) ve ana ekranını görür; tanımsız ekran yok", async () => {
-  const src = await readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8");
-  const views = [...src.slice(src.indexOf("const nav:"), src.indexOf("const ROLE_VIEWS")).matchAll(/view: "([a-z]+)"/g)].map((m) => m[1]);
-  const block = src.slice(src.indexOf("const ROLE_VIEWS"), src.indexOf("const NAV_GROUP_OF"));
-  const roles = [...block.matchAll(/(\w+): \[([^\]]+)\]/g)].map((m) => [m[1], [...m[2].matchAll(/"([a-z]+)"/g)].map((x) => x[1])]);
-  assert.equal(roles.length, 7);
-  const homes = { operations_manager: "dashboard", unit_manager: "myunit", clinician: "mywork", call_agent: "calls", privacy_officer: "privacy", security_officer: "security", unit_staff: "mywork" };
-  for (const [role, list] of roles) {
-    assert.ok(list.includes("staff"), `${role}: Personel ve Yetki`);
-    assert.equal(list[0], homes[role], `${role}: ana ekran ${homes[role]}`);
-    for (const v of list) assert.ok(views.includes(v), `${role}: ${v} menüde var`);
-  }
-  assert.match(src, /Diğer ekranlar/);
-  // Teknik/entegrasyon ekranları günlük iş rollerinin menüsünde (Diğer dahil) yer almaz.
-  for (const role of ["unit_manager", "clinician", "call_agent", "unit_staff"]) {
-    const list = roles.find(([r]) => r === role)[1];
-    for (const v of ["integrations", "security", "automation", "audit"]) assert.ok(!list.includes(v), `${role}: ${v} menüde olmamalı`);
-  }
-  assert.match(src, /TECHNICAL_VIEWS: View\[\] = \["integrations", "security", "automation", "audit", "privacy"\]/);
-});
+// K14: eski 22 maddelik rol menüsü testi kaldırıldı; yerine tests/k14-b-menu.test.mjs B listesindeki 12 ekranı sınar.
 
 test("çalışma alanı kimliği kendi e-postasını içerir", async () => {
   const { d1, sqlite } = await createD1();
