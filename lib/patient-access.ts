@@ -62,10 +62,9 @@ export const REQUEST_TYPES: RequestType[] = [
   { code: "info", label: "Genel bilgi", unit: "HIL", keywords: [], automatedReply: true },
 ];
 
-const fold = (v: string) => v.toLocaleLowerCase("tr-TR");
-export function classifyRequest(text: string) {
-  const value = fold(text);
-  return REQUEST_TYPES.find((t) => t.keywords.some((k) => value.includes(k))) ?? REQUEST_TYPES.find((t) => t.code === "info")!;
+/** Talep türü personelin formda seçtiği koddan gelir; metinden çıkarılmaz (K2). */
+export function requestTypeByCode(code: unknown) {
+  return REQUEST_TYPES.find((t) => t.code === code) ?? REQUEST_TYPES.find((t) => t.code === "info")!;
 }
 
 // ————— Hekim yokluğu —————

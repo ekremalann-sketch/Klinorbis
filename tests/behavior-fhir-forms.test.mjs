@@ -69,8 +69,11 @@ await test("taburculuk formu: açık engeller listelenir; 3+ engel yüksek önce
   const row = sqlite.prepare("SELECT unit_code, priority, subject FROM tickets WHERE reference = ?").get((await r.json()).ticket.reference);
   assert.equal(row.unit_code, "TBR"); assert.equal(row.priority, "Yüksek");
   assert.match(row.subject, /Tamam: 2\/6 · Açık engeller: Hasta\/yakın bilgilendirmesi/);
+  // K2: nottaki acil ifade tek başına hiçbir şey açmaz; görevli incelemesi yalnız personelin acil işaretiyle açılır.
   const e = await post({ ward: "Dahiliye 4B / 12", plannedDate: "2026-10-01", done: [], note: "hasta nefes alamıyor" });
-  const erow = sqlite.prepare("SELECT unit_code, priority, human_approval_required FROM tickets WHERE reference = ?").get((await e.json()).ticket.reference);
-  assert.deepEqual([erow.unit_code, erow.priority, erow.human_approval_required], ["TBR", "Yüksek", 1], "ADR-003: öncelik yalnız idari formdan (6 açık engel); acil ifade yalnız görevli incelemesi açar");
+  assert.equal(sqlite.prepare("SELECT human_approval_required FROM tickets WHERE reference = ?").get((await e.json()).ticket.reference).human_approval_required, 0);
+  const eUrgent = await ticketsRoute.POST(req("POST", "/api/tickets", "agent@klinorbis.test", { patientAlias: "HST-SENTETIK-24", formKind: "discharge", form: { ward: "Dahiliye 4B / 12", plannedDate: "2026-10-01", done: [], note: "hasta nefes alamıyor" }, staffUrgent: true }));
+  const erow = sqlite.prepare("SELECT unit_code, priority, human_approval_required FROM tickets WHERE reference = ?").get((await eUrgent.json()).ticket.reference);
+  assert.deepEqual([erow.unit_code, erow.priority, erow.human_approval_required], ["TBR", "Yüksek", 1], "ADR-003: öncelik yalnız idari formdan (6 açık engel); acil işareti yalnız görevli incelemesi açar");
   assert.equal((await ticketsRoute.POST(req("POST", "/api/tickets", "agent@klinorbis.test", { patientAlias: "HST-SENTETIK-23", formKind: "baska", form: {} }))).status, 400);
 });
