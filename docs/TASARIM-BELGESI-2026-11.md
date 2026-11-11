@@ -305,7 +305,7 @@ Ekranlar 22 menü maddesinden 12 ekrana iniyor. Bugünkü "İşlerim" ekranını
 | K11 | Denetim izi (görüntüleme dahil), yalnız eklenebilir | SKS izlenebilirlik, KVKK | Kamu şartnameleri, Nervecentre | 1 | orta | kod | "Bu yatağın kaydını kim açtı" sorgusu çalışıyor |
 | K12 | Görünürlük matrisi (destek personeli hasta adı görmez) | En az veri ilkesi | — | 1 | orta | kod + **karar-sözleşme** | Temizlik ve taşıma hesabıyla hasta adı hiçbir ekranda görünmüyor |
 | K13 | Demo verisi: "taburcudan hazır yatağa" turu, 3–4 adımda | Satış görüşmesinin omurgası | Borda (kısa pilot) | 1 | kolay | tasarım + kod | Tek hesapla, rol değiştirerek 5 dakikada gösterilebiliyor |
-| K14 ✅ | Menüyü 22 maddeden 12 ekrana indirmek, ürün dışı ekranları kaldırmak | Sadelik | — | 1 | orta | tasarım + kod | Menüde yalnız B listesindeki ekranlar var |
+| K14 ✅ #57 | Menüyü 22 maddeden 12 ekrana indirmek, ürün dışı ekranları kaldırmak | Sadelik | — | 1 | orta | tasarım + kod | Menüde yalnız B listesindeki ekranlar var |
 | K15 | Transfer talebi ekranı: insan kabulü, gerekçeli ret, süre ve eskalasyon | Yoğun bakım ve servis arasında en çok bekleyen iş | TeleTracking (Transfer Center — **doğrulanamadı**) | 1 | orta | kod | Talep → kabul → taşıma işi otomatik açılıyor |
 | K16 | Cihaz kaydı, etiket rengi, arıza iş emri, servis firması süre sayacı | SKS cihaz yönetimi, TİTCK etiket kuralı | Brightly, TRIMEDX, Accruent, Borda | 2 | orta | kod | Kırmızı etiketli cihaz panoda ve komuta ekranında görünüyor |
 | K17 | Cihaz kullanılamaz olunca etkilenen birimlere bildirim, yedek cihaz bilgisi | Türk prosedürlerinde bu adım yok | Brightly (alternatif cihaz planlaması) | 2 | orta | kod | Arıza açılınca tanımlı birimlere 1 dakika içinde bildirim gidiyor |
