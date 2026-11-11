@@ -16,7 +16,7 @@ async function render(path) {
 
 test("herkese açık sayfalar kendi başlık, kanonik adres, paylaşım kartı ve dil bağlantılarını taşır", async () => {
   for (const [path, title, canonical] of [
-    ["/", /KLINORBIS \| Hastane Operasyon Kontrol Kulesi/, "https://klinorbis.ekremalan.chatgpt.site"],
+    ["/", /KLINORBIS \| Hastane Operasyon Koordinasyonu/, "https://klinorbis.ekremalan.chatgpt.site"],
     ["/en", /KLINORBIS \| Hospital Operations Control Tower/, "https://klinorbis.ekremalan.chatgpt.site/en"],
     ["/demo", /KLINORBIS Demo/, "https://klinorbis.ekremalan.chatgpt.site/demo"],
     ["/en/demo", /KLINORBIS Demo/, "https://klinorbis.ekremalan.chatgpt.site/en/demo"],

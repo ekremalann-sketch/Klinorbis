@@ -6,7 +6,7 @@ async function getWorker(){runtime??=await createArtifactWorker();return {fetch:
 test.after(async()=>{if(runtime)await runtime.dispose();});
 
 
-const productTitle = /KLINORBIS \| Hastane Operasyon Kontrol Kulesi/i;
+const productTitle = /KLINORBIS \| Hastane Operasyon Koordinasyonu/i;
 
 test("renders the public product presentation with security headers", async () => {
   const worker = await getWorker();
@@ -38,7 +38,7 @@ test("renders the public product presentation with security headers", async () =
   );
   const html = await response.text();
   assert.match(html, productTitle);
-  assert.match(html, /HASTANE OPERASYON KONTROL KULESİ/i);
+  assert.match(html, /HASTANE OPERASYON KOORDİNASYONU/i);
 });
 
 test("renders direct operation routes instead of losing the click target", async () => {
