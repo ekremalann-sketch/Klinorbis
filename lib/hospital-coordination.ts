@@ -12,7 +12,7 @@ function decision(tenant: string, job: string, round: number, kind: string, targ
  return q('INSERT INTO simops_transfer_decisions(tenant,job,round,decision,target,actor,reason,at) VALUES(?,?,?,?,?,?,?,?)', tenant, job, round, kind, target, actor.email, reason, at);
 }
 export const COORD_LABEL='SİMÜLASYON · Kurgusal hastane · Rakamlar varsayımlara dayanır, gerçek pilot sonucu değildir.';
-export type Bed={tenant:string;id:string;campus:string;building:string;floor:string;unit:string;room:string;physical:string;hbys:string;cleaning:string;technical:number;staffed:number;review:number;source_version:number;observed_at:number|null;version:number};
+export type Bed={tenant:string;id:string;campus:string;building:string;floor:string;unit:string;room:string;physical:string;hbys:string;cleaning:string;technical:number;staffed:number;review:number;source_version:number;observed_at:number|null;version:number;state_since?:number|null};
 export type Job={tenant:string;id:string;kind:string;bed:string;target:string|null;unit:string;status:string;owner:string|null;authority:string;patient:string|null;reason:string;version:number;created_at:number;updated_at:number};
 type Message={tenant:string;id:string;bed:string;kind:string;source_version:number;observed_at:number;authority:string;hash:string;status:string;code:string|null;task:string|null;attempts:number;received_at:number};
 type Incoming={id:string;bed:string;kind:'discharge.recorded'|'departure.confirmed'|'occupancy.confirmed'|'cancel'|'correction';sourceVersion:number;observedAt:number;authority:string;synthetic:true};
