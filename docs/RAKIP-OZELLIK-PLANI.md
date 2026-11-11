@@ -2,7 +2,7 @@
 
 İncelenen ürünler: TeleTracking (Capacity Management Suite, Capacity IQ), Epic Grand Central / Bed Planning, Qventus, Alcidion, Borda (Türkiye), Care Logistics. Kaynaklar: [TeleTracking — fitgap](https://us.fitgap.com/products/023220/teletracking-capacity-management-suite), [TeleTracking Capacity IQ](https://teletracking.com/news/teletracking-launches-capacity-iq-a-new-era-in-capacity-management-solutions/), [UPMC vaka çalışması](https://www.casestudies.com/company/teletracking/case-study/university-of-pittsburgh-medical-center-customer-case-study), [rfp.wiki karşılaştırma](https://www.rfp.wiki/vendors/teletracking-technologies), [Borda](https://bordatech.com/). Epic, Qventus ve Care Logistics maddeleri genel ürün bilgisine dayanır; satıcı sayfası bu turda açılmadı.
 
-Sınır: Klinorbis klinik karar, triyaj veya sevk kararı üretmez, tıbbi cihaz değildir; yalnız kurgusal veriyle demo.
+Sınır: Klinorbis klinik karar, öncelik sıralaması veya sevk kararı üretmez, tıbbi cihaz değildir; yalnız kurgusal veriyle demo.
 
 | # | Özellik | Hangi rakipte | Durum |
 |---|---|---|---|

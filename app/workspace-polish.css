@@ -50,3 +50,6 @@
 /* K2: görevlinin açık acil işareti */
 .check-line{display:flex;align-items:center;gap:8px;font-weight:500}
 .check-line input{width:auto;min-height:0}
+
+/* K3: kullanım amacı beyanı */
+.usage-statement{margin:0 0 12px;font-size:.82rem;line-height:1.4;color:rgb(84 98 114)}
