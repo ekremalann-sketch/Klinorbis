@@ -115,26 +115,10 @@ export function maskEmail(value?: string | null): string {
   const local = v.slice(0, at), domain = v.slice(at + 1).split(".")[0] || "";
   return `${local.slice(0, Math.min(3, local.length))}…@${domain}`;
 }
-const fold = (value: string) => value.toLocaleLowerCase("tr-TR").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ı/g, "i");
-// Yalnız 112 bilgilendirmesini tetikleyen ifadeler (sınıflandırma değil). Kök biçimler: Türkçe çekim ekleri ("ağrısı", "ağrım", "ağrısından", "bayıldı", "bayılıyor") yakalanır.
-// Uzun kökler (6+ harf) ek alabilir; kısa kökler ("felç", "inme") yalnız tam kelime olarak eşleşir
-// ki "inmek" gibi ilgisiz kelimeler acil sayılmasın.
-const critical = ["kalp krizi", "zehirlen", "anafilaksi", "havale", "ciddi yanik", "agir yanik", "gogus agri", "gogsum agri", "nefes alamiyor", "nefes darligi cok", "siddetli kanama", "kanamasi durmuyor", "bilinc kaybi", "bilincini kaybet", "solunum durma", "nobet geciri", "havale geciri", "felc", "inme", "bayildi", "bayiliyor", "bayilma", "asiri doz", "intihar"];
-/** Hasta/arayan metninde acil durum ifadesi geçerse yalnız sabit 112 bilgilendirmesi gösterilir ve otomatik akış
- * bir görevliye bırakılır. Puan, aciliyet sınıfı, klinik birim önerisi veya öncelik ÜRETİLMEZ (ADR-003: Klinorbis
- * belirtiden triyaj yapmaz; öncelik yalnız yetkili personelden veya HBYS'den gelir). */
+/** Klinorbis serbest metni yorumlamaz (K2). Acil işareti yalnız talebi giren görevlinin açık seçimidir;
+ * 112 bilgilendirmesi her kayıtta sabit metin olarak gösterilir. Puan, aciliyet sınıfı veya birim önerisi ÜRETİLMEZ. */
 export const EMERGENCY_NOTICE_TEXT = "Bu kanal acil sağlık hizmeti değildir. Tıbbi acil durumda hemen 112'yi arayın.";
-export function emergencyWordsNotice(text: string): { notice: boolean; matched: string | null } {
-  const normalized = fold(text);
-  for (const phrase of critical) {
-    const tail = phrase.replace(/\s/g, "").length >= 5 ? "[a-z]*" : "";
-    const regex = new RegExp(`(?<![a-z])${phrase}${tail}(?![a-z])`, "g");
-    for (const match of normalized.matchAll(regex)) {
-      const after = normalized.slice((match.index ?? 0) + match[0].length);
-      if (/^\s*(?:yok(?:tu)?|degil|olmadi|bulunmuyor)\b/.test(after)) continue;
-      return { notice: true, matched: phrase };
-    }
-  }
-  return { notice: false, matched: null };
+export function staffUrgentFlag(value: unknown): { notice: boolean; source: "staff" } {
+  return { notice: value === true, source: "staff" };
 }
 

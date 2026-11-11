@@ -86,7 +86,7 @@ await test("7) çözülmüş talep yeniden işlenemez (çift gönderim/eski sekm
 });
 let emergency;
 await test("8) acil ifade: otomatik bildirim durur, 112 bilgilendirmesi ve görevli incelemesi açılır; birim/öncelik puanlanmaz", async () => {
-  const r = await ticketsRoute.POST(call("POST", "/api/tickets", "agent", { patientAlias: "HST-SENTETIK-02", subject: "Arayan kişi göğüs ağrısı tarif ediyor (sentetik senaryo)" }));
+  const r = await ticketsRoute.POST(call("POST", "/api/tickets", "agent", { patientAlias: "HST-SENTETIK-02", subject: "Arayan kişi göğüs ağrısı tarif ediyor (sentetik senaryo)", staffUrgent: true }));
   assert.equal(r.status, 201);
   const body = await r.json();
   emergency = body.ticket.reference;
