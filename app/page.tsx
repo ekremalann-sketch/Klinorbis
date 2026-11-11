@@ -106,7 +106,7 @@ export default function Home() {
       <div className="kh-grid3">{features.map(([t, d]) => <div className="kh-card" key={t}><h3>{t}</h3><p>{d}</p></div>)}</div>
     </section>
 
-    <section className="kh-sec kh-alt" aria-labelledby="kh-flow">
+    <section className="kh-sec kh-alt" id="akis" aria-labelledby="kh-flow">
       <span className="kh-kicker">Nasıl çalışır</span>
       <h2 id="kh-flow">Bir transferin baştan sona yolculuğu</h2>
       <ol className="kh-flow">{flow.map(([t, d], i) => <li key={t}><span className="kh-num">{i + 1}</span><h3>{t}</h3><p>{d}</p></li>)}</ol>
@@ -149,12 +149,12 @@ export default function Home() {
       <div className="kh-actions"><Link href="/demo" className="kh-btn">Kurgusal demoyu aç</Link><Link href="/hakkimizda" className="kh-ghost">Pilot için iletişim</Link></div>
     </section>
 
-    <section className="kh-sec kh-alt" aria-labelledby="kh-limits">
+    <section className="kh-sec kh-alt" id="guven" aria-labelledby="kh-limits">
       <span className="kh-kicker">Sınırlar</span>
       <h2 id="kh-limits">Klinorbis ne yapmaz?</h2>
       <ul className="kh-limits">
         <li>Tanı, tedavi, triyaj veya sevk kararı üretmez; tıbbi cihaz değildir.</li>
-        <li>HBYS'nin yerine geçmez, reçete veya mali kayıt yazmaz.</li>
+        <li>HBYS’nin yerine geçmez, reçete veya mali kayıt yazmaz.</li>
         <li>Gerçek HBYS bağlantısı bugün kapalıdır; bağlıymış gibi gösterilmez.</li>
         <li>Demo yalnız kurgusal kayıtlarla çalışır.</li>
       </ul>
