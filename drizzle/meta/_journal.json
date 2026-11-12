@@ -134,6 +134,13 @@
       "when": 1794500000000,
       "tag": "0018_koordinasyon_eskalasyon",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1794600000000,
+      "tag": "0019_telefon_bildirimi",
+      "breakpoints": true
     }
   ]
 }

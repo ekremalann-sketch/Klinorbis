@@ -1,0 +1,10 @@
+{
+  "name": "KLINORBIS",
+  "short_name": "Klinorbis",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0b3b5c",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
