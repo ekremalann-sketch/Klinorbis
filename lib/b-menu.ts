@@ -10,7 +10,7 @@ export const B_SCREENS: Record<BScreenKey, BScreen> = {
   yatak: { key: "yatak", label: "Yatak panosu", href: "/yatak" },
   temizlik: { key: "temizlik", label: "Temizlik işlerim", href: "/temizlik" },
   "temizlik-kontrol": { key: "temizlik-kontrol", label: "Temizlik kontrolü", view: "myunit" },
-  tasima: { key: "tasima", label: "Taşıma işlerim", href: "/hbys#tasima" },
+  tasima: { key: "tasima", label: "Taşıma işlerim", href: "/tasima" },
   "tasima-dagitim": { key: "tasima-dagitim", label: "Taşıma dağıtım", href: "/hbys#tasima" },
   transfer: { key: "transfer", label: "Transfer talepleri", view: "capacity" },
   // Arıza bildirimi bugün "Bugün" ekranındaki "Arıza bildir" düğmesindedir; ayrı cihaz ekranı gelince bağlanır.
