@@ -4,10 +4,12 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createD1,loadRoute,setRuntime,browserJson} from './helpers/route-harness.mjs';
 
-const OWNER='owner@klinorbis.test',DOC='doctor@klinorbis.test',AGENT='agent@klinorbis.test';
+const OWNER='owner@klinorbis.test',DOC='doctor@klinorbis.test',AGENT='agent@klinorbis.test',OTHER='other-doctor@klinorbis.test';
 const {d1,sqlite}=await createD1();setRuntime(d1,{ownerEmail:OWNER});
 const now=Date.now();
-for(const [e,r] of [[DOC,'clinician'],[AGENT,'call_agent']])sqlite.prepare('INSERT INTO staff_accounts(email,display_label,system_role,active,created_at) VALUES(?,?,?,1,?)').run(e,'Personel SIM',r,now);
+for(const [e,r] of [[DOC,'clinician'],[AGENT,'call_agent'],[OTHER,'clinician']])sqlite.prepare('INSERT INTO staff_accounts(email,display_label,system_role,active,created_at) VALUES(?,?,?,1,?)').run(e,'Personel SIM',r,now);
+// Hekim yalnız kendi biriminin (talep edilen birim YOG) transferine karar verir; OTHER başka birimde.
+for(const [e,u] of [[DOC,'YOG'],[OTHER,'ACL']])sqlite.prepare("INSERT INTO unit_memberships(email,unit_code,unit_role,can_manage_tickets,can_read_calls,active) VALUES(?,?,'Test',1,0,1)").run(e,u);
 const route=await loadRoute('app/api/transfer-decisions/route.ts');
 const post=(body,email=DOC)=>route.POST(browserJson('/api/transfer-decisions',body,email));
 const row=ref=>sqlite.prepare('SELECT status,decision_code,target_facility_code,decision_detail FROM transfer_requests WHERE reference=?').get(ref);
@@ -36,4 +38,12 @@ await test('ret gerekçe ister; yetkisiz rol karar veremez',async()=>{
  assert.equal((await post({reference:'XFR-T2',decision:'accept',physician:'HKM-SIM-02'},AGENT)).status,403);
  assert.equal((await post({reference:'XFR-T2',decision:'reject',physician:'HKM-SIM-02',reason:'Kurgusal: hedefte uygun yatak yok'})).status,200);
  assert.equal(row('XFR-T2').status,'rejected');assert.match(row('XFR-T2').decision_detail,/Gerekçe/);
+});
+
+await test('başka birimin hekimi karar veremez (birim ayrımı sunucuda); tüm birimleri gören yönetici verebilir',async()=>{
+ seed('XFR-T3');
+ const r=await post({reference:'XFR-T3',decision:'accept',physician:'HKM-SIM-03'},OTHER);
+ assert.equal(r.status,404,'başka birimin kaydı bulunamadı görünür');
+ assert.equal(row('XFR-T3').status,'awaiting_decision','kayıt değişmedi');
+ assert.equal((await post({reference:'XFR-T3',decision:'reject',physician:'HKM-SIM-03',reason:'Kurgusal: uygun yatak yok'},OWNER)).status,200);
 });
