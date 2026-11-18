@@ -528,7 +528,7 @@ async function controlOutcome(
  */
 export async function decideTransferRequest(
   db: Db,
-  actor: { email: string; label?: string },
+  actor: { email: string; label?: string; canSeeAllUnits?: boolean; unitCodes?: string[] },
   input: { reference: string; decision: "accept" | "reject"; reason: string; facilityCode?: string },
   at = new Date(),
 ): Promise<{ status: "accepted" | "rejected" } | { error: string; status: number }> {
@@ -538,6 +538,8 @@ export async function decideTransferRequest(
   if (input.decision === "reject" && (reason.length < 3 || reason.length > 300)) return { error: "Ret için 3–300 karakterlik gerekçe girin.", status: 422 };
   const [request] = await db.select().from(transferRequests).where(eq(transferRequests.reference, input.reference)).limit(1);
   if (!request) return { error: "Transfer talebi bulunamadı.", status: 404 };
+  // Güvenlik: kararı yalnız talep edilen birime yetkili kişi (veya tüm birimleri gören yönetici) verir. Başka birimin kaydı "bulunamadı" görünür.
+  if (!actor.canSeeAllUnits && !(actor.unitCodes ?? []).includes(request.requestedUnitCode)) return { error: "Transfer talebi bulunamadı.", status: 404 };
   if (request.status !== "awaiting_decision") return { error: "Bu talep karar beklemiyor.", status: 409 };
   const facility = input.facilityCode ?? request.targetFacilityCode;
   if (input.decision === "accept" && facility !== request.targetFacilityCode && !safeAlternatives(request.alternatives).some((a) => a.facilityCode === facility)) {
