@@ -50,7 +50,8 @@ await test("1) kurallar: klinik öncelik hekime, izinli hasta aynı gün başka 
   assert.throws(() => lib.assertSafeMessage("Kanser kontrolünüz ertelendi"));
   assert.throws(() => lib.assertSafeMessage("Sizi 0532 123 45 67 arayacak"));
   assert.match(lib.renderMessage("appointment_review", { reference: "RDV-1", unitCode: "PSK", unitLabel: "Ruh Sağlığı ve Hastalıkları", oldStartsAt: base }), /poliklinik randevunuz/);
-  assert.equal(lib.classifyRequest("Randevumu iptal etmek istiyorum, gelemeyeceğim").code, "cancel");
+  assert.equal(lib.requestTypeByCode("cancel").code, "cancel"); // K2: tür personelin seçimidir, metinden çıkarılmaz
+  assert.equal(lib.requestTypeByCode(undefined).code, "info");
 });
 
 await test("2) yokluk bildirimi: yetki, birim sınırı, plan ve onay kapısı", async () => {
@@ -155,12 +156,12 @@ await test("7) bildirim kuyruğu: sağlayıcı yokken eğitim kaydı simülasyon
 });
 
 await test("8) talep kaydı: hasta izin verdiyse 'başvurunuz alındı' bildirimi; acil sinyalde mesaj yok", async () => {
-  const normal = await tickets.POST(browserJson("/api/tickets", { patientAlias: "HST-WEB-01", subject: "Randevumu iptal etmek istiyorum", channel: "WhatsApp", notifyChannel: "whatsapp" }, OWNER));
+  const normal = await tickets.POST(browserJson("/api/tickets", { patientAlias: "HST-WEB-01", subject: "Randevumu iptal etmek istiyorum", requestType: "cancel", channel: "WhatsApp", notifyChannel: "whatsapp" }, OWNER));
   assert.equal(normal.status, 201);
   const nb = await normal.json();
   assert.equal(nb.requestType.code, "cancel"); assert.equal(nb.patientNotified, false); assert.equal(nb.notificationQueued, true);
   assert.ok(sqlite.prepare("SELECT body FROM patient_notifications WHERE ticket_reference = ?").get(nb.ticket.reference).body.includes(nb.ticket.reference));
-  const urgent = await tickets.POST(browserJson("/api/tickets", { patientAlias: "HST-WEB-02", subject: "Annemin göğüs ağrısı var randevu lazım", channel: "WhatsApp", notifyChannel: "whatsapp" }, OWNER));
+  const urgent = await tickets.POST(browserJson("/api/tickets", { patientAlias: "HST-WEB-02", subject: "Annemin göğüs ağrısı var randevu lazım", channel: "WhatsApp", notifyChannel: "whatsapp", staffUrgent: true }, OWNER));
   const ub = await urgent.json();
   assert.equal(ub.patientNotified, false); assert.equal(ub.notificationQueued, false);
   assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM patient_notifications WHERE ticket_reference = ?").get(ub.ticket.reference).n, 0);

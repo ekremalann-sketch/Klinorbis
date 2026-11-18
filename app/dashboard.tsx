@@ -974,16 +974,17 @@ export default function Dashboard({
     reference: string,
     speakerType: "caller" | "agent" | "clinician",
     message: string,
+    staffUrgent = false,
   ) {
     setBusy(`${reference}:message`);
     try {
       const data = await secureMutation<CallMessageResponse>(
         "/api/calls/messages",
-        { callReference: reference, speakerType, message },
+        { callReference: reference, speakerType, message, staffUrgent },
       );
       setReceipt({
         title: data.emergency
-          ? "Acil insan devri otomatik açıldı"
+          ? "Acil insan devri açıldı (görevli işareti)"
           : "Konuşma satırı görüşmeye eklendi",
         detail: data.emergency
           ? `${data.destination.unitName} · ${data.destination.assignedRole} · insan onayı bekleniyor`
@@ -1065,6 +1066,7 @@ export default function Dashboard({
         const data = await secureMutation<CallCreateResponse>("/api/calls", {
           patientAlias: form.get("patientAlias"),
           openingMessage: form.get("openingMessage"),
+          staffUrgent: form.get("staffUrgent") === "1",
         });
         setDialog(null);
         setReceipt({
@@ -1091,6 +1093,9 @@ export default function Dashboard({
             subject,
             unitCode: kind === "appointment" ? "RND" : form.get("unitCode"),
             channel: "Web",
+            requestType: kind === "appointment" ? "book" : form.get("requestType") || "info",
+            priority: form.get("priority") === "Yüksek" ? "Yüksek" : "Normal",
+            staffUrgent: form.get("staffUrgent") === "1",
           }),
         });
         const data = (await response.json()) as TicketCreateResponse;
@@ -2384,6 +2389,7 @@ function CallsWorkspace({
     reference: string,
     speakerType: "caller" | "agent" | "clinician",
     message: string,
+    staffUrgent?: boolean,
   ) => Promise<void>;
   busy: string;
 }) {
@@ -2393,11 +2399,13 @@ function CallsWorkspace({
     "agent",
   );
   const [draft, setDraft] = useState("");
+  const [urgent, setUrgent] = useState(false);
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected || draft.trim().length < 2) return;
-    await sendMessage(selected.reference, speaker, draft.trim());
+    await sendMessage(selected.reference, speaker, draft.trim(), urgent);
     setDraft("");
+    setUrgent(false);
   }
   return (
     <>
@@ -2566,6 +2574,9 @@ function CallsWorkspace({
                   required
                   placeholder="Görüşmede söylenen yeni cümleyi yazın; kaydedildiği anda tüm yetkili birim ekranlarında görünür…"
                 />
+                <label className="check-line">
+                  <input type="checkbox" checked={urgent} onChange={(event) => setUrgent(event.target.checked)} /> Acil: görevli devri aç
+                </label>
                 <button className="primary" disabled={Boolean(busy)}>
                   {busy === `${selected.reference}:message`
                     ? "Ekleniyor…"
@@ -3850,9 +3861,36 @@ function CreateDialog({
             </label>
           </>
         )}
+        {kind !== "call" && kind !== "appointment" ? (
+          <label>
+            Talep türü
+            <select name="requestType" defaultValue="info">
+              <option value="info">Genel bilgi</option>
+              <option value="book">Randevu alma</option>
+              <option value="change">Randevu değişikliği</option>
+              <option value="cancel">Randevu iptali</option>
+              <option value="result">Sonuç bilgisi</option>
+              <option value="billing">Fatura ve ödeme</option>
+              <option value="complaint">Şikâyet / hasta hakkı</option>
+              <option value="clinical">Klinik soru (hekime aktarılır)</option>
+            </select>
+          </label>
+        ) : null}
+        {kind !== "call" ? (
+          <label>
+            Öncelik (talep eden personel)
+            <select name="priority" defaultValue="Normal">
+              <option value="Normal">Normal</option>
+              <option value="Yüksek">Yüksek</option>
+            </select>
+          </label>
+        ) : null}
+        <label className="check-line">
+          <input type="checkbox" name="staffUrgent" value="1" /> Acil olarak işaretle (112 bilgisi verildi, görevli incelesin)
+        </label>
         <div className="form-security-note">
-          Ad, kimlik numarası ve gereksiz sağlık bilgisi yazmayın. Maskeleme tüm kişisel verileri tespit etme garantisi değildir; acil olasılık sinyalinde normal otomasyon
-          durur ve insan devri açılır.
+          Ad, kimlik numarası ve gereksiz sağlık bilgisi yazmayın. Maskeleme tüm kişisel verileri tespit etme garantisi değildir. Sistem yazdığınız metni yorumlamaz;
+          birim, öncelik ve acil işareti yalnız sizin seçiminizdir. Tıbbi acil durumda 112 aranmalıdır.
         </div>
         <button className="primary" disabled={busy}>
           {busy ? "Sunucuya kaydediliyor…" : "Talebi gönder"}

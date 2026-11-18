@@ -57,8 +57,8 @@ export async function ensureOperationalSeed(db: Db) {
     direction: "Gelen",
     status: "human_handoff",
     unitCode: "ACY",
-    assignedRole: "Klinik Triyaj Rolü",
-    summary: "Arayanın metninde acil durum ifadesi geçti; 112 bilgilendirmesi gösterildi ve otomatik randevu akışı durduruldu. Görevli, görüşmeyi kendi kararıyla yetkili sağlık personeline aktardı.",
+    assignedRole: "Nöbetçi Sağlık Personeli",
+    summary: "Çağrı görevlisi kaydı acil olarak işaretledi; 112 bilgilendirmesi gösterildi ve otomatik randevu akışı durduruldu. Görevli, görüşmeyi kendi kararıyla yetkili sağlık personeline aktardı.",
     training: true,
     requiresHuman: true,
     startedAt: new Date(Date.now() - 5 * 60_000),
@@ -72,7 +72,7 @@ export async function ensureOperationalSeed(db: Db) {
     [4, "assistant", "Kural tabanlı güvenlik kontrolü", "Bu kanal acil sağlık hizmeti değildir. Tıbbi acil durumda hemen 112'yi arayın. Otomatik randevu akışı durduruldu; görüşmeyi görevli sürdürür."],
     [5, "system", "Otomasyon", "Görevli görüşmeyi Acil Yönlendirme birimine aktardı (insan kararı); TSK-TRN-2401 görevi açıldı."],
     [6, "agent", "Çağrı görevlisi", "Geçmiş olsun. Bu görüşmeyi şimdi yetkili sağlık personeline aktarıyorum. Şikâyetiniz artarsa veya nefes darlığı, bayılma gibi bir durum olursa beklemeden 112'yi arayın."],
-    [7, "clinician", "Klinik triyaj rolü", "Görüşmeyi devraldım. Önce bulunduğunuz ortamın güvenli olduğunu ve acil yardım çağırabilecek birinin yanınızda olup olmadığını doğrulayalım."],
+    [7, "clinician", "Nöbetçi sağlık personeli", "Görüşmeyi devraldım. Önce bulunduğunuz ortamın güvenli olduğunu ve acil yardım çağırabilecek birinin yanınızda olup olmadığını doğrulayalım."],
   ] as const;
   await db.insert(callMessages).values(trainingMessages.map(([sequence, speakerType, speakerLabel, message], index) => ({
     callReference: "TRN-2401",
@@ -88,12 +88,12 @@ export async function ensureOperationalSeed(db: Db) {
     reference: "TSK-TRN-2401",
     callReference: "TRN-2401",
     unitCode: "ACY",
-    assignedRole: "Klinik Triyaj Rolü",
+    assignedRole: "Nöbetçi Sağlık Personeli",
     sourceType: "call",
     status: "accepted",
     priority: "Acil",
     dueAt: new Date(Date.now() + 2 * 60_000),
-    acceptedBy: "Klinik Triyaj Rolü",
+    acceptedBy: "Nöbetçi Sağlık Personeli",
     acceptedAt: new Date(Date.now() - 2 * 60_000),
   }).onConflictDoNothing();
   seedState.__KLINORBIS_OPERATIONAL_SEEDED = true;

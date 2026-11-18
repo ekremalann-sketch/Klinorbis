@@ -8,7 +8,7 @@ export type HospitalUnitSeed = {
 };
 
 export const HOSPITAL_UNITS: HospitalUnitSeed[] = [
-  { code: "ACY", name: "Acil Yönlendirme", kind: "clinical", scope: "Görevlinin aktardığı acil ifadeli görüşmelerin yetkili sağlık personeline devri", slaMinutes: 2, assignedRole: "Klinik Triyaj Rolü" },
+  { code: "ACY", name: "Acil Yönlendirme", kind: "clinical", scope: "Görevlinin acil olarak işaretlediği görüşmelerin yetkili sağlık personeline devri", slaMinutes: 2, assignedRole: "Nöbetçi Sağlık Personeli" },
   { code: "RND", name: "Randevu Merkezi", kind: "operational", scope: "Randevu talebi, slot doğrulama, iptal ve değişiklik", slaMinutes: 15, assignedRole: "Randevu Operatörü" },
   { code: "CAG", name: "Çağrı Merkezi", kind: "operational", scope: "Gelen çağrı, kimlik doğrulama ve geri arama kuyruğu", slaMinutes: 1, assignedRole: "Çağrı Merkezi Görevlisi" },
   { code: "HIL", name: "Hasta İletişim", kind: "operational", scope: "Genel başvuru, yönlendirme ve hasta bilgilendirme", slaMinutes: 15, assignedRole: "Hasta İletişim Görevlisi" },
@@ -118,28 +118,7 @@ export function findUnit(value?: string | null) {
 }
 
 /** İdari yönlendirme: yalnız birim/hizmet adı ve idari anahtar kelimeler (belirti kelimesiyle klinik yönlendirme yapılmaz, ADR-003). */
-export function recommendUnit(subject: string, requestedUnit?: string | null) {
-  if (requestedUnit) return findUnit(requestedUnit);
-  const value = subject.toLocaleLowerCase("tr-TR");
-  const matchers: Array<[string[], string]> = [
-    [["randevu", "tarih değiş", "iptal"], "RND"],
-    [["tahlil", "laboratuvar", "kan sonucu"], "LAB"],
-    [["kalp damar cerrahisi", "kvc"], "KVC"],
-    [["kardiyoloji"], "KRD"],
-    [["ortopedi"], "ORT"],
-    [["radyoloji", "mr", "tomografi", "ultrason"], "RAD"],
-    [["gastroenteroloji", "endoskopi"], "GAS"],
-    [["nefroloji", "diyaliz"], "NEF"],
-    [["endokrinoloji", "diyabet"], "END"],
-    [["infertilite", "tüp bebek", "üreme"], "IVF"],
-    [["onkoloji", "kemoterapi"], "ONK"],
-    [["çocuk kardiyoloji"], "PKR"],
-    [["çocuk nöroloji"], "PNR"],
-    [["evde sağlık", "evde bakım"], "EVS"],
-    [["provizyon", "sigorta"], "PRV"],
-    [["fatura", "vezne"], "VZN"],
-    [["şikâyet", "hasta hakkı"], "HHK"],
-  ];
-  const code = matchers.find(([terms]) => terms.some((term) => value.includes(term)))?.[1] ?? "HIL";
-  return findUnit(code);
+/** Birim yalnız personelin seçtiği koddan gelir; metin okunmaz (K2). Seçim yoksa Hasta İletişim. */
+export function recommendUnit(_subject: string, requestedUnit?: string | null) {
+  return findUnit(requestedUnit);
 }

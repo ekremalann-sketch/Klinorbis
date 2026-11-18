@@ -171,7 +171,7 @@ test("webhook: saniye hassasiyetli (10 haneli) zaman damgası v2 kabul edilir; e
 test("webhook: acil ifade 112 bilgilendirmesi ve görevli incelemesi açar (klinik yönlendirme yok), onaysız santral kapanışı reddedilir", async () => {
   const { route, count } = await webhookFixture();
   await route.POST(pbxRequest({ body: started, eventId: "evt-flow-0001" }));
-  const urgent = { eventType: "transcript.final", callReference: "CALL-TEST-0001", text: "Arayan göğüs ağrısı tarif ediyor (sentetik)", speakerType: "caller" };
+  const urgent = { eventType: "transcript.final", callReference: "CALL-TEST-0001", text: "Arayan göğüs ağrısı tarif ediyor (sentetik)", speakerType: "caller", staffUrgent: true };
   const r = await route.POST(pbxRequest({ body: urgent, eventId: "evt-flow-0002" }));
   assert.equal(r.status, 202);
   assert.notEqual((await r.json()).destination.unitCode, "ACY", "ADR-003: belirtiden klinik birime yönlendirme yapılmaz");
