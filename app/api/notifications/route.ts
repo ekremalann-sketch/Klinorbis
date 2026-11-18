@@ -1,5 +1,6 @@
 import { getDb } from "../../../db";
 import { escalateOverdueTasks } from "../../../lib/escalation";
+import { escalateCoordJobs } from "../../../lib/coord-escalation";
 import { listNotifications, markNotificationsRead } from "../../../lib/notifications";
 import { assertBrowserMutation, assertJsonRequest, enforceRateLimit, requireActor, SecurityError, securityResponse } from "../../../lib/security";
 
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
     const actor = await requireActor(request);
     await enforceRateLimit(request, actor, "notifications.read", 120, 60);
     const db = getDb();
-    if (Date.now() - lastSweep > 60_000) { lastSweep = Date.now(); await escalateOverdueTasks(db).catch(() => undefined); }
+    if (Date.now() - lastSweep > 60_000) { lastSweep = Date.now(); await escalateOverdueTasks(db).catch(() => undefined); await escalateCoordJobs(db).catch(() => undefined); }
     return Response.json(await listNotifications(db, actor.email), { headers: { "cache-control": "no-store, private" } });
   } catch (error) {
     return securityResponse(error, request);
