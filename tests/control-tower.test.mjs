@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("capacity control tower persists system-to-system decisions and advances without a user trigger", async () => {
+test("capacity control tower persists system-to-system information and advances without a user trigger; transfer decisions stay with a physician (K1)", async () => {
   const [schema, engine, worker, workflow] = await Promise.all([
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/control-tower.ts", import.meta.url), "utf8"),
@@ -16,7 +16,8 @@ test("capacity control tower persists system-to-system decisions and advances wi
   assert.match(engine, /const STEP_MS = 6_000/);
   assert.match(engine, /advanceControlTower/);
   assert.match(engine, /decideCapacity/);
-  assert.match(engine, /rerouteToAlternative/);
+  assert.doesNotMatch(engine, /rerouteToAlternative|auto_accepted|auto_rejected|auto_rerouted/);
+  assert.match(engine, /export async function decideTransferRequest/);
   assert.match(engine, /runScheduledReports/);
   assert.match(engine, /refreshShiftTelemetry/);
   assert.match(engine, /onConflictDoNothing/);
@@ -51,7 +52,7 @@ test("owner access uses the stable Sites account identity as well as email", asy
   assert.match(worker, /KLINORBIS_OWNER_ACCOUNT_USER_ID/);
 });
 
-test("the operator UI exposes live counts, scoped reports and no manual capacity acceptance button", async () => {
+test("the operator UI exposes live counts, scoped reports and a physician-only transfer decision (K1)", async () => {
   const [dashboard, operations, exportRoute] = await Promise.all([
     readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/operations.ts", import.meta.url), "utf8"),
@@ -61,13 +62,15 @@ test("the operator UI exposes live counts, scoped reports and no manual capacity
   for (const label of [
     "Beklenen taburculuk",
     "Açık sevk / transfer",
-    "Otomatik kabul / alternatif",
-    "Gerekçeli otomatik ret",
+    "Hekim kabulü",
+    "Gerekçeli ret \\(hekim\\)",
     "Aktif vardiya ekibi",
     "Canlı, görevli ve dışa aktarılabilir operasyon raporları",
   ]) assert.match(dashboard, new RegExp(label));
 
-  assert.doesNotMatch(dashboard, />\s*Kabul et\s*</i);
+  assert.match(dashboard, /function TransferDecision/);
+  assert.match(dashboard, /"\/api\/transfer-decisions"/);
+  assert.doesNotMatch(dashboard, /Otomatik kabul|otomatik ret/i);
   assert.doesNotMatch(dashboard, /Manuel çalıştır/i);
   assert.match(dashboard, /\^\(CAG\|TRN\|TLP\|PLT\|S2S\)-/);
   assert.match(operations, /visibleJobRows/);
