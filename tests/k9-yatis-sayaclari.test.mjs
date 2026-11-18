@@ -45,6 +45,29 @@ await test('sunucu: yatış zamanı kaydı, kurgusal kod zorunlu, tekrar yok, ye
   }finally{sqlite.close();}
 });
 
+await test('birim ayrımı: başka birim yatışı göremez ve sayacını durduramaz; hedef birim ve kaydeden görür',async()=>{
+  const {d1,sqlite}=await createD1();const OPS='ops@klinorbis.test',ACIL='acil@klinorbis.test',DAH='dah@klinorbis.test',KBB='kbb@klinorbis.test';setRuntime(d1,{ownerEmail:OPS,demoEnabled:'0'});
+  const api=await loadRoute('app/api/hospital-coordination/route.ts');
+  const post=(body,email=OPS)=>{const r=browserJson('/api/hospital-coordination',body,email);r.headers.set('x-klinorbis-sim-tenant','SIM-KURUM-A');return api.POST(r);};
+  const view=async email=>(await (await api.GET(new Request(ORIGIN+'/api/hospital-coordination',{headers:{'oai-authenticated-user-email':email,'x-klinorbis-sim-tenant':'SIM-KURUM-A'}}))).json()).admissions??[];
+  try{
+    assert.equal((await post({action:'init'})).status,200);
+    for(const [e,u] of [[ACIL,'ACL'],[DAH,'DAH'],[KBB,'KBB']]){
+      sqlite.prepare("INSERT INTO staff_accounts(email,display_label,system_role,active,created_at) VALUES(?,?,'clinician',1,?)").run(e,e,Date.now());
+      sqlite.prepare("INSERT INTO unit_memberships(email,unit_code,unit_role,can_manage_tickets,can_read_calls,active) VALUES(?,?,'Test',1,0,1)").run(e,u);
+      sqlite.prepare("INSERT INTO simops_members(tenant,email) VALUES('SIM-KURUM-A',?)").run(e);
+    }
+    const now=Date.now();
+    assert.equal((await post({action:'admission',patient:'HST-SIM-002',targetUnit:'DAH',arrivedAt:now-100*M,decidedAt:now-50*M},ACIL)).status,200);
+    assert.equal((await view(KBB)).length,0,'başka birim görmez');
+    assert.equal((await view(ACIL)).length,1,'kaydeden görür');
+    const a=(await view(DAH))[0];assert.ok(a,'hedef birim görür');
+    const r=await post({action:'admission-placed',id:a.id,version:a.version},KBB);assert.equal(r.status,404,'başka birim durduramaz');
+    assert.equal(sqlite.prepare('SELECT placed_at FROM simops_admissions WHERE id=?').get(a.id).placed_at,null);
+    assert.equal((await post({action:'admission-placed',id:a.id,version:a.version},DAH)).status,200,'hedef birim yerleştirir');
+  }finally{sqlite.close();}
+});
+
 test('panoda "Yatış bekleyenler" ve iki sayaç; klinik içerik alanı yok',async()=>{
   const src=await readFile('app/hbys/coordination.tsx','utf8');
   assert.match(src,/<AdmissionTimers list=\{data\.admissions\?\?\[\]\}/);

@@ -56,6 +56,9 @@ export async function recordAdmission(actor:RequestActor,tenant:string,raw:Recor
 /** K9: hasta serviste yatağına yerleşti → sayaç durur. */
 export async function placeAdmission(actor:RequestActor,tenant:string,id:string,version:number){await coordScope(actor,tenant);await writable();
  if(!admin(actor)&&!(['unit_manager','clinician','call_agent'].includes(actor.role)))fail('WRITER_REQUIRED','Yetki yok.',403);
+ // Birim ayrımı (sunucuda): sayacı yönetici, hedef birimin üyesi veya yatışı kaydeden kişi kapatır; başkası için kayıt "bulunamadı" görünür.
+ const row=await q('SELECT target_unit,recorded_by FROM simops_admissions WHERE tenant=? AND id=?',tenant,id).first<{target_unit:string;recorded_by:string}>();
+ if(!row||!(admin(actor)||actor.unitCodes.includes(row.target_unit)||row.recorded_by===actor.email))fail('NOT_FOUND','Yatış kaydı bulunamadı.',404);
  const res=await batch([...guard('SELECT 1 FROM simops_admissions WHERE tenant=? AND id=? AND version=? AND placed_at IS NULL',[tenant,id,version]),q('UPDATE simops_admissions SET placed_at=?,version=version+1 WHERE tenant=? AND id=?',Date.now(),tenant,id),log(tenant,actor,'admission.placed',id)]);void res;return {id};
 }
 export async function initCoord(actor:RequestActor){
@@ -89,7 +92,9 @@ export async function coordView(actor:RequestActor,tenant:string){
  const messages=admin(actor)?await rows<Message>('SELECT * FROM simops_messages WHERE tenant=? ORDER BY received_at DESC LIMIT 100',tenant):[];
  const reservations=await rows<{bed:string;job:string}>("SELECT r.bed,r.job FROM simops_reservations r JOIN simops_jobs j ON j.tenant=r.tenant AND j.id=r.job WHERE r.tenant=? AND (j.status='active' OR (j.status IN ('offered','queued','accepted') AND j.created_at>?))",tenant,Date.now()-TRANSPORT_HOLD_MS);
  const last=messages.filter(m=>m.status==='processed').reduce((a,m)=>Math.max(a,m.observed_at),0);
- const admissions=await rows('SELECT id,patient,target_unit,arrived_at,decided_at,placed_at,version FROM simops_admissions WHERE tenant=? AND (placed_at IS NULL OR placed_at>?) ORDER BY decided_at',tenant,Date.now()-12*3600000).catch(()=>[]);
+ // Birim ayrımı: yönetici tümünü; diğerleri yalnız kendi birimine gelen veya kendi kaydettiği yatışları görür.
+ const admScope=admin(actor)?'':' AND (recorded_by=?'+(actor.unitCodes.length?' OR target_unit IN ('+actor.unitCodes.map(()=>'?').join(',')+')':'')+')';
+ const admissions=await rows('SELECT id,patient,target_unit,arrived_at,decided_at,placed_at,version FROM simops_admissions WHERE tenant=? AND (placed_at IS NULL OR placed_at>?)'+admScope+' ORDER BY decided_at',tenant,Date.now()-12*3600000,...(admin(actor)?[]:[actor.email,...actor.unitCodes])).catch(()=>[]);
  return {initialized:true,label:COORD_LABEL,admissions,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),me:actor.email,canInspect:['operations_manager','unit_manager'].includes(actor.role),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,transferDecisions,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
 }
 export function validateIncoming(raw:unknown):Incoming{
