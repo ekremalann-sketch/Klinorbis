@@ -2932,14 +2932,21 @@ function UnitsWorkspace({
   snapshot: Snapshot;
   open: (code: string) => void;
 }) {
+  // Tasarım bulgusu (14 Kasım): telefonda sayfa ~42.000 px idi. Arama + yoğun birim önce + telefonda kısa kart.
+  const [unitQuery, setUnitQuery] = useState("");
+  const q = unitQuery.toLocaleLowerCase("tr-TR").trim();
+  const units = snapshot.units
+    .filter((unit) => !q || `${unit.code} ${unit.name} ${unit.scope}`.toLocaleLowerCase("tr-TR").includes(q))
+    .sort((a, b) => b.queue - a.queue || a.name.localeCompare(b.name, "tr"));
   return (
     <>
       <Hero
         title="Birim çalışma masaları"
         text={`${snapshot.units.length} yetkili birim; sayaçlar statik değil, açık görevlerden hesaplanır.`}
       />
-      <div className="unit-grid">
-        {snapshot.units.map((unit) => (
+      <div className="unit-search"><input aria-label="Birim ara" value={unitQuery} onChange={(event) => setUnitQuery(event.target.value)} placeholder="Birim adı veya kodu ara…" /><span>{units.length} birim · açık görevi çok olan önce</span></div>
+      <div className="unit-grid unit-grid-compact">
+        {units.map((unit) => (
           <article key={unit.code}>
             <div className="unit-top">
               <span className={`unit-code ${unit.kind}`}>{unit.code}</span>

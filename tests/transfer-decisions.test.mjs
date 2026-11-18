@@ -19,7 +19,7 @@ const reservation=bed=>sqlite.prepare("SELECT job FROM simops_reservations WHERE
 const decisions=id=>sqlite.prepare("SELECT round,decision,target,reason FROM simops_transfer_decisions WHERE tenant='SIM-KURUM-A' AND job=? ORDER BY round,at,decision DESC").all(id).map(r=>({...r}));
 const ready=id=>sqlite.prepare("UPDATE simops_beds SET physical='departed',hbys='vacant',cleaning='ready',technical=1,staffed=1,review=0,observed_at=?,version=version+1 WHERE tenant='SIM-KURUM-A' AND id=?").run(Date.now()-1000,id);
 const occupied=id=>sqlite.prepare("UPDATE simops_beds SET physical='occupied',hbys='occupied',review=0,version=version+1 WHERE tenant='SIM-KURUM-A' AND id=?").run(id);
-const request=(bed,target,patient,email=DOC)=>post({action:'transport',bed,target,patient,authority:'YTKL-SIM-002',decidedAt:Date.now()},email);
+const request=(bed,target,patient,email=DOC)=>post({action:'transport',bed,target,patient,authority:'YTKL-SIM-002',decidedAt:Date.now(),mode:'tekerlekli'},email);
 const decide=(id,decision,email,reason)=>post({action:'transfer-decide',id,version:job(id).version,decision,reason},email);
 
 await test('kurulum',async()=>{

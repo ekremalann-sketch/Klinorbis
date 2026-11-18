@@ -45,7 +45,7 @@ await test('kapasite: teknik/personel engeli, eski kaynak veya HBYS çelişkisi 
 });
 let transport;
 await test('kabul 2: hedef yatağa eşzamanlı iki rezervasyon olmaz; yetkili karar zamanı kaydedilir',async()=>{
- const req={action:'transport',bed:'YTK-SIM-002',target:'YTK-SIM-001',patient:'HST-SIM-001',authority:'YTKL-SIM-002',decidedAt:Date.now()};
+ const req={action:'transport',bed:'YTK-SIM-002',target:'YTK-SIM-001',patient:'HST-SIM-001',authority:'YTKL-SIM-002',decidedAt:Date.now(),mode:'tekerlekli'};
  const r=await Promise.all([post(req),post({...req,patient:'HST-SIM-002'})]);assert.deepEqual(r.map(x=>x.status).sort(),[200,409]);transport=(await r.find(x=>x.status===200).json()).id;assert.ok(job(transport).decision_at);
  assert.equal(sqlite.prepare('SELECT count(*) n FROM simops_reservations').get().n,1);
 });
@@ -118,7 +118,7 @@ await test('süresi dolan rezervasyon başlatılamaz ve yeni talep yatağı alab
  sqlite.prepare("INSERT INTO simops_jobs(tenant,id,kind,bed,target,unit,authority,status,created_at,updated_at) VALUES('SIM-KURUM-A','SIM-EXPIRED','transport','YTK-SIM-008','YTK-SIM-001','ULS','YTKL-SIM-001','accepted',?,?)").run(old,old);
  sqlite.prepare("INSERT INTO simops_reservations VALUES('SIM-KURUM-A','YTK-SIM-001','HST-SIM-003','SIM-EXPIRED')").run();
  assert.equal((await transition('SIM-EXPIRED','start')).status,409);
- const response=await post({action:'transport',bed:'YTK-SIM-008',target:'YTK-SIM-001',patient:'HST-SIM-004',authority:'YTKL-SIM-002',decidedAt:Date.now()});
+ const response=await post({action:'transport',bed:'YTK-SIM-008',target:'YTK-SIM-001',patient:'HST-SIM-004',authority:'YTKL-SIM-002',decidedAt:Date.now(),mode:'tekerlekli'});
  assert.equal(response.status,200,await response.clone().text());
  assert.equal(job('SIM-EXPIRED').status,'cancelled');
  assert.equal(sqlite.prepare("SELECT job FROM simops_reservations WHERE bed='YTK-SIM-001'").get().job,(await response.json()).id);
