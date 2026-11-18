@@ -42,6 +42,22 @@ export async function importCoordBeds(actor:RequestActor,tenant:string,text:unkn
  await log(tenant,actor,'beds.import',`${fresh.length} yeni / ${parsed.length-fresh.length} zaten vardı`).run();
  return {added:fresh.length,skipped:parsed.length-fresh.length};
 }
+/** K9: yatış kararının VERİLDİĞİ zamanı kaydeder (içeriği değil). Acil personeli veya yönetici girer. */
+export async function recordAdmission(actor:RequestActor,tenant:string,raw:Record<string,unknown>){await coordScope(actor,tenant);await writable();
+ if(!admin(actor)&&!(['unit_manager','clinician','call_agent'].includes(actor.role)))fail('WRITER_REQUIRED','Yatış zamanını acil personeli kaydeder.',403);
+ const patient=String(raw.patient??'').toUpperCase(),unit=String(raw.targetUnit??'').toUpperCase(),arrived=Number(raw.arrivedAt),decided=Number(raw.decidedAt),now=Date.now();
+ if(!/^HST-SIM-\d{3}$/.test(patient))fail('SYNTHETIC_REQUIRED','Yalnız kurgusal hasta kodu (HST-SIM-001) kabul edilir.',422);
+ if(!/^[A-Z]{2,6}$/.test(unit))fail('INVALID_UNIT','Hedef birim kodu gerekli.',422);
+ if(!Number.isSafeInteger(arrived)||!Number.isSafeInteger(decided)||arrived>decided||decided>now+60000||arrived<now-3*86400000)fail('INVALID_TIME','Geliş zamanı karar zamanından önce olmalı; ileri tarih girilemez.',422);
+ const open=await q('SELECT id FROM simops_admissions WHERE tenant=? AND patient=? AND placed_at IS NULL',tenant,patient).first<{id:string}>();if(open)fail('ALREADY_OPEN','Bu hasta için açık bir yatış sayacı var.',409);
+ const id=`SIM-YTS-${crypto.randomUUID().slice(0,8).toUpperCase()}`;
+ await batch([q('INSERT INTO simops_admissions(tenant,id,patient,target_unit,arrived_at,decided_at,recorded_by) VALUES(?,?,?,?,?,?,?)',tenant,id,patient,unit,arrived,decided,actor.email),log(tenant,actor,'admission.decided',id)]);return {id};
+}
+/** K9: hasta serviste yatağına yerleşti → sayaç durur. */
+export async function placeAdmission(actor:RequestActor,tenant:string,id:string,version:number){await coordScope(actor,tenant);await writable();
+ if(!admin(actor)&&!(['unit_manager','clinician','call_agent'].includes(actor.role)))fail('WRITER_REQUIRED','Yetki yok.',403);
+ const res=await batch([...guard('SELECT 1 FROM simops_admissions WHERE tenant=? AND id=? AND version=? AND placed_at IS NULL',[tenant,id,version]),q('UPDATE simops_admissions SET placed_at=?,version=version+1 WHERE tenant=? AND id=?',Date.now(),tenant,id),log(tenant,actor,'admission.placed',id)]);void res;return {id};
+}
 export async function initCoord(actor:RequestActor){
  if(!admin(actor))fail('MANAGER_REQUIRED','Kurulumu operasyon yöneticisi yapar.',403);await writable();
  const tenant='SIM-KURUM-A',statements=[q('INSERT OR IGNORE INTO simops_members(tenant,email) VALUES(?,?)',tenant,actor.email)];
@@ -73,7 +89,8 @@ export async function coordView(actor:RequestActor,tenant:string){
  const messages=admin(actor)?await rows<Message>('SELECT * FROM simops_messages WHERE tenant=? ORDER BY received_at DESC LIMIT 100',tenant):[];
  const reservations=await rows<{bed:string;job:string}>("SELECT r.bed,r.job FROM simops_reservations r JOIN simops_jobs j ON j.tenant=r.tenant AND j.id=r.job WHERE r.tenant=? AND (j.status='active' OR (j.status IN ('offered','queued','accepted') AND j.created_at>?))",tenant,Date.now()-TRANSPORT_HOLD_MS);
  const last=messages.filter(m=>m.status==='processed').reduce((a,m)=>Math.max(a,m.observed_at),0);
- return {initialized:true,label:COORD_LABEL,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),me:actor.email,canInspect:['operations_manager','unit_manager'].includes(actor.role),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,transferDecisions,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
+ const admissions=await rows('SELECT id,patient,target_unit,arrived_at,decided_at,placed_at,version FROM simops_admissions WHERE tenant=? AND (placed_at IS NULL OR placed_at>?) ORDER BY decided_at',tenant,Date.now()-12*3600000).catch(()=>[]);
+ return {initialized:true,label:COORD_LABEL,admissions,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),me:actor.email,canInspect:['operations_manager','unit_manager'].includes(actor.role),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,transferDecisions,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
 }
 export function validateIncoming(raw:unknown):Incoming{
  if(!raw||typeof raw!=='object'||Array.isArray(raw))fail('INVALID_EVENT','Olay nesne olmalıdır.',422);
