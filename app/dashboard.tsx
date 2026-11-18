@@ -1,4 +1,5 @@
 "use client";
+import { PhonePush } from "./phone-push";
 import { LayoutDashboard, ListTodo, Building2, GitBranch, Inbox, Route, ClipboardList, CalendarDays, UserRoundX, Phone, CheckCheck, Bot, Workflow, FlaskConical, ArrowLeftRight, Plug, PanelsTopLeft, Users, ChartColumn, ShieldCheck, Shield, ScrollText, type LucideIcon } from "lucide-react";
 import ExportMenu from "./export-menu";
 
@@ -1612,6 +1613,7 @@ function NotificationPanel({
         {unread > 0 && <button type="button" className="pop-mark" onClick={() => markRead("all")}>Tümünü okundu say ({unread})</button>}
         <span>Size atanan işler, gecikme yükseltmeleri, onaylar ve kuyruktaki görevler.</span>
       </div>
+      <PhonePush />
     </div>
   );
 }
