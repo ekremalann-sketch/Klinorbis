@@ -356,3 +356,24 @@ Ekranlar 22 menü maddesinden 12 ekrana iniyor. Bugünkü "İşlerim" ekranını
 - **Hasta adı taşıma ekranında görünecek mi?** Önerim: varsayılan olarak hayır. Hastane isterse yalnız baş harfler ve doğum yılı açılır. Asıl kimlik doğrulaması bileklikten yapılır.
 - **Entegrasyon ne zaman yapılacak?** Önerim: pilot hastanenin HBYS firmasıyla, pilot olumlu sonuçlanınca. İlk adım yalnız tek yönlü ADT dinleme olur.
 
+
+## G — Kurumsal yol haritası: tüm klinik dışı hastane operasyonları (18 Kasım 2026)
+
+Patron kararı (18 Kasım): Klinorbis yalnız yatak/temizlik değil, hastanenin **tüm klinik dışı** operasyonlarını kapsayan kurumsal otomasyon olacak. Kesin sınır: klinik karar, tanı, triyaj, tedavi/ilaç/diyet önerisi YOK (MDCG 2019-11 rev.1, Rule 11). Mavi Kod yalnız lojistik kayıt (çağrı, yer, ekip varışı). Resmi bildirim kanallarının (ÜTS, SABİM, beyazkod, Bakanlık atık sistemi) yerine geçilmez; yalnız veri hazırlanır. Kaynak: 18 Kasım derin araştırma raporu. Efor tahminidir. Kod partileri bu bölümü öncelikle işler.
+
+| Kimlik | Madde | Dayanak | Ölçüt | Efor | Durum |
+|---|---|---|---|---|---|
+| KG0 ✅ #68 | Kullanım amacı ve sınırlar sayfası | MDCG 2019-11 | Yayında; metin hukuk onayı bekler | — | tamam |
+| KG1 | Varlık ve bakım: biyomedikal + teknik varlık kaydı (hastane malı/konsinye), QR, telefonda zimmet imzası, yıllık bakım/kalibrasyon planından otomatik iş, yeşil/sarı/kırmızı durum, geri çağırma → etkilenen cihaz listesi, transfer ve hurdaya ayırma (HEK), arıza kaydı | SKS DMC10–17, DTY; JCI hastane prosedürü | QR okut → geçmiş → arıza/bakım aç → imza; plan işleri kendiliğinden açılıyor | 3–4 hafta | kod |
+| KG2 | Renkli kodlar: tek dokunuşla beyaz/pembe/kırmızı/turuncu ve Mavi (yalnız lojistik) çağrı, rol grubuna bildirim (web push), çağrı → onay → varış → kapanış zamanları, olay kaydı | SKS KAD08–11 | Çağrıdan varışa süre kaydı; tatbikat/gerçek ayrımı | 2 hafta | kod |
+| KG3 | HAP ve tatbikat: 15 Ocak/15 Şubat takvimi, yılın ilk haftasında tatbikat tarihleri, yatak sayısına göre ekip, değerlendirme formu, 3 aylık rapor, tahliye videosu kanıtı | HAP Uygulama Yönetmeliği (RG 18.03.2020/31072), SKS KAD05 | Yasal tarihler için hatırlatma ve kanıt dosyası | 1–2 hafta | kod |
+| KG4 | SKS periyodik kontrol takvimi: medikal gaz (günlük), su deposu klor (haftalık), bina turu (3 aylık), asansör/jeneratör/UPS/basınçlı kap, yemek numunesi (72 saat) — değişmez kayıt + fotoğraf kanıtı | SKS DTY01, 09, 11, 12, 14, 16; DOH11 | Kaçan kontrol eskalasyona gider | 2 hafta | kod |
+| KG5 | Tıbbi atık: birim bazlı tartım, torba etiketi, depo 48 saat / +4 °C'de 7 gün sayacı, lisanslı araca teslim kaydı, yıllık plan ve beyan hatırlatıcısı, 5 yıl arşiv | Tıbbi Atıkların Kontrolü Yönetmeliği (RG 25.01.2017/29959) | Süre aşımında uyarı; yıllık toplam raporu | 1–2 hafta | kod |
+| KG6 | Yumuşak tesis işleri: çamaşır, yemek tepsisi (diyet yalnız HBYS'den gösterilir, önerilmez), numune/doküman kuryesi iş tipleri; NHS birim maliyet kıyas kutucukları | NHS England 2022/23 | Mevcut iş motoruyla yeni iş tipleri | 1 hafta | kod |
+| KG7 | Malzeme talebi: birim → depo/eczane lojistiği, min/kritik/maks stok, son kullanma tarihi uyarısı (ilaç siparişi yok) | SKS DMC03–05 | Kritik stok ve SKT uyarısı | 2 hafta | kod |
+| KG8 | Kalite: doküman kontrolü (sürüm, onay), gösterge kartı (GGİ03 alanları), komite toplantı/karar takibi, dış hizmet (yüklenici) denetim kaydı | SKS GGİ, KKY, DDK | Gösterge kartı alanları birebir | 2 hafta | kod |
+| KG9 | İstenmeyen olay, ramak kala, şikâyet ve beyaz kod iç akışı (resmi kanalın yerine geçmeden, kimliksiz/sentetik) | SKS KİO, HHD04; "Sağlıkta Haklar ve İletişim" taslağı | Kök neden analizi formu | 1–2 hafta | kod + **karar-sözleşme** (süreler birincil kaynaktan teyit) |
+| KG10 | Tedarikçi güven paketi: salt okunur iz kaydı dışa aktarma (24 saat), yetki gözden geçirme raporu, yedek/geri dönüş testi kanıtı, tam veri dışa aktarma, hastane bağlantıyı keserse kısıtlı mod, SBOM | SKS DBY02/09/10; ChipSoft 2026 dersi; NIS2 tedarik zinciri | Denetçiye tek tıkla kanıt paketi | 2–3 hafta | kod |
+| KG11 | Sonra: sterilizasyon set takibi, RTLS, enerji/BMS, vardiya planlama | Donanım/entegrasyon ister; otomatik vardiya ataması AB Yapay Zekâ Yasası'nda yüksek risk olabilir | — | ileride | karar-sözleşme |
+
+Hukuk teyidi gerekenler: kullanım amacı metni; taburculuk/yatak ihtiyacı tahmininin cihaz dışında kalması; kamu hastanesi verisinin yurt dışı altyapıda tutulması (KVKK md. 9); hastane ile veri işleme sözleşmesi; AB Yapay Zekâ Yasası sınıflandırması.
