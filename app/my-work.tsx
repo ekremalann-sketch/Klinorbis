@@ -75,7 +75,7 @@ export function MyWork() {
           <h2 id="wk-title">İşlerim</h2>
           <p>Önce size atanan işler, sonra biriminizde alınabilecek işler. Her kartta yalnız şu an geçerli işlem etkindir.</p>
         </div>
-        {!!d?.requestTypes.length && <button type="button" className="wk-secondary wk-big" onClick={() => { setReq({ type: "", location: remembered("kb.lastLocation"), targetLocation: "", deviceCode: "", note: "" }); setReqGroup(d.requestTypes[0]?.group ?? ""); setDlg({ kind: "request" }); }}>Talep aç <small className="wk-btn-sub">arıza, temizlik, taşıma…</small></button>}
+        {!!d?.requestTypes.length && <button type="button" className="wk-secondary wk-big" onClick={() => { setReq({ type: "", location: remembered("kb.lastLocation"), targetLocation: "", deviceCode: "", note: "" }); setReqGroup(d.requestTypes[0]?.group ?? ""); setDlg({ kind: "request" }); }}>Yeni talep <small className="wk-btn-sub">arıza, temizlik, taşıma…</small></button>}
       </div>
       <StaleBanner live={live} />
       <Receipt text={receipt} onClose={() => setReceipt("")} />
@@ -191,15 +191,18 @@ export function MyWork() {
         onSubmit={async () => { await api("/api/my-work", { action: "fault.confirm", reference: dlg!.ref, resolved: false, note: text }); close(); setReceipt("Arıza yeniden açıldı ve teknik birime iletildi."); await live.reload(); }}>
         <label className="wk-field"><span>Ne sürüyor? <Opt /></span><input maxLength={300} value={text} onChange={(e) => setText(e.target.value)} placeholder="ör. Işık yine yanıp sönüyor" /></label>
       </FormDialog>
-      <FormDialog open={dlg?.kind === "request"} title="Talep aç"
+      <FormDialog open={dlg?.kind === "request"} title="Yeni talep"
         description={<>Ne gerektiğini seçin; talep doğru birime kendiliğinden gider ve işi o birimin sorumlusu dağıtır.{d?.myUnits[0] ? <> Talep eden birim: <b>{d.myUnits[0].name}</b> (otomatik).</> : null}</>}
         submitLabel="Talebi gönder" onClose={close}
         submitDisabled={(() => { const t = d?.requestTypes.flatMap((g) => g.types).find((x) => x.code === req.type); return !t || (t.fields.includes("target") && (!req.location.trim() || !req.targetLocation.trim())); })()}
         onSubmit={async () => {
           const r = await api<{ result: { next: string } }>("/api/my-work", { action: "request", type: req.type, location: req.location, targetLocation: req.targetLocation, deviceCode: req.deviceCode, note: req.note });
           if (req.location) remember("kb.lastLocation", req.location);
+          // Rakip dersi (14 Kasım): son kullanılan 3 talep türü bir sonraki talepte en üstte.
+          remember("kb.recentTypes", [req.type, ...remembered("kb.recentTypes").split(",").filter((c) => c && c !== req.type)].slice(0, 3).join(","));
           close(); setReceipt(r.result.next); await live.reload();
         }}>
+        {(() => { const all = d?.requestTypes.flatMap((g) => g.types) ?? []; const recent = remembered("kb.recentTypes").split(",").map((c) => all.find((t) => t.code === c)).filter((t): t is NonNullable<typeof t> => !!t); return recent.length ? <div className="wk-recent" role="group" aria-label="Son kullanılanlar"><span>Son kullanılan:</span>{recent.map((t) => <button key={t.code} type="button" className={req.type === t.code ? "on" : ""} aria-pressed={req.type === t.code} onClick={() => { const g = d?.requestTypes.find((x) => x.types.some((y) => y.code === t.code)); if (g) setReqGroup(g.group); setReq({ ...req, type: t.code }); }}>{t.label} · {t.unit.name}</button>)}</div> : null; })()}
         <div className="wk-tabs" role="tablist" aria-label="Talep grubu">
           {(d?.requestTypes ?? []).map((g) => <button key={g.group} type="button" role="tab" aria-selected={reqGroup === g.group} className={reqGroup === g.group ? "on" : ""} onClick={() => { setReqGroup(g.group); setReq({ ...req, type: "" }); }}>{g.group}</button>)}
         </div>

@@ -1,3 +1,5 @@
+import {turnaround} from './bed-turnaround';
+import {TRANSPORT_MODES,URGENCY,DELAY_REASONS,transportLate} from './coord-rules';
 import {parseBedList} from './bed-import';
 import { SecurityError, type RequestActor } from './security';
 import { sha256 } from './security';
@@ -14,7 +16,7 @@ function decision(tenant: string, job: string, round: number, kind: string, targ
 }
 export const COORD_LABEL='SİMÜLASYON · Kurgusal hastane · Rakamlar varsayımlara dayanır, gerçek pilot sonucu değildir.';
 export type Bed={tenant:string;id:string;campus:string;building:string;floor:string;unit:string;room:string;physical:string;hbys:string;cleaning:string;technical:number;staffed:number;review:number;source_version:number;observed_at:number|null;version:number;state_since?:number|null};
-export type Job={tenant:string;id:string;kind:string;bed:string;target:string|null;unit:string;status:string;owner:string|null;authority:string;patient:string|null;reason:string;version:number;created_at:number;updated_at:number};
+export type Job={tenant:string;id:string;kind:string;bed:string;target:string|null;unit:string;status:string;owner:string|null;authority:string;patient:string|null;reason:string;version:number;created_at:number;updated_at:number;transport_mode?:string|null;isolation?:number;urgency?:string;picked_at?:number|null;delay_reason?:string|null};
 type Message={tenant:string;id:string;bed:string;kind:string;source_version:number;observed_at:number;authority:string;hash:string;status:string;code:string|null;task:string|null;attempts:number;received_at:number};
 type Incoming={id:string;bed:string;kind:'discharge.recorded'|'departure.confirmed'|'occupancy.confirmed'|'cancel'|'correction';sourceVersion:number;observedAt:number;authority:string;synthetic:true};
 const db=()=>{const d=(globalThis as typeof globalThis&{__KLINORBIS_DB?:D1Database}).__KLINORBIS_DB;if(!d)throw new SecurityError(503,'Veritabanı kullanılamıyor.','DATABASE_UNAVAILABLE');return d;};
@@ -95,7 +97,16 @@ export async function coordView(actor:RequestActor,tenant:string){
  // Birim ayrımı: yönetici tümünü; diğerleri yalnız kendi birimine gelen veya kendi kaydettiği yatışları görür.
  const admScope=admin(actor)?'':' AND (recorded_by=?'+(actor.unitCodes.length?' OR target_unit IN ('+actor.unitCodes.map(()=>'?').join(',')+')':'')+')';
  const admissions=await rows('SELECT id,patient,target_unit,arrived_at,decided_at,placed_at,version FROM simops_admissions WHERE tenant=? AND (placed_at IS NULL OR placed_at>?)'+admScope+' ORDER BY decided_at',tenant,Date.now()-12*3600000,...(admin(actor)?[]:[actor.email,...actor.unitCodes])).catch(()=>[]);
- return {initialized:true,label:COORD_LABEL,admissions,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),me:actor.email,canInspect:['operations_manager','unit_manager'].includes(actor.role),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,transferDecisions,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
+ // K1: yatak dönüş süresi segmentleri (son 7 gün, tamamlanan temizlikler; yönetici ve birim sorumlusu görür).
+ let turn=null as ReturnType<typeof turnaround>|null;
+ if(['operations_manager','unit_manager'].includes(actor.role)||admin(actor)){
+  const since=Date.now()-7*86400000;
+  const cj=await rows<{id:string;created_at:number}>("SELECT id,created_at FROM simops_jobs WHERE tenant=? AND kind='cleaning' AND created_at>? ORDER BY created_at DESC LIMIT 300",tenant,since).catch(()=>[]);
+  const ev=cj.length?await rows<{resource:string;action:string;at:number}>("SELECT resource,action,min(at) at FROM simops_log WHERE tenant=? AND action IN ('job.accept','job.start','job.complete','job.inspect') AND at>? GROUP BY resource,action",tenant,since).catch(()=>[]):[];
+  const by=new Map(cj.map(j=>[j.id,{created:j.created_at} as Record<string,number>]));for(const e of ev){const t=by.get(e.resource);if(t)t[e.action]=e.at;}
+  turn=turnaround([...by.values()]);
+ }
+ return {initialized:true,label:COORD_LABEL,admissions,turnaround:turn,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),me:actor.email,canInspect:['operations_manager','unit_manager'].includes(actor.role),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,transferDecisions,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
 }
 export function validateIncoming(raw:unknown):Incoming{
  if(!raw||typeof raw!=='object'||Array.isArray(raw))fail('INVALID_EVENT','Olay nesne olmalıdır.',422);
@@ -158,15 +169,18 @@ export async function transitionCoord(actor:RequestActor,tenant:string,id:string
  if(action==='inspect'&&(!['operations_manager','unit_manager'].includes(actor.role)||j.owner===actor.email))fail('INDEPENDENT_INSPECTION','Temizliği yapan kişiden farklı yetkili kontrol etmelidir.',403);
  if(action==='deliver'){
   const c=confirmation as Record<string,unknown>|undefined;
-  if(!c||Object.keys(c).some(k=>!['target','twoIdentifiersVerified','receiverConfirmed','receiver'].includes(k))||c.target!==j.target||c.twoIdentifiersVerified!==true||c.receiverConfirmed!==true||typeof c.receiver!=='string'||!/^PRS-SIM-[A-Z0-9-]{1,30}$/.test(c.receiver)||c.receiver===j.owner)fail('DELIVERY_CONFIRMATION','Doğru hedef, iki kimlik unsurunun kurum prosedürüyle doğrulanması ve alıcı teslim onayı gerekli.',422);
+  if(!c||Object.keys(c).some(k=>!['target','twoIdentifiersVerified','receiverConfirmed','receiver','delayReason'].includes(k))||c.target!==j.target||c.twoIdentifiersVerified!==true||c.receiverConfirmed!==true||typeof c.receiver!=='string'||!/^PRS-SIM-[A-Z0-9-]{1,30}$/.test(c.receiver)||c.receiver===j.owner)fail('DELIVERY_CONFIRMATION','Doğru hedef, iki kimlik unsurunun kurum prosedürüyle doğrulanması ve alıcı teslim onayı gerekli.',422);
  }
  const duty=await dutyGuard(tenant,actor.email,j.unit);
  const now=Date.now(),st=[...duty,...guard(
   'SELECT 1 FROM simops_jobs WHERE tenant=? AND id=? AND version=?' + (beforeTransport ? ' AND created_at>?' : ''),
-  beforeTransport ? [tenant,id,version,now-TRANSPORT_HOLD_MS] : [tenant,id,version]),q('UPDATE simops_jobs SET status=?,owner=coalesce(owner,?),reason=?,version=version+1,updated_at=? WHERE tenant=? AND id=?',next,actor.email,next==='done'?'DONE':next==='check'?'WAIT_INSPECTION':'IN_PROGRESS',now,tenant,id)];
+  beforeTransport ? [tenant,id,version,now-TRANSPORT_HOLD_MS] : [tenant,id,version]),q('UPDATE simops_jobs SET status=?,owner=coalesce(owner,?),reason=?,version=version+1,updated_at=?,picked_at=CASE WHEN kind=\'transport\' AND ?=\'start\' THEN ? ELSE picked_at END WHERE tenant=? AND id=?',next,actor.email,next==='done'?'DONE':next==='check'?'WAIT_INSPECTION':'IN_PROGRESS',now,action,now,tenant,id)];
  if(j.kind==='cleaning')st.push(q('UPDATE simops_beds SET cleaning=?,version=version+1 WHERE tenant=? AND id=?',next==='done'?'ready':next==='check'?'check':next==='active'?'active':'queued',tenant,j.bed));
  if(j.kind==='transport'&&action==='deliver'){
-  st.push(q('UPDATE simops_jobs SET delivery_evidence=? WHERE tenant=? AND id=?',JSON.stringify(confirmation),tenant,id));
+  // K6: hedef süre aşıldıysa gecikme nedeni zorunlu (listeden).
+  const delay=(confirmation as Record<string,unknown>).delayReason;
+  if(transportLate(j.created_at,now)&&!(typeof delay==='string'&&delay in DELAY_REASONS))fail('DELAY_REASON_REQUIRED','Hedef süre aşıldı; gecikme nedenini seçin.',422);
+  st.push(q('UPDATE simops_jobs SET delivery_evidence=?,delay_reason=? WHERE tenant=? AND id=?',JSON.stringify(confirmation),typeof delay==='string'&&delay in DELAY_REASONS?delay:null,tenant,id));
   // K6: transferden sonra boşalan yatak için temizlik işi de açılır (yoksa zincir kopar).
   const openClean=await q("SELECT id FROM simops_jobs WHERE tenant=? AND bed=? AND kind='cleaning' AND status NOT IN('done','cancelled')",tenant,j.bed).first<{id:string}>();
   if(!openClean)st.push(q("INSERT INTO simops_jobs(tenant,id,kind,bed,unit,authority,created_at,updated_at) VALUES(?,?,'cleaning',?,'CTM',?,?,?)",tenant,`SIM-CLN-${crypto.randomUUID().slice(0,8)}`,j.bed,j.authority,now,now));
@@ -178,8 +192,9 @@ export async function reserveTransport(actor:RequestActor,tenant:string,raw:Reco
  if(typeof raw.patient!=='string'||!/^HST-SIM-\d{3}$/.test(raw.patient)||typeof raw.authority!=='string'||!/^YTKL-SIM-[A-Z0-9-]{1,40}$/.test(raw.authority)||!Number.isSafeInteger(raw.decidedAt)||Number(raw.decidedAt)>Date.now()||Date.now()-Number(raw.decidedAt)>86400000)fail('AUTHORITY_REQUIRED','Kurgusal hasta, yetkili karar kodu ve son 24 saatteki karar zamanı gerekli.',422);
  const beds=await rows<Bed>('SELECT * FROM simops_beds WHERE tenant=? AND id IN(?,?)',tenant,raw.bed,raw.target),source=beds.find(b=>b.id===raw.bed),target=beds.find(b=>b.id===raw.target);
  if(!source||!target||source.id===target.id||source.physical!=='occupied'||source.review||!bedReady(target))fail('BED_UNAVAILABLE','Kaynak dolu ve hedefsiz inceleme yok; hedef doğrulanmış hazır yatak olmalı.');if(!admin(actor)&&!actor.unitCodes.includes(source.unit))fail('UNIT_DENIED','Kaynak birim yetkiniz yok.',403);
+ const mode=String(raw.mode??''),urgency=String(raw.urgency??'planli');if(!(mode in TRANSPORT_MODES))fail('MODE_REQUIRED','Taşıma şeklini seçin.',422);if(!(urgency in URGENCY))fail('URGENCY_INVALID','Planlı veya acil seçin.',422);const isolation=raw.isolation===true?1:0;
  const auto=targetAuthority(actor,target.unit);
- const id=`SIM-TRN-${crypto.randomUUID().slice(0,8)}`,now=Date.now();await batch([...expireTransportReservations(actor,tenant,now),...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,target.id,target.version]),...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,source.id,source.version]),q('INSERT INTO simops_reservations(tenant,bed,patient,job) VALUES(?,?,?,?)',tenant,target.id,raw.patient,id),q("INSERT INTO simops_jobs(tenant,id,kind,bed,target,unit,authority,patient,decision_at,status,reason,created_at,updated_at) VALUES(?,?,'transport',?,?,'ULS',?,?,?,?,?,?,?)",tenant,id,source.id,target.id,raw.authority,raw.patient,raw.decidedAt,auto?'queued':'offered',auto?'WAIT_ACCEPT':'WAIT_TARGET',now,now),decision(tenant,id,1,'offered',target.id,actor,null,now),...(auto?[decision(tenant,id,1,'accepted',target.id,actor,null,now)]:[]),log(tenant,actor,'transport.request',id)]);return {id,status:auto?'queued':'offered'};
+ const id=`SIM-TRN-${crypto.randomUUID().slice(0,8)}`,now=Date.now();await batch([...expireTransportReservations(actor,tenant,now),...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,target.id,target.version]),...guard('SELECT 1 FROM simops_beds WHERE tenant=? AND id=? AND version=?',[tenant,source.id,source.version]),q('INSERT INTO simops_reservations(tenant,bed,patient,job) VALUES(?,?,?,?)',tenant,target.id,raw.patient,id),q("INSERT INTO simops_jobs(tenant,id,kind,bed,target,unit,authority,patient,decision_at,status,reason,created_at,updated_at,transport_mode,isolation,urgency) VALUES(?,?,'transport',?,?,'ULS',?,?,?,?,?,?,?,?,?,?)",tenant,id,source.id,target.id,raw.authority,raw.patient,raw.decidedAt,auto?'queued':'offered',auto?'WAIT_ACCEPT':'WAIT_TARGET',now,now,mode,isolation,urgency),decision(tenant,id,1,'offered',target.id,actor,null,now),...(auto?[decision(tenant,id,1,'accepted',target.id,actor,null,now)]:[]),log(tenant,actor,'transport.request',id)]);return {id,status:auto?'queued':'offered'};
 }
 function expireTransportReservations(actor: RequestActor, tenant: string, now: number) {
  const expired = "tenant=? AND kind='transport' AND status IN ('offered','queued','accepted') AND created_at<=?";
