@@ -1,3 +1,4 @@
+import {parseBedList} from './bed-import';
 import { SecurityError, type RequestActor } from './security';
 import { sha256 } from './security';
 import { automationStopped } from './automation-policy';
@@ -32,6 +33,15 @@ function guard(sql:string,args:unknown[]){const id=crypto.randomUUID();return [q
 async function batch(statements:D1PreparedStatement[]){try{return await db().batch(statements);}catch(e){const text=String(e)+' '+String((e as {cause?:unknown}).cause??'');if(/constraint|UNIQUE|CHECK/i.test(text))fail('CONFLICT','Kayıt değişti veya aynı yatak/iş başka işlemde. Yenileyip tekrar deneyin.');throw e;}}
 // K6: hazır yatak zamanla kendiliğinden düşmez. Hazırlık yalnız yeni bir olayla (dolu, iptal, düzeltme, engel) bozulur.
 export function bedReady(b:Bed,now=Date.now()){return b.physical==='departed'&&b.hbys==='vacant'&&b.cleaning==='ready'&&!!b.technical&&!!b.staffed&&!b.review&&!!b.observed_at&&b.observed_at<=now+60000;}
+/** K10: Excel'den yatak listesi (yalnız kurgusal kodlar). Var olan yataklar değiştirilmez; yalnız yeniler eklenir. */
+export async function importCoordBeds(actor:RequestActor,tenant:string,text:unknown){await coordScope(actor,tenant);if(!admin(actor))fail('MANAGER_REQUIRED','Yatak listesini operasyon yöneticisi yükler.',403);await writable();
+ const {rows:parsed,errors}=parseBedList(String(text??''));if(errors.length)fail('IMPORT_INVALID',errors.slice(0,5).join(' '),422);
+ const existing=new Set((await rows<{id:string}>('SELECT id FROM simops_beds WHERE tenant=?',tenant)).map(r=>r.id));
+ const fresh=parsed.filter(r=>!existing.has(r.id));
+ for(let i=0;i<fresh.length;i+=50){await batch(fresh.slice(i,i+50).map(r=>q('INSERT OR IGNORE INTO simops_beds(tenant,id,campus,building,floor,unit,room) VALUES(?,?,?,?,?,?,?)',tenant,r.id,r.campus,r.building,r.floor,r.unit,r.room)));}
+ await log(tenant,actor,'beds.import',`${fresh.length} yeni / ${parsed.length-fresh.length} zaten vardı`).run();
+ return {added:fresh.length,skipped:parsed.length-fresh.length};
+}
 export async function initCoord(actor:RequestActor){
  if(!admin(actor))fail('MANAGER_REQUIRED','Kurulumu operasyon yöneticisi yapar.',403);await writable();
  const tenant='SIM-KURUM-A',statements=[q('INSERT OR IGNORE INTO simops_members(tenant,email) VALUES(?,?)',tenant,actor.email)];
