@@ -4000,19 +4000,18 @@ function maskActor(actor: string) {
 
 // Transfer kararı: yalnız yetkili hekim kabul eder veya gerekçeyle reddeder. Sistem öneri sunmaz.
 function TransferDecision({ reference, decide }: { reference: string; decide: (body: Record<string, unknown>) => Promise<void> }) {
-  const [physician, setPhysician] = useState("HKM-SIM-");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   async function send(decision: "accept" | "reject") {
     setBusy(true); setMessage("");
-    try { await decide({ reference, decision, physician, reason }); setMessage(decision === "accept" ? "Kabul kaydedildi." : "Ret kaydedildi."); }
+    try { await decide({ reference, decision, reason }); setMessage(decision === "accept" ? "Kabul kaydedildi." : "Ret kaydedildi."); }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : "Karar kaydedilemedi."); }
     finally { setBusy(false); }
   }
   return <form className="transfer-decision" onSubmit={(e) => e.preventDefault()} aria-label={`${reference} kararı`}>
     <b>{reference} · Hekim kararı</b>
-    <label>Kararı veren hekim kodu<input value={physician} onChange={(e) => setPhysician(e.target.value.toUpperCase())} /></label>
+    <p className="note">Karar, oturum açmış hekimin adıyla kaydedilir.</p>
     <label>Gerekçe / not<input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="Ret için zorunlu" /></label>
     <div><button type="button" className="primary" disabled={busy} onClick={() => void send("accept")}>Kabul et</button><button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void send("reject")}>Gerekçeyle reddet</button></div>
     <small role="status">{message}</small>
