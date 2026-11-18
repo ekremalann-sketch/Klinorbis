@@ -49,7 +49,7 @@ const checklist = [
 ];
 const faq = [
   ["Klinorbis nedir?", "Hastanelerde yatak, temizlik, hasta taşıma, transfer ve vardiya devrini tek ekranda koordine eden bir operasyon yazılımıdır."],
-  ["Klinik karar veriyor mu?", "Hayır. Tanı, tedavi, triyaj veya sevk kararı üretmez. Hangi hastanın nereye gideceğine yetkili sağlık personeli karar verir; Klinorbis yalnız işin kimde olduğunu ve nerede kaldığını gösterir."],
+  ["Klinik karar veriyor mu?", "Hayır. Tanı, tedavi, öncelik sıralaması veya sevk kararı üretmez. Hangi hastanın nereye gideceğine yetkili sağlık personeli karar verir; Klinorbis yalnız işin kimde olduğunu ve nerede kaldığını gösterir."],
   ["Tıbbi cihaz mı?", "Hayır. Hastanın tanı veya tedavisine yönelik bir işlev içermez; operasyon koordinasyon yazılımıdır."],
   ["HBYS'nin yerine mi geçiyor?", "Hayır. HBYS kayıt sistemi olarak kalır. Klinorbis onun yanında, operasyon ekiplerinin günlük koordinasyonu için çalışır."],
   ["Gerçek hasta verisi gerekiyor mu?", "Demo ve ilk pilot tamamen kurgusal kayıtlarla çalışır. Gerçek bağlantı ancak kurumun onayı ve veri işleme sözleşmesiyle açılır."],
@@ -153,7 +153,7 @@ export default function Home() {
       <span className="kh-kicker">Sınırlar</span>
       <h2 id="kh-limits">Klinorbis ne yapmaz?</h2>
       <ul className="kh-limits">
-        <li>Tanı, tedavi, triyaj veya sevk kararı üretmez; tıbbi cihaz değildir.</li>
+        <li>Tanı, tedavi, öncelik sıralaması veya sevk kararı üretmez; tıbbi cihaz değildir.</li>
         <li>HBYS’nin yerine geçmez, reçete veya mali kayıt yazmaz.</li>
         <li>Gerçek HBYS bağlantısı bugün kapalıdır; bağlıymış gibi gösterilmez.</li>
         <li>Demo yalnız kurgusal kayıtlarla çalışır.</li>

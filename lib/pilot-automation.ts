@@ -43,7 +43,7 @@ const SCENARIOS: PilotScenario[] = [
     priority: "Normal",
     requiresApproval: false,
     requestSubject: "Kardiyoloji kontrol randevusu ve önceki tetkik evrakı hakkında bilgi",
-    summary: "Arayan, daha önce planlanan kardiyoloji kontrolünün tarihini ve yanında getirmesi gereken idari evrakı soruyor. Klinik öneri üretilmeden Kardiyoloji kuyruğuna görev açıldı.",
+    summary: "Arayan, daha önce planlanan kardiyoloji kontrolünün tarihini ve yanında getirmesi gereken idari evrakı soruyor. Klinik değerlendirme yapılmadan Kardiyoloji kuyruğuna görev açıldı.",
     messages: [
       { speaker: "system", label: "Santral", text: "Kimliksiz pilot çağrı güvenli oturuma alındı; kişisel alanlar maskeleme filtresinden geçiriliyor." },
       { speaker: "agent", label: "Çağrı görevlisi", text: "KLINORBIS Hasta İletişim Merkezine hoş geldiniz. Size randevu ve hastane süreçleri konusunda yardımcı olabilirim. Acil bir durum varsa lütfen 112’yi arayın." },

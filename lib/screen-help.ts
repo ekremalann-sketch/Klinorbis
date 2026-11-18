@@ -191,3 +191,12 @@ export const SCREEN_HELP: Record<string, ScreenHelp> = {
   security: { purpose: "Güvenlik olayları, imza hataları, hız sınırı aşımları.", who: "Bilgi güvenliği", steps: ["Kritik olayları inceleyin.", "Tekrar eden kaynakları bilgi işlem ekibine bildirin; engelleme kurum altyapısında yapılır."] },
   audit: { purpose: "Zincirli denetim izi: kim, ne zaman, ne yaptı.", who: "Denetim, kalite", steps: ["Kayıt veya kişi adıyla arayın.", "Zincirli geçmişi inceleyin. Eş zamanlı yazımda zincir çatallanması uyarısı oluşabilir; bu bir uygunluk belgesi değildir."] },
 };
+
+// K3: Her ekranın başında kısa kullanım amacı beyanı. Modül sınırını üretici çizer: idari/lojistik koordinasyon.
+export const USAGE_LIMIT_TEXT = "Klinik karar, tanı veya tedavi önerisi üretmez; tıbbi cihaz değildir.";
+export function usageStatement(view: string): string | null {
+  const help = SCREEN_HELP[view];
+  if (!help) return null;
+  const first = help.purpose.split(/(?<=[.!?])\s/)[0]!.trim();
+  return `Kullanım amacı: ${first} ${USAGE_LIMIT_TEXT}`;
+}
