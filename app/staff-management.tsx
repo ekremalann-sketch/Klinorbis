@@ -2,6 +2,7 @@
 // Personel ve Yetki ekranının çalışan kısmı: "Benim işim", personel yönetimi (yalnız
 // operasyon yöneticisi) ve gerçek vardiya devri. Tüm kurallar sunucuda uygulanır;
 // bu bileşen yalnız sunucunun izin verdiği işlemleri gösterir.
+import { JOB_ROLES } from "../lib/b-menu";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ROLE_MAP, type RoleKey } from "../lib/role-map";
@@ -175,7 +176,7 @@ function HandoffPanel({ data, unitName, busy, run }: { data: ShiftData; unitName
 }
 
 function StaffAdmin({ data, busy, run, unitName }: { data: StaffData; busy: boolean; run: (u: string, b: unknown, d: string) => Promise<boolean>; unitName: (c: string) => string }) {
-  const empty = { email: "", displayLabel: "", systemRole: "call_agent" as RoleKey, units: [] as string[] };
+  const empty = { email: "", displayLabel: "", systemRole: "call_agent" as RoleKey, units: [] as string[], jobRole: "" };
   const [form, setForm] = useState(empty);
   const [confirming, setConfirming] = useState("");
   const needsUnit = UNIT_ROLES.includes(form.systemRole);
@@ -185,11 +186,11 @@ function StaffAdmin({ data, busy, run, unitName }: { data: StaffData; busy: bool
     event.preventDefault();
     const ok = await run("/api/staff", {
       action: "save", email: form.email, displayLabel: form.displayLabel, systemRole: form.systemRole,
-      memberships: needsUnit ? form.units.map((unitCode) => ({ unitCode })) : [],
+      memberships: needsUnit ? form.units.map((unitCode) => (form.jobRole ? { unitCode, unitRole: form.jobRole } : { unitCode })) : [],
     }, editing ? "Personel güncellendi." : "Personel eklendi. Kişi platform hesabıyla girdiğinde bu rolle çalışır.");
     if (ok) setForm(empty);
   }
-  function edit(s: Staff) { setForm({ email: s.email, displayLabel: s.displayLabel, systemRole: s.systemRole, units: s.memberships.map((m) => m.unitCode) }); }
+  function edit(s: Staff) { const job = Object.values(JOB_ROLES).find((label) => s.memberships.some((m) => m.unitRole === label)) ?? ""; setForm({ email: s.email, displayLabel: s.displayLabel, systemRole: s.systemRole, units: s.memberships.map((m) => m.unitCode), jobRole: job }); }
   const toggle = (code: string) => setForm((f) => ({ ...f, units: f.units.includes(code) ? f.units.filter((u) => u !== code) : [...f.units, code] }));
 
   return (
@@ -204,6 +205,14 @@ function StaffAdmin({ data, busy, run, unitName }: { data: StaffData; busy: bool
           </select>
         </label>
         <p className="sm-hint">{ROLE_MAP[form.systemRole].home} · {needsUnit ? "En az bir birim seçin." : "Tüm birimleri kapsar; birim seçilmez."}</p>
+        {needsUnit && (
+          <label>İş rolü
+            <select value={form.jobRole} onChange={(e) => setForm({ ...form, jobRole: e.target.value })}>
+              <option value="">Birimin varsayılan rolü</option>
+              {Object.values(JOB_ROLES).map((label) => <option key={label} value={label}>{label}</option>)}
+            </select>
+          </label>
+        )}
         {needsUnit && (
           <fieldset className="sm-wide sm-units"><legend>Birimler<Req /></legend>
             {data.units.map((u) => <label key={u.code} className="sm-check"><input type="checkbox" checked={form.units.includes(u.code)} onChange={() => toggle(u.code)} />{u.name}</label>)}
