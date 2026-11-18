@@ -25,7 +25,6 @@ await test('kaynak kod: otomatik kabul/ret/yönlendirme yolu yok',async()=>{
 
 await test('yetkili hekim kabul eder; kapasitede görünen kampüsü seçebilir; ikinci karar reddedilir',async()=>{
  seed('XFR-T1',JSON.stringify([{facilityCode:'F02',available:2}]));
- assert.equal((await post({reference:'XFR-T1',decision:'accept',physician:'yanlış'})).status,422);
  assert.equal((await post({reference:'XFR-T1',decision:'accept',physician:'HKM-SIM-01',facilityCode:'F09'})).status,422,'listede olmayan kampüs');
  const r=await post({reference:'XFR-T1',decision:'accept',physician:'HKM-SIM-01',facilityCode:'F02'});assert.equal(r.status,200);
  assert.deepEqual({...row('XFR-T1')}.status,'accepted');assert.equal(row('XFR-T1').target_facility_code,'F02');assert.equal(row('XFR-T1').decision_code,'human_accepted');
@@ -40,10 +39,19 @@ await test('ret gerekçe ister; yetkisiz rol karar veremez',async()=>{
  assert.equal(row('XFR-T2').status,'rejected');assert.match(row('XFR-T2').decision_detail,/Gerekçe/);
 });
 
-await test('başka birimin hekimi karar veremez (birim ayrımı sunucuda); tüm birimleri gören yönetici verebilir',async()=>{
+await test('başka birimin hekimi karar veremez (birim ayrımı sunucuda); kendi birimindeki hekim verebilir',async()=>{
  seed('XFR-T3');
  const r=await post({reference:'XFR-T3',decision:'accept',physician:'HKM-SIM-03'},OTHER);
  assert.equal(r.status,404,'başka birimin kaydı bulunamadı görünür');
  assert.equal(row('XFR-T3').status,'awaiting_decision','kayıt değişmedi');
- assert.equal((await post({reference:'XFR-T3',decision:'reject',physician:'HKM-SIM-03',reason:'Kurgusal: uygun yatak yok'},OWNER)).status,200);
+ assert.equal((await post({reference:'XFR-T3',decision:'reject',reason:'Kurgusal: uygun yatak yok'})).status,200,'kendi birimindeki hekim karar verir');
+});
+
+await test('#54 incelemesi: operasyon yöneticisi hekim adına karar veremez; istemciden gelen hekim kodu kimlik olarak kullanılmaz',async()=>{
+ seed('XFR-T9');
+ assert.equal((await post({reference:'XFR-T9',decision:'accept',physician:'HKM-SIM-99'},OWNER)).status,403,'hekim olmayan oturum, hekim kodu gönderse de karar veremez');
+ assert.equal(row('XFR-T9').status,'awaiting_decision');
+ assert.equal((await post({reference:'XFR-T9',decision:'accept',physician:'HKM-SIM-SAHTE'})).status,200);
+ assert.doesNotMatch(row('XFR-T9').decision_detail,/HKM-SIM-SAHTE/,'istemcinin yazdığı kod kayda girmez');
+ assert.match(row('XFR-T9').decision_detail,new RegExp(DOC.replace('.','\\.')),'karar oturumdaki hekimle kaydedilir');
 });
