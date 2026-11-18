@@ -528,11 +528,12 @@ async function controlOutcome(
  */
 export async function decideTransferRequest(
   db: Db,
-  actor: { email: string; canSeeAllUnits?: boolean; unitCodes?: string[] },
-  input: { reference: string; decision: "accept" | "reject"; physician: string; reason: string; facilityCode?: string },
+  actor: { email: string; label?: string; canSeeAllUnits?: boolean; unitCodes?: string[] },
+  input: { reference: string; decision: "accept" | "reject"; reason: string; facilityCode?: string },
   at = new Date(),
 ): Promise<{ status: "accepted" | "rejected" } | { error: string; status: number }> {
-  if (!/^HKM-SIM-[A-Z0-9-]{1,30}$/.test(input.physician)) return { error: "Kararı veren yetkili hekim kodu gerekli (kurgusal: HKM-SIM-…).", status: 422 };
+  // Kararı veren: oturumdaki hekim (istemciden gelen kod kabul edilmez).
+  const decider = `${actor.label ?? actor.email} (${actor.email})`;
   const reason = input.reason.trim();
   if (input.decision === "reject" && (reason.length < 3 || reason.length > 300)) return { error: "Ret için 3–300 karakterlik gerekçe girin.", status: 422 };
   const [request] = await db.select().from(transferRequests).where(eq(transferRequests.reference, input.reference)).limit(1);
@@ -546,8 +547,8 @@ export async function decideTransferRequest(
   }
   const accepted = input.decision === "accept";
   const detail = accepted
-    ? `${input.physician} kabul etti${facility !== request.targetFacilityCode ? ` (hedef: ${facility})` : ""}.${reason ? ` Not: ${reason}` : ""}`
-    : `${input.physician} reddetti. Gerekçe: ${reason}`;
+    ? `${decider} kabul etti${facility !== request.targetFacilityCode ? ` (hedef: ${facility})` : ""}.${reason ? ` Not: ${reason}` : ""}`
+    : `${decider} reddetti. Gerekçe: ${reason}`;
   const updated = await db.update(transferRequests).set({
     status: accepted ? "accepted" : "rejected", targetFacilityCode: facility,
     decisionCode: accepted ? "human_accepted" : "human_rejected", decisionDetail: detail, decidedAt: at, updatedAt: at,
