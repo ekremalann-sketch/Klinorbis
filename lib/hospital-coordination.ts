@@ -30,7 +30,8 @@ function log(tenant:string,actor:RequestActor,action:string,resource:string){ret
 // A failed version assertion aborts the same D1 transaction, including every later side effect.
 function guard(sql:string,args:unknown[]){const id=crypto.randomUUID();return [q('INSERT INTO simops_guard(id,ok) SELECT ?,CASE WHEN EXISTS ('+sql+') THEN 1 ELSE 0 END',id,...args),q('DELETE FROM simops_guard WHERE id=?',id)];}
 async function batch(statements:D1PreparedStatement[]){try{return await db().batch(statements);}catch(e){const text=String(e)+' '+String((e as {cause?:unknown}).cause??'');if(/constraint|UNIQUE|CHECK/i.test(text))fail('CONFLICT','Kayıt değişti veya aynı yatak/iş başka işlemde. Yenileyip tekrar deneyin.');throw e;}}
-export function bedReady(b:Bed,now=Date.now()){return b.physical==='departed'&&b.hbys==='vacant'&&b.cleaning==='ready'&&!!b.technical&&!!b.staffed&&!b.review&&!!b.observed_at&&b.observed_at<=now&&now-b.observed_at<=15*60000;}
+// K6: hazır yatak zamanla kendiliğinden düşmez. Hazırlık yalnız yeni bir olayla (dolu, iptal, düzeltme, engel) bozulur.
+export function bedReady(b:Bed,now=Date.now()){return b.physical==='departed'&&b.hbys==='vacant'&&b.cleaning==='ready'&&!!b.technical&&!!b.staffed&&!b.review&&!!b.observed_at&&b.observed_at<=now+60000;}
 export async function initCoord(actor:RequestActor){
  if(!admin(actor))fail('MANAGER_REQUIRED','Kurulumu operasyon yöneticisi yapar.',403);await writable();
  const tenant='SIM-KURUM-A',statements=[q('INSERT OR IGNORE INTO simops_members(tenant,email) VALUES(?,?)',tenant,actor.email)];
@@ -62,7 +63,7 @@ export async function coordView(actor:RequestActor,tenant:string){
  const messages=admin(actor)?await rows<Message>('SELECT * FROM simops_messages WHERE tenant=? ORDER BY received_at DESC LIMIT 100',tenant):[];
  const reservations=await rows<{bed:string;job:string}>("SELECT r.bed,r.job FROM simops_reservations r JOIN simops_jobs j ON j.tenant=r.tenant AND j.id=r.job WHERE r.tenant=? AND (j.status='active' OR (j.status IN ('offered','queued','accepted') AND j.created_at>?))",tenant,Date.now()-TRANSPORT_HOLD_MS);
  const last=messages.filter(m=>m.status==='processed').reduce((a,m)=>Math.max(a,m.observed_at),0);
- return {initialized:true,label:COORD_LABEL,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at||Date.now()-b.observed_at>900000,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,transferDecisions,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
+ return {initialized:true,label:COORD_LABEL,realConnection:'Kapalı',source:'Sentetik HBYS simülatörü; gerçek üretici bağlantısı yok',canManage:admin(actor),beds:beds.filter(b=>admin(actor)||actor.unitCodes.includes(b.unit)).map(b=>({...b,ready:bedReady(b)&&!reservations.some(r=>r.bed===b.id),stale:!b.observed_at,reserved:reservations.some(r=>r.bed===b.id)})),reservations,jobs,transferDecisions,duty:admin(actor)?await rows('SELECT email,unit,starts_at,ends_at,available FROM simops_duty WHERE tenant=?',tenant):[],messages,lastSuccessfulData:last||null,receivedCount:messages.length,quarantine:messages.filter(m=>m.status==='quarantine').length,review:messages.filter(m=>m.status==='review').length,audit:admin(actor)?await rows('SELECT action,resource,at FROM simops_log WHERE tenant=? ORDER BY id DESC LIMIT 100',tenant):[],serverNow:Date.now()};
 }
 export function validateIncoming(raw:unknown):Incoming{
  if(!raw||typeof raw!=='object'||Array.isArray(raw))fail('INVALID_EVENT','Olay nesne olmalıdır.',422);
@@ -102,6 +103,19 @@ export async function ingestCoord(actor:RequestActor,tenant:string,raw:unknown){
  try{await q("INSERT INTO simops_messages(tenant,id,bed,kind,source_version,observed_at,authority,hash,status,received_at,code) VALUES(?,?,?,?,?,?,?,?,'quarantine',?,'PENDING')",tenant,b.id,b.bed,b.kind,b.sourceVersion,b.observedAt,b.authority,hash,Date.now()).run();}catch{fail('CONFLICT','Aynı olay işleniyor; yeniden deneyin.');}
  const m=await q('SELECT * FROM simops_messages WHERE tenant=? AND id=?',tenant,b.id).first<Message>();return processMessage(actor,tenant,m!);
 }
+/** K6: yatak panosundaki "Hasta ayrıldı" düğmesi. Birim personeli kendi biriminin dolu yatağında kullanır.
+ * Aynı olay hattından (kurgusal "fiziksel ayrılış doğrulandı") geçer: yatak boşalır ve temizlik işi kendiliğinden açılır. */
+export async function markDeparted(actor:RequestActor,tenant:string,bedId:string,version:number){await coordScope(actor,tenant);await writable();
+ const b=await q('SELECT * FROM simops_beds WHERE tenant=? AND id=?',tenant,bedId).first<Bed>();if(!b)fail('NOT_FOUND','Yatak bulunamadı.',404);
+ if(!admin(actor)&&!(['unit_manager','clinician','call_agent'].includes(actor.role)&&actor.unitCodes.includes(b!.unit)))fail('UNIT_REQUIRED','Bu yatağın birimindeki personel kullanabilir.',403);
+ if(b!.version!==version)fail('CONFLICT','Yatak değişti; ekranı yenileyin.');
+ if(b!.physical!=='occupied'&&b!.hbys!=='occupied')fail('NOT_OCCUPIED','Yatak dolu görünmüyor.',409);
+ const id=`SIM-EVT-AYR-${crypto.randomUUID().slice(0,12).toUpperCase()}`,now=Date.now();
+ const hash=await sha256(JSON.stringify([id,b!.id,'departure.confirmed',b!.source_version+1,now,'YTKL-SIM-PERSONEL',true]));
+ await q("INSERT INTO simops_messages(tenant,id,bed,kind,source_version,observed_at,authority,hash,status,received_at,code) VALUES(?,?,?,'departure.confirmed',?,?,'YTKL-SIM-PERSONEL',?,'quarantine',?,'PENDING')",tenant,id,b!.id,b!.source_version+1,now,hash,now).run();
+ const m=await q('SELECT * FROM simops_messages WHERE tenant=? AND id=?',tenant,id).first<Message>();
+ const r=await processMessage(actor,tenant,m!);await log(tenant,actor,'bed.departed',b!.id).run();return r;
+}
 export async function retryCoord(actor:RequestActor,tenant:string,id:string){await coordScope(actor,tenant);if(!admin(actor))fail('MANAGER_REQUIRED','Yeniden deneme yetkisi yok.',403);await writable();const m=await q('SELECT * FROM simops_messages WHERE tenant=? AND id=?',tenant,id).first<Message>();if(!m||m.status!=='quarantine')fail('RETRY_UNAVAILABLE','Yalnız karantinadaki olay yeniden denenebilir.');if(m.attempts>=5)fail('RETRY_LIMIT','En fazla beş deneme; eşleme teknik yönetici tarafından incelenmeli.');return processMessage(actor,tenant,m,true);}
 export async function transitionCoord(actor:RequestActor,tenant:string,id:string,version:number,action:string,confirmation?:unknown){await coordScope(actor,tenant);await writable();const j=await q('SELECT * FROM simops_jobs WHERE tenant=? AND id=?',tenant,id).first<Job>();if(!j)fail('NOT_FOUND','Görev bulunamadı.',404);if(!admin(actor)&&!actor.unitCodes.includes(j.unit))fail('UNIT_DENIED','Bu birimin görevi değil.',403);if(['privacy_officer','security_officer'].includes(actor.role))fail('WRITER_REQUIRED','Operasyon yazma yetkisi yok.',403);
  if(j.version!==version)fail('CONFLICT','Görev başka işlemle değişti.');if(j.owner&&j.owner!==actor.email&&!['inspect','cancel','handoff.accept'].includes(action))fail('OWNER_REQUIRED','Görev başka personelde.');
@@ -121,7 +135,10 @@ export async function transitionCoord(actor:RequestActor,tenant:string,id:string
  if(j.kind==='cleaning')st.push(q('UPDATE simops_beds SET cleaning=?,version=version+1 WHERE tenant=? AND id=?',next==='done'?'ready':next==='check'?'check':next==='active'?'active':'queued',tenant,j.bed));
  if(j.kind==='transport'&&action==='deliver'){
   st.push(q('UPDATE simops_jobs SET delivery_evidence=? WHERE tenant=? AND id=?',JSON.stringify(confirmation),tenant,id));
-  st.push(q("UPDATE simops_beds SET physical='occupied',hbys='unknown',review=1,cleaning='dirty',version=version+1 WHERE tenant=? AND id=?",tenant,j.target),q("UPDATE simops_beds SET physical='departed',hbys='unknown',cleaning='dirty',review=1,version=version+1 WHERE tenant=? AND id=?",tenant,j.bed),q('DELETE FROM simops_reservations WHERE tenant=? AND job=?',tenant,id));
+  // K6: transferden sonra boşalan yatak için temizlik işi de açılır (yoksa zincir kopar).
+  const openClean=await q("SELECT id FROM simops_jobs WHERE tenant=? AND bed=? AND kind='cleaning' AND status NOT IN('done','cancelled')",tenant,j.bed).first<{id:string}>();
+  if(!openClean)st.push(q("INSERT INTO simops_jobs(tenant,id,kind,bed,unit,authority,created_at,updated_at) VALUES(?,?,'cleaning',?,'CTM',?,?,?)",tenant,`SIM-CLN-${crypto.randomUUID().slice(0,8)}`,j.bed,j.authority,now,now));
+  st.push(q("UPDATE simops_beds SET physical='occupied',hbys='unknown',review=1,cleaning='dirty',version=version+1 WHERE tenant=? AND id=?",tenant,j.target),q("UPDATE simops_beds SET physical='departed',hbys='unknown',cleaning='queued',review=1,version=version+1 WHERE tenant=? AND id=?",tenant,j.bed),q('DELETE FROM simops_reservations WHERE tenant=? AND job=?',tenant,id));
  }
  st.push(log(tenant,actor,`job.${action}`,id));await batch(st);return {id,status:next};
 }

@@ -41,7 +41,7 @@ await test('temizlik: iki kişi aynı işi alamaz; sırayı atlayamaz; işi yapa
  assert.equal((await transition(cleaning,'inspect',owner)).status,403);const inspector=owner===OTHER?OPS:OTHER;assert.equal((await transition(cleaning,'inspect',inspector)).status,200);assert.equal(lib.bedReady(bed('YTK-SIM-001')),true);
 });
 await test('kapasite: teknik/personel engeli, eski kaynak veya HBYS çelişkisi hazır sayılmaz',()=>{
- const b=bed('YTK-SIM-001');for(const change of [{technical:0},{staffed:0},{review:1},{hbys:'occupied'},{physical:'occupied'},{observed_at:Date.now()-900001}])assert.equal(lib.bedReady({...b,...change}),false);
+ const b=bed('YTK-SIM-001');for(const change of [{technical:0},{staffed:0},{review:1},{hbys:'occupied'},{physical:'occupied'},{observed_at:null}])assert.equal(lib.bedReady({...b,...change}),false); // K6: 15 dk sonra kendiliğinden düşme kaldırıldı; kaynağı olmayan yatak yine hazır sayılmaz.
 });
 let transport;
 await test('kabul 2: hedef yatağa eşzamanlı iki rezervasyon olmaz; yetkili karar zamanı kaydedilir',async()=>{
@@ -55,6 +55,8 @@ await test('transport: varış ve çift doğrulama beyanı olmadan teslim tamaml
  assert.equal((await transition(transport,'deliver',OPS,{target:'YTK-SIM-003',twoIdentifiersVerified:true,receiverConfirmed:true,receiver:'PRS-SIM-004'})).status,422);
  assert.equal((await transition(transport,'deliver',OPS,{target:'YTK-SIM-001',twoIdentifiersVerified:true,receiverConfirmed:true,receiver:'PRS-SIM-004'})).status,200);
  assert.equal(job(transport).status,'done');assert.equal(bed('YTK-SIM-001').physical,'occupied');assert.equal(bed('YTK-SIM-002').physical,'departed');assert.equal(bed('YTK-SIM-001').review,1);assert.equal(bed('YTK-SIM-002').review,1);assert.ok(job(transport).delivery_evidence);
+ // K6: transferden sonra boşalan yatağa temizlik işi açılır.
+ assert.equal(sqlite.prepare("SELECT count(*) n FROM simops_jobs WHERE kind='cleaning' AND bed='YTK-SIM-002' AND status NOT IN('done','cancelled')").get().n,1);assert.equal(bed('YTK-SIM-002').cleaning,'queued');
 });
 await test('iptal ve düzeltme bitmiş işi açmaz; inceleme işi ve kapasite engeli oluşturur',async()=>{
  const result=await (await post({action:'event',event:event('YTK-SIM-001','cancel',3)})).json();assert.equal(result.status,'review');assert.equal(job(cleaning).status,'done');assert.equal(job(transport).status,'done');assert.equal(job(result.task).kind,'review');assert.equal(lib.bedReady(bed('YTK-SIM-001')),false);
