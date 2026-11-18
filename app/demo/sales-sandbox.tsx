@@ -27,6 +27,7 @@ export default function SalesSandbox() {
   const [events, setEvents] = useState<string[]>([]);
   const [nextId, setNextId] = useState(4);
   const current = requests.find(r => r.id === selected);
+  const step = current?.status === "completed" ? 4 : current?.status === "transfer" ? 2 : current?.status === "new" ? 0 : current?.history.some(h => h.startsWith("Hedef birim devri kabul etti")) ? 3 : 1;
   const name = (code: string) => HOSPITAL_UNITS.find(u => u.code === code)?.name ?? code;
   const record = (event: string) => setEvents(items => [...items, event]);
   function act(action: DemoAction) {
@@ -47,7 +48,8 @@ export default function SalesSandbox() {
   return <section className="sales-sandbox" aria-labelledby="sandbox-title">
     <header><div><span className="kicker">ETKİLEŞİMLİ ÜRÜN TURU</span><h2 id="sandbox-title">Bir talebi baştan sona birlikte yönetin</h2><p>Yalnızca kurgusal kayıtlar. İşlemler bu sekmenin belleğinde kalır; yenileyince sıfırlanır. Gerçek kurum verisine erişmez.</p></div><button aria-label="Demoyu sıfırla" onClick={reset}>Sıfırla</button></header>
     <nav aria-label="Etkileşimli demo modülleri">{tabs.map(t => <button key={t} aria-current={tab === t ? "page" : undefined} onClick={() => { setTab(t); setMessage(""); }}>{t}</button>)}</nav>
-    <p className="sandbox-feedback" role="status">{message || "4 adımda deneyin: 1 Üstlen · 2 Aktar · 3 Kabul et · 4 Tamamla."}</p>
+    <p className="sandbox-feedback" role="status">{message || "Sıradaki düğmeye basın; talep dört adımda kapanır."}</p>
+    {tab === "Talep ve devir" && <ol className="sandbox-progress" aria-label="Demo adımları">{["Üstlen", "Devir öner", "Kabul et", "Tamamla"].map((label,i)=><li key={label} className={i < step ? "done" : i === step ? "current" : ""} aria-current={i === step ? "step" : undefined}><span aria-hidden="true">{i < step ? "✓" : i+1}</span>{label}</li>)}</ol>}
     {tab === "Talep ve devir" && <div className="sandbox-columns">
       <div><h3>1 · Yeni talep</h3><form onSubmit={e => { e.preventDefault(); if (!unit) return; const id = `DEMO-${String(nextId).padStart(3, "0")}`; setNextId(n => n + 1); setRequests(items => [...items, { id, unit, target: "", priority, status: "new", history: ["Kurgusal operasyon talebi oluşturuldu"] }]); setSelected(id); record(`${id}: talep oluşturuldu (${name(unit)})`); setMessage(`${id} oluşturuldu. Şimdi talebi üstlenebilirsiniz.`); }}>
         <UnitPicker value={unit} onChange={setUnit}/>

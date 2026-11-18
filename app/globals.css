@@ -4660,7 +4660,7 @@ textarea:focus-visible {
 .scope-chips{display:flex;flex-wrap:wrap;gap:8px}
 :where(.scope-chips){margin:0 34px 14px}
 :where(.scope-empty){margin:0 34px 12px}
-.scope-chips button{min-height:42px;padding:0 14px;border-radius:999px;border:1px solid #c8d1dc;background:#fff;color:#172033;font:inherit;font-size:14px;font-weight:650;cursor:pointer}
+.scope-chips button{min-height:44px;padding:0 14px;border-radius:999px;border:1px solid #c8d1dc;background:#fff;color:#172033;font:inherit;font-size:14px;font-weight:650;cursor:pointer}
 .scope-chips button.on{background:#0b213c;border-color:#0b213c;color:#fff}
 .scope-chips b{margin-left:4px}
 .scope-empty{padding:16px 18px;border:1px solid #e1e7ee;border-radius:12px;background:#fff;color:#3d4757!important;font-size:15px}
