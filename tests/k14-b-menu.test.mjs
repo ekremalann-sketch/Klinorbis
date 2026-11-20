@@ -5,12 +5,12 @@ import { readFile } from "node:fs/promises";
 import { createD1, loadRoute, ORIGIN, setRuntime } from "./helpers/route-harness.mjs";
 
 const m = await loadRoute("lib/b-menu.ts");
-const B_LABELS = ["Bugün", "Yatak panosu", "Temizlik işlerim", "Temizlik kontrolü", "Taşıma işlerim", "Taşıma dağıtım", "Transfer talepleri", "Arıza ve cihazlar", "Operasyon devri", "Komuta ekranı", "Raporlar", "Ayarlar"];
+const B_LABELS = ["Hasta süreçleri", "Bugün", "Yatak panosu", "Temizlik işlerim", "Temizlik kontrolü", "Taşıma işlerim", "Taşıma dağıtım", "Transfer talepleri", "Arıza ve cihazlar", "Operasyon devri", "Komuta ekranı", "Raporlar", "Ayarlar"];
 const ROLES = ["operations_manager", "unit_manager", "clinician", "call_agent", "unit_staff", "privacy_officer", "security_officer"];
 const REMOVED = ["requests", "appointments", "access", "calls", "playbooks", "simulation", "flow", "inbox", "units"];
 const TECHNICAL = ["integrations", "security", "automation", "audit", "privacy"];
 
-test("B listesi tam 12 ekran", () => {
+test("B listesi tam 13 ekran (hasta süreçleri dahil)", () => {
   assert.deepEqual(Object.values(m.B_SCREENS).map((s) => s.label), B_LABELS);
 });
 
@@ -19,7 +19,7 @@ test("her rolün menüsü yalnız B ekranlarından oluşur; ürün dışı ve te
   const views = [...src.slice(src.indexOf("const nav:"), src.indexOf("function NavigationIcon")).matchAll(/view: "([a-z]+)"/g)].map((x) => x[1]);
   for (const role of ROLES) {
     const menu = m.bMenu(role, []);
-    assert.ok(menu.length >= 1 && menu.length <= 8, `${role}: ${menu.length}`);
+    assert.ok(menu.length >= 1 && menu.length <= 9, `${role}: ${menu.length}`);
     for (const item of menu) {
       assert.ok(B_LABELS.includes(item.label), `${role}: ${item.label}`);
       if (item.view) assert.ok(views.includes(item.view), `${role}: ${item.view} tanımlı`);
@@ -46,7 +46,7 @@ test("yeni iş rolleri birim rolünden tanınır ve kendi menüsünü görür", 
   assert.deepEqual(m.bMenu("unit_staff", ["Temizlik personeli"]).map((s) => s.label), ["Temizlik işlerim", "Bugün"]);
   assert.deepEqual(m.bMenu("unit_staff", ["Taşıma personeli"]).map((s) => s.label), ["Taşıma işlerim", "Bugün"]);
   assert.ok(m.bMenu("unit_manager", ["Sorumlu hemşire"]).some((s) => s.label === "Temizlik kontrolü"));
-  assert.deepEqual(m.bMenu("call_agent", ["Acil sekreteri"]).map((s) => s.label), ["Bugün", "Yatak panosu", "Transfer talepleri"]);
+  assert.deepEqual(m.bMenu("call_agent", ["Acil sekreteri"]).map((s) => s.label), ["Bugün", "Hasta süreçleri", "Yatak panosu", "Transfer talepleri"]);
   // Yönetici iş rolüyle daraltılmaz.
   assert.equal(m.bMenu("operations_manager", ["Temizlik personeli"])[0].label, "Komuta ekranı");
 });

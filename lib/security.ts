@@ -243,3 +243,25 @@ export async function sha256(value: string) {
 function cleanLog(value: string) {
   return redactPII(value).maskedText.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").slice(0, 500);
 }
+
+/** Hasta takip PIN'i için anahtar: denetim anahtarı yoksa takip kodu üretilmez (sahte güvenlik yerine açık hata). */
+export function trackingKey() {
+  const key = runtimeEnv().auditHmacKey;
+  if (!key || key.length < 16) throw new SecurityError(503, "Takip anahtarı tanımlı değil; yönetici sistem anahtarını tanımlamalı.", "TRACKING_KEY_MISSING");
+  return key;
+}
+
+/** Oturum gerektirmeyen uç noktalar için IP tabanlı hız sınırı (IP özetlenerek saklanır). */
+export async function enforceAnonymousRateLimit(request: Request, action: string, limit: number, windowSeconds: number) {
+  const db = getDb();
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const windowStart = Math.floor(Date.now() / (windowSeconds * 1000)) * windowSeconds * 1000;
+  const key = await sha256(`anon|${runtimeEnv().securityLogSalt ?? ""}|${ip}|${action}|${windowStart}`);
+  const expiresAt = new Date(windowStart + windowSeconds * 1000);
+  await db.insert(rateLimitCounters).values({ key, count: 1, expiresAt }).onConflictDoUpdate({ target: rateLimitCounters.key, set: { count: sql`${rateLimitCounters.count} + 1`, expiresAt } });
+  const [counter] = await db.select().from(rateLimitCounters).where(and(eq(rateLimitCounters.key, key), gt(rateLimitCounters.expiresAt, new Date()))).limit(1);
+  if ((counter?.count ?? 0) > limit) {
+    await recordSecurityEvent(request, "rate_limit", "medium", "anonymous", `${action} sınırı aşıldı`);
+    throw new SecurityError(429, "Çok fazla deneme yapıldı. Birkaç dakika sonra tekrar deneyin.", "RATE_LIMITED");
+  }
+}

@@ -90,3 +90,17 @@
 .kh-limits{list-style:none;padding:0;display:grid;gap:10px}
 @media (max-width:900px){.kh-grid4{grid-template-columns:1fr 1fr}}
 @media (max-width:560px){.kh-grid4{grid-template-columns:1fr}}
+.kh-flow6{grid-template-columns:repeat(6,1fr)}
+@media (max-width:1000px){.kh-flow6{grid-template-columns:1fr 1fr 1fr}}
+@media (max-width:640px){.kh-flow6{grid-template-columns:1fr}}
+.kh-form{display:grid;gap:14px;max-width:720px;background:#fff;border:1px solid var(--kh-line);border-radius:14px;padding:24px}
+.kh-form label{display:grid;gap:6px;font-weight:600}
+.kh-form input,.kh-form select,.kh-form textarea{min-height:44px;border:1px solid var(--kh-line);border-radius:10px;padding:0 12px;font:inherit}
+.kh-form textarea{min-height:120px;padding:10px 12px}
+.kh-form .kh-two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.kh-form .kh-consent{display:flex;gap:10px;align-items:flex-start;font-weight:400}
+.kh-form .kh-consent input{min-height:auto;margin-top:4px}
+.kh-form .kh-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.kh-ok-box{padding:16px;border-radius:12px;background:#e5f6ef;color:#0b5a3e}
+.kh-err-box{padding:12px;border-radius:10px;background:#fdecea;color:#8f1d14}
+@media (max-width:640px){.kh-form .kh-two{grid-template-columns:1fr}}

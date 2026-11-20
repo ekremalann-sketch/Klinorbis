@@ -11,15 +11,15 @@ export default function SignIn() {
   return <main className="kg">
     <section className="kg-side" aria-label="Klinorbis">
       <Link href="/" className="kg-brand"><span>K</span>KLINORBIS</Link>
-      <h1>Yatak, temizlik ve taşıma<br/>tek ekranda.</h1>
-      <p>Boşalan yatağı daha hızlı hazırlayın; her işin kimde olduğunu herkes aynı anda görsün.</p>
+      <h1>Hasta başvurudan çıkışa,<br/>tüm birimler tek akışta.</h1>
+      <p>Her hastanın hangi birimde olduğunu, her işin kimde olduğunu herkes aynı anda görsün.</p>
       <ul className="kg-flow" aria-label="Akış">
         <li><span aria-hidden="true">🛏️</span><b>Yatak</b><small>Hazır · dolu · rezerve</small></li>
         <li><span aria-hidden="true">🧽</span><b>Temizlik</b><small>Sıra ve kontrol</small></li>
         <li><span aria-hidden="true">🚑</span><b>Taşıma</b><small>Kabul ve teslim</small></li>
         <li><span aria-hidden="true">🔄</span><b>Devir</b><small>Sahipsiz iş yok</small></li>
       </ul>
-      <p className="kg-note">Klinik karar üretmez, tıbbi cihaz değildir. Demo yalnız kurgusal kayıtlarla çalışır.</p>
+      <p className="kg-note">Klinik karar üretmez, tıbbi cihaz değildir.</p>
     </section>
     <section className="kg-main" aria-labelledby="kg-title">
       <div className="kg-card">
@@ -28,7 +28,7 @@ export default function SignIn() {
         <p>Kurumunuzun size tanımladığı hesapla giriş yapın. Rolünüze göre kendi ekranınız açılır.</p>
         <a className="kg-btn" href={chatGPTSignInPath("/workspace")} target="_top">Hesabınızla giriş yapın →</a>
         <div className="kg-or"><span>ya da</span></div>
-        <Link className="kg-ghost" href="/demo">Kurgusal hastaneyi deneyin</Link>
+        <Link className="kg-ghost" href="/takip">Hasta mısınız? Başvurunuzu takip edin</Link>
         <small>Hesabınıza rol atanmamışsa kurumunuzdaki operasyon yöneticisine başvurun.</small>
       </div>
     </section>

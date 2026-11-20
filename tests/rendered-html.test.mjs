@@ -38,7 +38,8 @@ test("renders the public product presentation with security headers", async () =
   );
   const html = await response.text();
   assert.match(html, productTitle);
-  assert.match(html, /HASTANE OPERASYON KONTROL KULESİ/i);
+  assert.match(html, /HASTANE OTOMASYON SİSTEMİ/i);
+  assert.doesNotMatch(html, /kurgusal demo|Demoyu aç/i, 'kamu sayfasında tanıtım/demo dili yok');
 });
 
 test("renders direct operation routes instead of losing the click target", async () => {

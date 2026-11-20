@@ -2,10 +2,11 @@
 // Her rol yalnız kendi işine ait ekranları görür; ilk madde açılış ekranıdır. Yetki sunucuda ayrıca uygulanır.
 // Ürün dışı ekranlar (hasta talepleri, randevu, hekim yokluğu, çağrı, akışlar, sanal hastane, otomasyon…) menüde yoktur.
 
-export type BScreenKey = "bugun" | "yatak" | "temizlik" | "temizlik-kontrol" | "tasima" | "tasima-dagitim" | "transfer" | "ariza" | "devir" | "komuta" | "raporlar" | "ayarlar";
+export type BScreenKey = "surec" | "bugun" | "yatak" | "temizlik" | "temizlik-kontrol" | "tasima" | "tasima-dagitim" | "transfer" | "ariza" | "devir" | "komuta" | "raporlar" | "ayarlar";
 export type BScreen = { key: BScreenKey; label: string; view?: string; href?: string };
 
 export const B_SCREENS: Record<BScreenKey, BScreen> = {
+  surec: { key: "surec", label: "Hasta süreçleri", href: "/hasta-surecleri" },
   bugun: { key: "bugun", label: "Bugün", view: "mywork" },
   yatak: { key: "yatak", label: "Yatak panosu", href: "/yatak" },
   temizlik: { key: "temizlik", label: "Temizlik işlerim", href: "/temizlik" },
@@ -43,14 +44,14 @@ export function jobRoleOf(unitRoles: readonly string[] | undefined): JobRole | n
 const BY_JOB: Record<JobRole, BScreenKey[]> = {
   temizlik: ["temizlik", "bugun"],
   tasima: ["tasima", "bugun"],
-  sorumlu_hemsire: ["bugun", "yatak", "temizlik-kontrol", "transfer", "devir"],
-  acil_sekreteri: ["bugun", "yatak", "transfer"],
+  sorumlu_hemsire: ["bugun", "surec", "yatak", "temizlik-kontrol", "transfer", "devir"],
+  acil_sekreteri: ["bugun", "surec", "yatak", "transfer"],
 };
 const BY_ROLE: Record<string, BScreenKey[]> = {
-  operations_manager: ["komuta", "bugun", "yatak", "transfer", "tasima-dagitim", "devir", "raporlar", "ayarlar"],
-  unit_manager: ["bugun", "yatak", "temizlik-kontrol", "transfer", "devir", "raporlar"],
-  clinician: ["bugun", "transfer", "yatak"],
-  call_agent: ["bugun", "yatak", "transfer"],
+  operations_manager: ["komuta", "surec", "bugun", "yatak", "transfer", "tasima-dagitim", "devir", "raporlar", "ayarlar"],
+  unit_manager: ["bugun", "surec", "yatak", "temizlik-kontrol", "transfer", "devir", "raporlar"],
+  clinician: ["bugun", "surec", "transfer", "yatak"],
+  call_agent: ["bugun", "surec", "yatak", "transfer"],
   unit_staff: ["bugun"],
   privacy_officer: ["raporlar", "ayarlar"],
   security_officer: ["komuta", "ayarlar"],
