@@ -579,3 +579,73 @@ export const serviceRequests = sqliteTable("service_requests", {
   doneAt: integer("done_at", { mode: "timestamp_ms" }),
   confirmedAt: integer("confirmed_at", { mode: "timestamp_ms" }),
 }, (table) => [index("service_requests_requester").on(table.requesterEmail, table.status), index("service_requests_unit").on(table.unitCode, table.status)]);
+
+// Hasta süreç takibi: başvurudan çıkışa hastanın birimler arasındaki yolculuğu.
+// Hastaya yalnız takip kodu + PIN ile birim adı, durum ve sıra bilgisi gösterilir; ad, kimlik no veya klinik not tutulmaz.
+export const patientJourneys = sqliteTable("patient_journeys", {
+  reference: text("reference").primaryKey(),
+  trackingHash: text("tracking_hash").notNull().unique(),
+  pinHash: text("pin_hash").notNull(),
+  pathway: text("pathway").notNull(),
+  clinicUnit: text("clinic_unit").notNull(),
+  patientAlias: text("patient_alias").notNull(),
+  status: text("status").notNull().default("active"),
+  currentSeq: integer("current_seq").notNull().default(1),
+  version: integer("version").notNull().default(1),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: integer("locked_until", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+  closeReason: text("close_reason"),
+  lockToken: text("lock_token"),
+}, (table) => [index("patient_journeys_status").on(table.status, table.updatedAt)]);
+
+export const patientJourneySteps = sqliteTable("patient_journey_steps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  journeyReference: text("journey_reference").notNull(),
+  seq: integer("seq").notNull(),
+  unitCode: text("unit_code").notNull(),
+  label: text("label").notNull(),
+  kind: text("kind").notNull().default("path"),
+  optional: integer("optional", { mode: "boolean" }).notNull().default(false),
+  rejectTo: text("reject_to"),
+  rejectLabel: text("reject_label"),
+  state: text("state").notNull().default("pending"),
+  enteredAt: integer("entered_at", { mode: "timestamp_ms" }),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }),
+  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+  actor: text("actor"),
+  note: text("note"),
+}, (table) => [index("patient_journey_steps_journey").on(table.journeyReference, table.seq), index("patient_journey_steps_unit").on(table.unitCode, table.state, table.enteredAt)]);
+
+// Süreç olay geçmişi: her işlem bir satır. Satır, sürüm kilidini alan işlemin jetonuna bağlanır;
+// iki kişi aynı adımı aynı anda işlemeye çalışırsa ikincisinin tüm batch'i geri alınır.
+export const patientJourneyEvents = sqliteTable("patient_journey_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  journeyReference: text("journey_reference").notNull(),
+  action: text("action").notNull(),
+  unitCode: text("unit_code"),
+  actor: text("actor").notNull(),
+  note: text("note"),
+  at: integer("at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [index("patient_journey_events_journey").on(table.journeyReference, table.at)]);
+
+// Kurumsal görüşme talepleri (herkese açık form). Yalnız operasyon yöneticisi görür; 180 gün sonra silinir.
+export const institutionInquiries = sqliteTable("institution_inquiries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reference: text("reference").notNull().unique(),
+  institution: text("institution").notNull(),
+  contactName: text("contact_name").notNull(),
+  title: text("title"),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  institutionType: text("institution_type").notNull(),
+  bedCount: text("bed_count"),
+  message: text("message"),
+  status: text("status").notNull().default("new"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  handledBy: text("handled_by"),
+  handledAt: integer("handled_at", { mode: "timestamp_ms" }),
+}, (table) => [index("institution_inquiries_status").on(table.status, table.createdAt)]);

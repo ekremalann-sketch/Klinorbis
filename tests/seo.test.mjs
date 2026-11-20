@@ -18,8 +18,6 @@ test("herkese açık sayfalar kendi başlık, kanonik adres, paylaşım kartı v
   for (const [path, title, canonical] of [
     ["/", /KLINORBIS \| Hastane Operasyon Kontrol Kulesi/, "https://klinorbis.ekremalan.chatgpt.site"],
     ["/en", /KLINORBIS \| Hospital Operations Control Tower/, "https://klinorbis.ekremalan.chatgpt.site/en"],
-    ["/demo", /KLINORBIS Demo/, "https://klinorbis.ekremalan.chatgpt.site/demo"],
-    ["/en/demo", /KLINORBIS Demo/, "https://klinorbis.ekremalan.chatgpt.site/en/demo"],
   ]) {
     const html = await render(path);
     assert.match(html, title, path);
@@ -29,14 +27,19 @@ test("herkese açık sayfalar kendi başlık, kanonik adres, paylaşım kartı v
     assert.match(html, /hrefLang="en"|hreflang="en"/i, `${path} hreflang`);
     assert.doesNotMatch(html, /\/workspace\/sites\/[^"']*\.vinext\/fonts\//, `${path} üretim font yolu`);
   }
+  const kb = await render("/kurumsal-basvuru");
+  assert.match(kb, /Kurumsal görüşme \| KLINORBIS/);
+  assert.match(kb, /<link rel="canonical" href="https:\/\/klinorbis\.ekremalan\.chatgpt\.site\/kurumsal-basvuru"/);
   assert.match(await render("/"), /<script nonce="[^"]+" type="application\/ld\+json">/, "JSON-LD nonce ile gelir");
 });
 
 test("robots, sitemap ve security.txt yalnız herkese açık sayfaları duyurur", async () => {
   const [robots, sitemap, security] = await Promise.all(["robots.txt", "sitemap.xml", ".well-known/security.txt"].map((f) => readFile(new URL(`../public/${f}`, import.meta.url), "utf8")));
   assert.match(robots, /Disallow: \//);
-  assert.match(robots, /Allow: \/demo/);
-  assert.equal((sitemap.match(/<loc>/g) || []).length, 8);
+  assert.match(robots, /Allow: \/kurumsal-basvuru/);
+  assert.doesNotMatch(robots, /demo/);
+  assert.equal((sitemap.match(/<loc>/g) || []).length, 7);
+  assert.ok(!/demo/.test(sitemap), 'tanıtım adresi duyurulmaz');
   assert.ok(!/inbox|requests|api/.test(sitemap));
   assert.match(security, /^Contact: https:/m);
   assert.ok(new Date(security.match(/^Expires: (.+)$/m)[1]) > new Date());

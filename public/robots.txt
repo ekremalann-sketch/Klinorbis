@@ -2,7 +2,7 @@ User-agent: *
 Allow: /$
 Allow: /en
 Allow: /hakkimizda$
-Allow: /demo
+Allow: /kurumsal-basvuru$
 Allow: /og/
 Allow: /gizlilik$
 Allow: /aydinlatma$

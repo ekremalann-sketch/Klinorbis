@@ -169,6 +169,13 @@
       "when": 1795000000000,
       "tag": "0023_renkli_kodlar",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1795100000000,
+      "tag": "0024_hasta_sureci",
+      "breakpoints": true
     }
   ]
 }

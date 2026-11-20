@@ -7,7 +7,7 @@ import "./workspace-polish.css";
 import { pageMeta, SITE_URL, structuredData } from "../lib/seo";
 
 const HOME_TITLE = "KLINORBIS | Hastane Operasyon Kontrol Kulesi";
-const HOME_DESCRIPTION = "Kapasite, transfer, çağrı, talep, vardiya ve onay akışlarını insan denetimiyle birleştiren çalışan hastane operasyon prototipi. Sentetik demo verisi; klinik karar vermez.";
+const HOME_DESCRIPTION = "Hastanın başvurudan çıkışa tüm birimler arasındaki yolculuğunu yöneten hastane otomasyon sistemi: birim kuyrukları, onay/ret ile otomatik aktarım, hastanın kendi takip ekranı. Klinik karar vermez.";
 
 export const metadata: Metadata = {
   ...pageMeta({ title: HOME_TITLE, description: HOME_DESCRIPTION, path: "/" }),

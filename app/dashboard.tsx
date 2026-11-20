@@ -2844,7 +2844,7 @@ function CapacityWorkspace({
               <em className={`capacity-state ${capacityStatus(row)}`}>{capacityStatusLabel(row)}</em>
             </button>
           ))}
-          {!capacity.length && <div className="empty"><b>Kapasite verisi henüz yok</b><p>Bu kapsamda kaynak kaydı alınmadı. Sıfır değeri hastanenin dolu olduğunu göstermez. Gerçek kapasite için kurumun kaynak entegrasyonu ve personelli kapasite tanımları tamamlanmalıdır.</p><Link href="/demo">Kurgusal kapasite akışını demo üzerinden dene →</Link></div>}
+          {!capacity.length && <div className="empty"><b>Kapasite verisi henüz yok</b><p>Bu kapsamda kaynak kaydı alınmadı. Sıfır değeri hastanenin dolu olduğunu göstermez. Gerçek kapasite için kurumun kaynak entegrasyonu ve personelli kapasite tanımları tamamlanmalıdır.</p><Link href="/hasta-surecleri">Hasta süreçleri ekranına git →</Link></div>}
         </section>
         <section className="panel transfer-decisions">
           <div className="panel-head"><div><h3>Transfer kararları</h3><p>Kabul veya ret yalnız yetkili hekim tarafından verilir; sistem kapasite bilgisini gösterir.</p></div><span>{transfers.length}</span></div>
