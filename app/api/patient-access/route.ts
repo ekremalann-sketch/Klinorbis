@@ -31,13 +31,20 @@ export async function GET(request: Request) {
     const docs = unitFilter ? (unitFilter.length ? await db.select().from(physicians).where(inArray(physicians.unitCode, unitFilter)) : []) : await db.select().from(physicians);
     const since = new Date(Date.now() - DAY);
     const appts = unitFilter
-      ? (unitFilter.length ? await db.select().from(appointments).where(and(inArray(appointments.unitCode, unitFilter), gte(appointments.startsAt, since))).orderBy(appointments.startsAt).limit(300) : [])
-      : await db.select().from(appointments).where(gte(appointments.startsAt, since)).orderBy(appointments.startsAt).limit(300);
+      ? (unitFilter.length ? await db.select().from(appointments).where(and(inArray(appointments.unitCode, unitFilter), gte(appointments.startsAt, since), eq(appointments.training, training))).orderBy(appointments.startsAt).limit(300) : [])
+      : await db.select().from(appointments).where(and(gte(appointments.startsAt, since), eq(appointments.training, training))).orderBy(appointments.startsAt).limit(300);
     const absences = unitFilter
       ? (unitFilter.length ? await db.select().from(physicianAbsences).where(inArray(physicianAbsences.unitCode, unitFilter)).orderBy(desc(physicianAbsences.createdAt)).limit(30) : [])
       : await db.select().from(physicianAbsences).orderBy(desc(physicianAbsences.createdAt)).limit(30);
-    const changes = absences.length ? await db.select().from(appointmentChanges).where(inArray(appointmentChanges.absenceReference, absences.map((a) => a.reference))) : [];
-    const apptRefs = [...new Set([...appts.map((a) => a.reference), ...changes.map((c) => c.appointmentReference)])];
+    const changes = absences.length ? (await db.select({ change: appointmentChanges })
+      .from(appointmentChanges)
+      .innerJoin(appointments, eq(appointments.reference, appointmentChanges.appointmentReference))
+      .where(and(
+        inArray(appointmentChanges.absenceReference, absences.map((a) => a.reference)),
+        eq(appointments.training, training),
+        unitFilter ? inArray(appointments.unitCode, unitFilter) : undefined,
+      ))).map(({ change }) => change) : [];
+    const apptRefs = appts.map((a) => a.reference);
     const notes: (typeof patientNotifications.$inferSelect)[]=[];
     for(let i=0;i<apptRefs.length;i+=80)notes.push(...await db.select().from(patientNotifications).where(inArray(patientNotifications.appointmentReference,apptRefs.slice(i,i+80))).orderBy(desc(patientNotifications.createdAt)).limit(100));
     const visibleAppts=appts.filter(a=>a.training===training);const visibleRefs=new Set(visibleAppts.map(a=>a.reference));const visibleAbsences=absences.filter(a=>docs.find(d=>d.code===a.physicianCode)?.training===training);const visibleAbsRefs=new Set(visibleAbsences.map(a=>a.reference));
@@ -80,7 +87,7 @@ export async function POST(request: Request) {
       }
       case "response.record": {
         const response = String(body.response ?? "") as PatientResponse;
-        if (!(response in PATIENT_RESPONSES)) throw new SecurityError(400, "Geçersiz hasta yanıtı.", "INVALID_INPUT");
+        if (!(Object.hasOwn(PATIENT_RESPONSES, response))) throw new SecurityError(400, "Geçersiz hasta yanıtı.", "INVALID_INPUT");
         const [change] = await db.select().from(appointmentChanges).where(eq(appointmentChanges.id, Number(body.changeId))).limit(1);
         if (!change) throw new SecurityError(404, "Değişiklik kaydı bulunamadı.", "NOT_FOUND");
         const [appt] = await db.select().from(appointments).where(eq(appointments.reference, change.appointmentReference)).limit(1);
