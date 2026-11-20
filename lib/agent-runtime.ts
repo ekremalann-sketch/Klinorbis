@@ -14,6 +14,7 @@ import { ensureOperationalSeed } from "./operations";
 import { advancePilotAutomation } from "./pilot-automation";
 import { runWorkflowCycle } from "./workflow-engine";
 import { runAiMonitor } from "./ai-monitor";
+import { openDuePlanJobs } from "./assets";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -44,6 +45,8 @@ export async function runAutomationAgent(db: Db, workerId = "scheduled-worker") 
     const cycle = await runWorkflowCycle(db, workerId, 30);
     // Zamanı gelen gecikmeli akış adımlarını (ör. taburcudan 48 saat sonra arama) iş kutusuna aç.
     await activateDueSteps(db, new Date());
+    // KG1: bakım/kalibrasyon vadesi 7 gün kalan varlıklar için teknik birime planlı iş.
+    await openDuePlanJobs().catch((error) => console.error("[varlik-plan]", String(error)));
     // Hedef süresi geçen işler: önce birim sorumlusuna, 30 dk sonra operasyon yöneticisine bildirim.
     const escalation = await escalateOverdueTasks(db, new Date()).catch(() => ({ checked: 0, escalated: 0, paused: false, failed: true }));
     await escalateCoordJobs(db).catch(() => undefined);

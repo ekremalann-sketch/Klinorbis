@@ -1,11 +1,11 @@
-import { createAsset, listAssets, updateAsset } from "../../../lib/assets";
+import { acceptCustody, assignCustody, createAsset, listAssets, returnCustody, updateAsset } from "../../../lib/assets";
 import { assertBrowserMutation, assertJsonRequest, enforceRateLimit, requireActor, SecurityError, securityResponse } from "../../../lib/security";
 
 export const dynamic = "force-dynamic";
 
 // KG1: varlık kaydı. Yetki ve birim kapsamı sunucuda (lib/assets) denetlenir; arayüz yalnız yansıtır.
 // GET ?birim=&durum=&kod= → { assets, canCreate, units }
-// POST { action: create|update, … }
+// POST { action: create|update|custody.assign|custody.accept|custody.return, … }
 export async function GET(request: Request) {
   try {
     const actor = await requireActor(request);
@@ -29,6 +29,9 @@ export async function POST(request: Request) {
     switch (b.action) {
       case "create": result = await createAsset(actor, b); break;
       case "update": result = await updateAsset(actor, b); break;
+      case "custody.assign": result = await assignCustody(actor, b); break;
+      case "custody.accept": result = await acceptCustody(actor, b); break;
+      case "custody.return": result = await returnCustody(actor, b); break;
       default: throw new SecurityError(400, "Bilinmeyen işlem.", "UNKNOWN_ACTION");
     }
     return Response.json({ ok: true, result });
