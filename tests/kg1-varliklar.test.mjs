@@ -68,7 +68,8 @@ await test('güncelleme: sürüm çakışması 409, başka birim 404, hurda kili
 
 test('ekran: tek ana düğme, QR varlığa bağlanır, klinik dil yok, giriş zorunlu',()=>{
   const ui=readFileSync('app/varliklar/assets.tsx','utf8'),page=readFileSync('app/varliklar/page.tsx','utf8');
-  assert.equal((ui.match(/className="main"/g)??[]).length,1);
+  // Tek ana düğme: zimmet onayı bekliyorsa "Zimmeti onayla", değilse "Arıza bildir" (aynı yerde, biri ya da öteki).
+  assert.equal((ui.match(/className="main"/g)??[]).length,2);assert.match(ui,/\?<button className="main"[^\n]+\n\s+:<button className="main"/);
   assert.match(ui,/\/varliklar\?kod=/);assert.match(ui,/Diğer işlemler/);
   assert.doesNotMatch(ui+readFileSync('lib/assets.ts','utf8'),/triyaj|erken uyarı|klinik öneri|tanı|tedavi/i);
   assert.match(page,/requireChatGPTUser\('\/varliklar'\)/);assert.match(page,/privateMeta/);

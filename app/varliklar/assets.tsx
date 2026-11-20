@@ -8,7 +8,7 @@ import {qrSvg} from '../yatak/qr/qr-labels';
 import {api, ApiError, useLive, StaleBanner} from '../work-ui';
 
 type Due={at:number|null;level:'kirmizi'|'sari'|'yesil'|'yok'};
-type Asset={code:string;name:string;kind:'biyomedikal'|'teknik';category:string|null;brand:string|null;model:string|null;serial:string|null;owner_type:string;unit_code:string;unitName:string;location:string|null;status:string;version:number;maintenanceDue:Due;calibrationDue:Due};
+type Asset={code:string;name:string;kind:'biyomedikal'|'teknik';category:string|null;brand:string|null;model:string|null;serial:string|null;owner_type:string;unit_code:string;unitName:string;location:string|null;status:string;version:number;maintenanceDue:Due;calibrationDue:Due;custody:{holder:string;accepted:boolean;mine:boolean}|null};
 type Data={assets:Asset[];canCreate:boolean;units:{code:string;name:string}[]};
 const STATUS:Record<string,string>={aktif:'Kullanımda',arizali:'Arızalı',bakimda:'Bakımda',hurda:'Hurdaya ayrıldı'};
 const LEVEL:Record<Due['level'],string>={kirmizi:'Gecikmiş',sari:'30 gün içinde',yesil:'Zamanında',yok:'Plan yok'};
@@ -20,7 +20,7 @@ export default function Assets(){
  const [kod,setKod]=useState<string>(()=>{try{return new URLSearchParams(window.location.search).get('kod')?.toUpperCase()??'';}catch{return '';}});
  const [durum,setDurum]=useState('');
  const live=useLive<Data>(`/api/assets${durum?`?durum=${durum}`:''}`,30_000);
- const [msg,setMsg]=useState(''),[busy,setBusy]=useState(false),[form,setForm]=useState<Record<string,string>>({kind:'biyomedikal',ownerType:'hastane'});
+ const [holder,setHolder]=useState(''),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false),[form,setForm]=useState<Record<string,string>>({kind:'biyomedikal',ownerType:'hastane'});
  const data=live.data, sel=data?.assets.find(a=>a.code===kod)??null;
  const run=async(body:unknown,ok:string)=>{setBusy(true);setMsg('');try{await api('/api/assets',body);setMsg(ok);await live.reload();}catch(e){setMsg((e as ApiError).message);}finally{setBusy(false);}};
  const fault=async(a:Asset)=>{setBusy(true);setMsg('');try{const r=await api<{result:{reference:string;routedTo:string}}>('/api/my-work',{action:'fault.report',category:a.kind==='biyomedikal'?'cihaz':'diger',deviceCode:a.code,location:[a.unitName,a.location].filter(Boolean).join(' · '),note:`${a.code} ${a.name}`});setMsg(`Arıza kaydı açıldı: ${r.result.reference} → ${r.result.routedTo}`);}catch(e){setMsg((e as ApiError).message);}finally{setBusy(false);}};
@@ -33,10 +33,17 @@ export default function Assets(){
    {sel&&<section className="card" aria-label="Seçili varlık"><span dangerouslySetInnerHTML={{__html:qrSvg(`${origin}/varliklar?kod=${encodeURIComponent(sel.code)}`)}}/>
     <div><h2>{sel.code} · {sel.name}</h2><p>{sel.unitName}{sel.location?` · ${sel.location}`:''} · {STATUS[sel.status]}</p>
      <p><DueTag label="Bakım" due={sel.maintenanceDue}/><DueTag label="Kalibrasyon" due={sel.calibrationDue}/></p>
-     <button className="main" disabled={busy||sel.status==='hurda'} onClick={()=>void fault(sel)}>Arıza bildir</button>
+     {sel.custody&&<p>Zimmet: {sel.custody.mine?'sizde':sel.custody.holder} · {sel.custody.accepted?'onaylandı':'onay bekliyor'}</p>}
+     {sel.custody?.mine&&!sel.custody.accepted
+      ?<button className="main" disabled={busy} onClick={()=>void run({action:'custody.accept',code:sel.code},'Zimmet onaylandı; makbuz kaydedildi.')}>Zimmeti onayla</button>
+      :<button className="main" disabled={busy||sel.status==='hurda'} onClick={()=>void fault(sel)}>Arıza bildir</button>}
+     {sel.custody?.mine&&sel.custody.accepted&&<details><summary>Diğer işlemler</summary><button disabled={busy} onClick={()=>void run({action:'custody.return',code:sel.code},'İade kaydedildi.')}>İade et</button></details>}
      {data?.units.some(u=>u.code===sel.unit_code)&&sel.status!=='hurda'&&<details><summary>Diğer işlemler</summary>
       <p><button disabled={busy} onClick={()=>void run({action:'update',code:sel.code,version:sel.version,change:'maintained'},'Bakım kaydedildi.')}>Bakım yapıldı</button>{' '}
       <button disabled={busy} onClick={()=>void run({action:'update',code:sel.code,version:sel.version,change:'calibrated'},'Kalibrasyon kaydedildi.')}>Kalibrasyon yapıldı</button></p>
+      {sel.custody
+       ?<p><button disabled={busy} onClick={()=>void run({action:'custody.return',code:sel.code},'İade alındı.')}>Zimmeti iade al</button></p>
+       :<form onSubmit={e=>{e.preventDefault();void run({action:'custody.assign',code:sel.code,email:holder},'Zimmet verildi; personelin onayı bekleniyor.');}}><label>Zimmetlenecek personel (e-posta)<input type="email" required maxLength={200} value={holder} onChange={e=>setHolder(e.target.value)}/></label><button type="submit" disabled={busy}>Zimmet ver</button></form>}
       <label>Durum<select value={sel.status} disabled={busy} onChange={e=>void run({action:'update',code:sel.code,version:sel.version,change:'status',status:e.target.value},'Durum güncellendi.')}>{Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
      </details>}
     </div></section>}

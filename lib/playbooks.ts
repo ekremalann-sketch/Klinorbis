@@ -75,6 +75,10 @@ const ROWS: Row[] = [
   ["asansor-ariza", "Hasta asansörü arızası", 3, "Hasta asansörü durdu", "TKH|Asansör firmasını çağır|15;ULS|Alternatif güzergâhı duyur|10;TKH|Onarım kaydı|240"],
   ["medikal-gaz", "Medikal gaz alarmı", 3, "Oksijen veya vakum basınç alarmı", "TKH|Alarmı yerinde kontrol et|5;BMD|Bağlı cihazları kontrol et|15;TKH|Tank ve tedarikçi|60|A;HGV|Hasta güvenliği bildirimi|60"],
   ["ameliyathane-iklim", "Ameliyathane ısı/nem sapması", 3, "Ortam değerleri sınır dışında", "TKH|Ölçümü doğrula|15;AML|Vakaların durumunu yetkili kişi değerlendirir|20|A;TKH|Klima onarımı|240;EKK|Enfeksiyon kontrolüne bilgi|30"],
+  // KG1: varlık kaydındaki bakım/kalibrasyon planından kendiliğinden açılır (vade 7 gün kala). Klinik karar yok.
+  ["planli-bakim-bio", "Planlı biyomedikal bakım", 3, "Cihazın bakım vadesi yaklaştı", "BMD|Planlı bakımı yap veya yetkili servisi çağır|2880;BMD|Bakım formunu kaydet ve varlığı güncelle|60"],
+  ["planli-kalibrasyon", "Planlı kalibrasyon", 3, "Cihazın kalibrasyon vadesi yaklaştı", "BMD|Kalibrasyonu yap veya akredite firmayı çağır|2880;BMD|Kalibrasyon sertifikasını kaydet ve varlığı güncelle|60"],
+  ["planli-bakim-teknik", "Planlı teknik bakım", 3, "Ekipmanın bakım vadesi yaklaştı", "TKH|Planlı bakımı yap veya yüklenici firmayı çağır|2880;TKH|Bakım formunu kaydet ve varlığı güncelle|60"],
   ["oda-bakim", "Hasta odası bakım talebi", 3, "Servis bakım talebi açtı", "TKH|Talebi kaydet|15;TKH|Onarım|240;CTM|Onarım sonrası temizlik|30"],
   ["diyaliz-su", "Diyaliz su sistemi alarmı", 3, "Su arıtma değerleri uygunsuz", "TKH|Su arıtma sistemini kontrol et|15;NEF|Seansların durumunu yetkili hekim değerlendirir|30|A;RND|Gerekirse seansları kaydır|60;HIL|Hastaları bilgilendir|60"],
   // Enfeksiyon ve çevre
