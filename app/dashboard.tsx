@@ -1,4 +1,5 @@
 "use client";
+import { PhonePush } from "./phone-push";
 import { LayoutDashboard, ListTodo, Building2, GitBranch, Inbox, Route, ClipboardList, CalendarDays, UserRoundX, Phone, CheckCheck, Bot, Workflow, FlaskConical, ArrowLeftRight, Plug, PanelsTopLeft, Users, ChartColumn, ShieldCheck, Shield, ScrollText, type LucideIcon } from "lucide-react";
 import ExportMenu from "./export-menu";
 
@@ -12,6 +13,7 @@ import { FhirValidator, OperationsForms } from "./operations-forms";
 import { workspaceContentKey } from "../lib/workspace-content";
 import { filterInboxTasks } from "../lib/inbox";
 import { ScreenHelpBox } from "./screen-help-box";
+import { bMenu, SETTINGS_LINKS } from "../lib/b-menu";
 
 import {
   lazy,
@@ -286,6 +288,7 @@ type Snapshot = {
     label: string;
     role: string;
     unitCodes: string[];
+    unitRoles?: string[];
     canSeeAllUnits: boolean;
   };
   units: Unit[];
@@ -498,28 +501,12 @@ const nav: Array<{ view: View; icon: LucideIcon; label: string; group?: string }
   ];
 function NavigationIcon({view}:{view:View}){const Icon=nav.find(item=>item.view===view)?.icon;return Icon?<Icon aria-hidden="true" size={20}/>:null;}
 // Rol bazlı menü: her rol yalnız kendi işine ait ekranları görür; ilk eleman rolün ana ekranıdır.
-// Yetki sunucuda uygulanır; menüden gizlemek güvenlik değil kolaylıktır. Kalan ekranlar "Diğer ekranlar" altındadır.
-const ROLE_VIEWS: Record<string, View[]> = {
-  operations_manager: ["dashboard", "myunit", "inbox", "approvals", "routing", "playbooks", "capacity", "reports", "staff"],
-  unit_manager: ["myunit", "mywork", "approvals", "playbooks", "capacity", "staff"],
-  clinician: ["mywork", "approvals", "access", "staff"],
-  call_agent: ["calls", "mywork", "appointments", "staff"],
-  // Çağrı merkezi dışındaki birim görevlileri (temizlik, transport, servis…): yalnız kendi işleri.
-  unit_staff: ["mywork", "staff"],
-  privacy_officer: ["privacy", "audit", "reports", "staff"],
-  security_officer: ["security", "routing", "integrations", "automation", "audit", "staff"],
-};
-// Teknik ve entegrasyon ekranları günlük iş rollerinin "Diğer ekranlar" listesinde de görünmez (sunucu ayrıca reddeder).
-const TECHNICAL_VIEWS: View[] = ["integrations", "security", "automation", "audit", "privacy"];
-const TECHNICAL_ROLES = ["operations_manager", "security_officer", "privacy_officer"];
+// Yetki sunucuda uygulanır; menüden gizlemek güvenlik değil kolaylıktır. Rol ekranları lib/b-menu.ts (K14) kaynağından türetilir.
+const ROLE_VIEWS: Record<string, View[]> = Object.fromEntries(
+  ["operations_manager", "unit_manager", "clinician", "call_agent", "unit_staff", "privacy_officer", "security_officer"].map((role) => [role, [...new Set(bMenu(role).flatMap((item) => (item.view ? [item.view as View] : [])))]]),
+);
 /** Menü rolü: sistem rolü "call_agent" olan ama çağrı merkezinde çalışmayan personel "birim görevlisi" menüsünü görür. */
 function menuRoleOf(role: string, unitCodes: string[]) { return role === "call_agent" && !unitCodes.includes("CAG") ? "unit_staff" : role; }
-const NAV_GROUP_OF: Record<string, string> = (() => {
-  let current = "";
-  const out: Record<string, string> = {};
-  for (const item of nav) { if (item.group) current = item.group; out[item.view] = current; }
-  return out;
-})();
 const MOBILE_LABELS: Partial<Record<View, string>> = {
   mywork: "İşlerim", myunit: "Birimim", routing: "Yönlendirme",
   dashboard: "Operasyon", inbox: "İşler", calls: "Çağrı", approvals: "Onay", access: "Yokluk", units: "Birim",
@@ -529,7 +516,7 @@ const MOBILE_LABELS: Partial<Record<View, string>> = {
 const roleNames: Record<string, string> = {
   operations_manager: "Operasyon Yöneticisi",
   unit_manager: "Birim Sorumlusu",
-  clinician: "Hekim / Klinik Rol",
+  clinician: "Hekim",
   call_agent: "Çağrı Merkezi Görevlisi",
   privacy_officer: "KVKK Yetkilisi",
   security_officer: "Bilgi Güvenliği Yetkilisi",
@@ -614,7 +601,6 @@ export default function Dashboard({
   const [personal, setPersonal] = useState<{ items: PersonalNotice[]; unread: number }>({ items: [], unread: 0 });
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [query, setQuery] = useState("");
-  const [showAllNav, setShowAllNav] = useState(false);
   // Rol önizlemesi: operasyon yöneticisi "hekim / çağrı görevlisi … bu ekranı nasıl görüyor?" diye bakabilir.
   // Yalnız menü, ana ekran ve dikkat şeridi değişir; veriler ve yetki yöneticinin kendi oturumundan gelir.
   const [previewRole, setPreviewRole] = useState<string | null>(null);
@@ -974,16 +960,17 @@ export default function Dashboard({
     reference: string,
     speakerType: "caller" | "agent" | "clinician",
     message: string,
+    staffUrgent = false,
   ) {
     setBusy(`${reference}:message`);
     try {
       const data = await secureMutation<CallMessageResponse>(
         "/api/calls/messages",
-        { callReference: reference, speakerType, message },
+        { callReference: reference, speakerType, message, staffUrgent },
       );
       setReceipt({
         title: data.emergency
-          ? "Acil insan devri otomatik açıldı"
+          ? "Acil insan devri açıldı (görevli işareti)"
           : "Konuşma satırı görüşmeye eklendi",
         detail: data.emergency
           ? `${data.destination.unitName} · ${data.destination.assignedRole} · insan onayı bekleniyor`
@@ -1065,6 +1052,7 @@ export default function Dashboard({
         const data = await secureMutation<CallCreateResponse>("/api/calls", {
           patientAlias: form.get("patientAlias"),
           openingMessage: form.get("openingMessage"),
+          staffUrgent: form.get("staffUrgent") === "1",
         });
         setDialog(null);
         setReceipt({
@@ -1091,6 +1079,9 @@ export default function Dashboard({
             subject,
             unitCode: kind === "appointment" ? "RND" : form.get("unitCode"),
             channel: "Web",
+            requestType: kind === "appointment" ? "book" : form.get("requestType") || "info",
+            priority: form.get("priority") === "Yüksek" ? "Yüksek" : "Normal",
+            staffUrgent: form.get("staffUrgent") === "1",
           }),
         });
         const data = (await response.json()) as TicketCreateResponse;
@@ -1189,53 +1180,31 @@ export default function Dashboard({
           </div>
         </div>
         <nav>
-          {(() => {
-            const allowed = ROLE_VIEWS[menuRole];
-            const visible = nav.filter((item) => TECHNICAL_ROLES.includes(menuRole) || !TECHNICAL_VIEWS.includes(item.view));
-            // Rolün ekranları ROLE_VIEWS sırasıyla (ilk eleman ana ekran); açık olan ekran listede yoksa sona eklenir.
-            const own = allowed ? visible.filter((item) => allowed.includes(item.view)).sort((a, b) => allowed.indexOf(a.view) - allowed.indexOf(b.view)) : visible;
-            const list = !allowed ? visible : showAllNav
-              ? [...own, ...visible.filter((item) => !allowed.includes(item.view)).map((item, i) => ({ ...item, other: i === 0 }))]
-              : [...own, ...visible.filter((item) => !allowed.includes(item.view) && item.view === initialView)];
-            return list.map((item, index) => ({ ...item, group: "other" in item && item.other ? "DİĞER EKRANLAR" : allowed ? (index === 0 ? "BENİM İŞİM" : undefined) : index === 0 || NAV_GROUP_OF[list[index - 1].view] !== NAV_GROUP_OF[item.view] ? NAV_GROUP_OF[item.view] || undefined : undefined }));
-          })().map((item) => {
-            const badge =
-              item.view === "inbox"
-                ? snapshot.tasks.filter(
-                    (task) => !["completed", "cancelled", "scheduled"].includes(task.status),
-                  ).length
-                : item.view === "approvals"
-                  ? snapshot.approvals.filter(
-                      (approval) => approval.status === "pending",
-                    ).length
-                  : item.view === "calls"
-                    ? snapshot.calls.filter((call) =>
-                        [
-                          "ringing",
-                          "active",
-                          "human_handoff",
-                          "transferred",
-                        ].includes(call.status),
-                      ).length
-                    : 0;
+          {/* K14: menü B listesindeki ekranlardır (lib/b-menu.ts); ürün dışı ekranlar menüde yok. */}
+          {bMenu(menuRole, previewRole ? [] : snapshot.identity.unitRoles).map((item, index) => {
+            const active = item.view ? initialView === item.view : false;
+            const badge = item.view === "capacity" ? snapshot.approvals.filter((approval) => approval.status === "pending").length : 0;
             return (
-              <span key={item.view}>
-                {item.group && <p>{item.group}</p>}
-                <button
-                  className={initialView === item.view ? "active" : ""}
-                  onClick={() => navigate(item.view)}
-                >
-                  <item.icon aria-hidden="true" size={20}/>
-                  {item.label}
-                  {badge > 0 && <i>{badge}</i>}
-                </button>
+              <span key={item.key}>
+                {index === 0 && <p>BENİM İŞİM</p>}
+                {item.href ? (
+                  <Link className="nav-link" href={item.href}>{item.label}</Link>
+                ) : (
+                  <button className={active ? "active" : ""} onClick={() => navigate(item.view as View)}>
+                    {item.label}
+                    {badge > 0 && <i>{badge}</i>}
+                  </button>
+                )}
               </span>
             );
           })}
-          {ROLE_VIEWS[menuRole] && (
-            <button type="button" className="nav-toggle" aria-expanded={showAllNav} onClick={() => setShowAllNav((v) => !v)}>
-              {showAllNav ? "Diğer ekranları gizle" : "Diğer ekranlar"}
-            </button>
+          {SETTINGS_LINKS[menuRole] && (
+            <details className="nav-settings" open={SETTINGS_LINKS[menuRole].some((link) => link.view === initialView)}>
+              <summary>Ayarlar altı</summary>
+              {SETTINGS_LINKS[menuRole].map((link) => (
+                <button key={link.view} type="button" className={initialView === link.view ? "active" : ""} onClick={() => navigate(link.view as View)}>{link.label}</button>
+              ))}
+            </details>
           )}
         </nav>
         <div className="system">
@@ -1245,8 +1214,6 @@ export default function Dashboard({
             <small>Son eşitleme {formatTime(snapshot.generatedAt)}</small>
           </div>
         </div>
-        {/* Kurgusal (sentetik) çekirdek ekranlarına bağlantılar: yalnız operasyon ve teknik rollerde, sade bir kutuda. */}
-        {["operations_manager", "security_officer"].includes(menuRole) && <details className="sidebar-sim-links"><summary>Sentetik çekirdek ekranları</summary><Link href="/yatak">Yatak panosu</Link><Link href="/temizlik">Temizlik kuyruğu</Link><Link href="/entegrasyon">Entegrasyon merkezi</Link><Link href="/hbys">Transport, vardiya ve devir</Link></details>}
       </aside>
       <section className="content">
         <header>
@@ -1418,6 +1385,7 @@ export default function Dashboard({
             snapshot={snapshot}
             openUnit={(code) => navigate("units", code)}
             openTicket={(reference) => navigate("requests", reference)}
+            decideTransfer={async (body) => { await secureMutation("/api/transfer-decisions", body); await refresh(true); }}
           />
         )}
         {initialView === "integrations" && ["operations_manager", "security_officer"].includes(snapshot.identity.role) && <FhirValidator />}
@@ -1645,6 +1613,7 @@ function NotificationPanel({
         {unread > 0 && <button type="button" className="pop-mark" onClick={() => markRead("all")}>Tümünü okundu say ({unread})</button>}
         <span>Size atanan işler, gecikme yükseltmeleri, onaylar ve kuyruktaki görevler.</span>
       </div>
+      <PhonePush />
     </div>
   );
 }
@@ -1671,7 +1640,7 @@ function ClinicianHome({ snapshot, navigate }: { snapshot: Snapshot; navigate: (
   const myShifts = snapshot.shifts.filter((shift) => shift.status === "active" || shift.status === "handoff").slice(0, 4);
   return (
     <>
-      <Hero title="Bugün sizi bekleyenler" text="Onaylar ve biriminizin açık işleri. Sistem klinik öneri üretmez; karar sizindir." />
+      <Hero title="Bugün sizi bekleyenler" text="Onaylar ve biriminizin açık işleri. Sistem klinik karar vermez; karar sizindir." />
       <section className="stats">
         <Stat value={pending.length} label="Onayınızı bekleyen" />
         <Stat value={open.filter((task) => task.priority === "Acil").length} label="Acil açık iş" />
@@ -2113,8 +2082,8 @@ function FlowWorkspace({
     { key: "queued", title: "Kural kontrolü", text: "Kapasite, vardiya ve politika" },
     {
       key: "accepted",
-      title: "Otomatik kabul",
-      text: "Kaynak ayrıldı ve hedef oluştu",
+      title: "Hekim kabulü",
+      text: "Yetkili hekim kabul etti, kaynak ayrıldı",
     },
     { key: "in_progress", title: "Sistemler arası işlem", text: "Sevk, devir veya birim işi sürüyor" },
     { key: "completed", title: "Sonuçlandı", text: "Kapanış ve denetim izi" },
@@ -2155,7 +2124,7 @@ function FlowWorkspace({
     <>
       <Hero
         title="Uçtan uca hastane iş akışı"
-        text="Kayıt hangi sistemden gelirse gelsin; kural kontrolü, otomatik kabul/ret, alternatif kampüs, işlem ve kapanış aynı panoda izlenir."
+        text="Kayıt hangi sistemden gelirse gelsin; kapasite bilgisi, yetkili hekim kararı, işlem ve kapanış aynı panoda izlenir."
       />
       <section className="stats">
         <Stat value={items.length} label="Toplam aktif kayıt" />
@@ -2383,6 +2352,7 @@ function CallsWorkspace({
     reference: string,
     speakerType: "caller" | "agent" | "clinician",
     message: string,
+    staffUrgent?: boolean,
   ) => Promise<void>;
   busy: string;
 }) {
@@ -2392,11 +2362,13 @@ function CallsWorkspace({
     "agent",
   );
   const [draft, setDraft] = useState("");
+  const [urgent, setUrgent] = useState(false);
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected || draft.trim().length < 2) return;
-    await sendMessage(selected.reference, speaker, draft.trim());
+    await sendMessage(selected.reference, speaker, draft.trim(), urgent);
     setDraft("");
+    setUrgent(false);
   }
   return (
     <>
@@ -2565,6 +2537,9 @@ function CallsWorkspace({
                   required
                   placeholder="Görüşmede söylenen yeni cümleyi yazın; kaydedildiği anda tüm yetkili birim ekranlarında görünür…"
                 />
+                <label className="check-line">
+                  <input type="checkbox" checked={urgent} onChange={(event) => setUrgent(event.target.checked)} /> Acil: görevli devri aç
+                </label>
                 <button className="primary" disabled={Boolean(busy)}>
                   {busy === `${selected.reference}:message`
                     ? "Ekleniyor…"
@@ -2805,10 +2780,12 @@ function CapacityWorkspace({
   snapshot,
   openUnit,
   openTicket,
+  decideTransfer,
 }: {
   snapshot: Snapshot;
   openUnit: (code: string) => void;
   openTicket: (reference: string) => void;
+  decideTransfer: (body: Record<string, unknown>) => Promise<void>;
 }) {
   const [facilityFilter, setFacilityFilter] = useState("ALL");
   const capacity = facilityFilter === "ALL" ? snapshot.capacity : snapshot.capacity.filter((row) => row.facilityCode === facilityFilter);
@@ -2834,9 +2811,9 @@ function CapacityWorkspace({
         <Stat value={visibleAvailable} label="Güvenli kullanılabilir kaynak" />
         <Stat value={visibleOccupied} label="Dolu / kullanımda" sub={`${visibleTotal} toplam tanımlı kaynak`} />
         <Stat value={visibleDischarge} label="Beklenen taburculuk" />
-        <Stat value={transfers.filter((row) => !["completed", "auto_rejected"].includes(row.status)).length} label="Açık sevk / transfer" />
-        <Stat value={transfers.filter((row) => ["auto_accepted", "auto_rerouted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(row.status)).length} label="Otomatik kabul / alternatif" />
-        <Stat value={transfers.filter((row) => row.status === "auto_rejected").length} label="Gerekçeli otomatik ret" />
+        <Stat value={transfers.filter((row) => !["completed", "rejected"].includes(row.status)).length} label="Açık sevk / transfer" />
+        <Stat value={transfers.filter((row) => ["accepted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(row.status)).length} label="Hekim kabulü" />
+        <Stat value={transfers.filter((row) => row.status === "rejected").length} label="Gerekçeli ret (hekim)" />
         <Stat value={transfers.filter((row) => ["received", "checking"].includes(row.status)).length} label="Kural kontrolünde" />
         <Stat value={snapshot.shifts.filter((shift) => shift.status === "active" && (facilityFilter === "ALL" || shift.facilityCode === facilityFilter)).length} label="Aktif vardiya ekibi" />
       </section>
@@ -2870,7 +2847,7 @@ function CapacityWorkspace({
           {!capacity.length && <div className="empty"><b>Kapasite verisi henüz yok</b><p>Bu kapsamda kaynak kaydı alınmadı. Sıfır değeri hastanenin dolu olduğunu göstermez. Gerçek kapasite için kurumun kaynak entegrasyonu ve personelli kapasite tanımları tamamlanmalıdır.</p><Link href="/demo">Kurgusal kapasite akışını demo üzerinden dene →</Link></div>}
         </section>
         <section className="panel transfer-decisions">
-          <div className="panel-head"><div><h3>Otomatik kabul / ret / alternatif kararları</h3><p>Her kararın gerekçesi ve hedef hastanesi görünür.</p></div><span>{transfers.length}</span></div>
+          <div className="panel-head"><div><h3>Transfer kararları</h3><p>Kabul veya ret yalnız yetkili hekim tarafından verilir; sistem kapasite bilgisini gösterir.</p></div><span>{transfers.length}</span></div>
           {transfers.map((transfer) => (
             <button key={transfer.reference} onClick={() => openTransfer(transfer)}>
               <span className={`decision-mark ${transfer.status}`}>{transferStatusIcon(transfer.status)}</span>
@@ -2879,6 +2856,7 @@ function CapacityWorkspace({
             </button>
           ))}
           {!transfers.length && <div className="empty">Yetki kapsamınızda sevk kaydı yok.</div>}
+          {transfers.filter((t) => t.status === "awaiting_decision").map((t) => <TransferDecision key={"d" + t.reference} reference={t.reference} decide={decideTransfer} />)}
         </section>
       </div>
       <div className="legal-note">
@@ -2954,14 +2932,21 @@ function UnitsWorkspace({
   snapshot: Snapshot;
   open: (code: string) => void;
 }) {
+  // Tasarım bulgusu (14 Kasım): telefonda sayfa ~42.000 px idi. Arama + yoğun birim önce + telefonda kısa kart.
+  const [unitQuery, setUnitQuery] = useState("");
+  const q = unitQuery.toLocaleLowerCase("tr-TR").trim();
+  const units = snapshot.units
+    .filter((unit) => !q || `${unit.code} ${unit.name} ${unit.scope}`.toLocaleLowerCase("tr-TR").includes(q))
+    .sort((a, b) => b.queue - a.queue || a.name.localeCompare(b.name, "tr"));
   return (
     <>
       <Hero
         title="Birim çalışma masaları"
         text={`${snapshot.units.length} yetkili birim; sayaçlar statik değil, açık görevlerden hesaplanır.`}
       />
-      <div className="unit-grid">
-        {snapshot.units.map((unit) => (
+      <div className="unit-search"><input aria-label="Birim ara" value={unitQuery} onChange={(event) => setUnitQuery(event.target.value)} placeholder="Birim adı veya kodu ara…" /><span>{units.length} birim · açık görevi çok olan önce</span></div>
+      <div className="unit-grid unit-grid-compact">
+        {units.map((unit) => (
           <article key={unit.code}>
             <div className="unit-top">
               <span className={`unit-code ${unit.kind}`}>{unit.code}</span>
@@ -3058,7 +3043,7 @@ function UnitWorkspace({
         />
         <Stat value={capacityForUnit.reduce((sum, row) => sum + row.available, 0)} label="Uygun kaynak" />
         <Stat value={shiftsForUnit.filter((shift) => shift.status === "active").length} label="Aktif vardiya" />
-        <Stat value={transfersForUnit.filter((transfer) => !["completed", "auto_rejected"].includes(transfer.status)).length} label="Açık sevk" />
+        <Stat value={transfersForUnit.filter((transfer) => !["completed", "rejected"].includes(transfer.status)).length} label="Açık sevk" />
       </section>
       <div className="unit-workspace-grid">
         {capacityForUnit.length > 0 && (
@@ -3315,7 +3300,7 @@ function ReportsWorkspace({ snapshot }: { snapshot: Snapshot }) {
       />
       <section className="stats">
         <Stat value={`${occupancy}%`} label="Kaynak kullanımı" />
-        <Stat value={`${acceptance}%`} label="Otomatik kabul / alternatif" />
+        <Stat value={`${acceptance}%`} label="Hekim kabulü" />
         <Stat value={snapshot.capacitySummary.dischargeForecast} label="Taburculuk tahmini" />
         <Stat value={snapshot.capacitySummary.transfersOpen} label="Açık sevk" />
         <Stat value={snapshot.tasks.length} label="Görev kaydı" />
@@ -3846,9 +3831,36 @@ function CreateDialog({
             </label>
           </>
         )}
+        {kind !== "call" && kind !== "appointment" ? (
+          <label>
+            Talep türü
+            <select name="requestType" defaultValue="info">
+              <option value="info">Genel bilgi</option>
+              <option value="book">Randevu alma</option>
+              <option value="change">Randevu değişikliği</option>
+              <option value="cancel">Randevu iptali</option>
+              <option value="result">Sonuç bilgisi</option>
+              <option value="billing">Fatura ve ödeme</option>
+              <option value="complaint">Şikâyet / hasta hakkı</option>
+              <option value="clinical">Klinik soru (hekime aktarılır)</option>
+            </select>
+          </label>
+        ) : null}
+        {kind !== "call" ? (
+          <label>
+            Öncelik (talep eden personel)
+            <select name="priority" defaultValue="Normal">
+              <option value="Normal">Normal</option>
+              <option value="Yüksek">Yüksek</option>
+            </select>
+          </label>
+        ) : null}
+        <label className="check-line">
+          <input type="checkbox" name="staffUrgent" value="1" /> Acil olarak işaretle (112 bilgisi verildi, görevli incelesin)
+        </label>
         <div className="form-security-note">
-          Ad, kimlik numarası ve gereksiz sağlık bilgisi yazmayın. Maskeleme tüm kişisel verileri tespit etme garantisi değildir; acil olasılık sinyalinde normal otomasyon
-          durur ve insan devri açılır.
+          Ad, kimlik numarası ve gereksiz sağlık bilgisi yazmayın. Maskeleme tüm kişisel verileri tespit etme garantisi değildir. Sistem yazdığınız metni yorumlamaz;
+          birim, öncelik ve acil işareti yalnız sizin seçiminizdir. Tıbbi acil durumda 112 aranmalıdır.
         </div>
         <button className="primary" disabled={busy}>
           {busy ? "Sunucuya kaydediliyor…" : "Talebi gönder"}
@@ -3867,19 +3879,20 @@ function facilityName(snapshot: Snapshot, code: string) {
 function transferStatus(status: string) {
   return ({
     received: "Sistem talebi alındı",
-    checking: "Otomatik kontrol",
-    auto_accepted: "Otomatik ön kabul",
-    auto_rejected: "Kapasite yok · ret",
-    auto_rerouted: "Alternatife yönlendirildi",
-    scheduled: "Otomatik planlandı",
+    checking: "Kapasite bilgisi toplanıyor",
+    awaiting_decision: "Hekim kararı bekliyor",
+    accepted: "Hekim kabul etti",
+    rejected: "Hekim gerekçeyle reddetti",
+    scheduled: "Planlandı",
     transport_assigned: "Transport atandı",
     in_transit: "Sevk sürüyor",
     completed: "Devir tamamlandı",
   } as Record<string, string>)[status] || status;
 }
 function transferStatusIcon(status: string) {
-  if (["auto_accepted", "auto_rerouted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(status)) return "✓";
-  if (status === "auto_rejected") return "×";
+  if (status === "awaiting_decision") return "?";
+  if (["accepted", "scheduled", "transport_assigned", "in_transit", "completed"].includes(status)) return "✓";
+  if (status === "rejected") return "×";
   return "⌘";
 }
 function capacityStatus(row: Capacity) {
@@ -3897,8 +3910,8 @@ function shiftStatus(status: string) {
 function reportMetricLabel(key: string) {
   return ({
     generatedAt: "Oluşturma", facilities: "Hastane", resources: "Kaynak satırı", available: "Uygun kaynak",
-    dischargeForecast: "Taburculuk tahmini", transfersOpen: "Açık sevk", autoAccepted: "Otomatik kabul/alternatif",
-    autoRejected: "Otomatik ret", activeTasks: "Aktif görev", activeShifts: "Aktif vardiya", handoffs: "Devir",
+    dischargeForecast: "Taburculuk tahmini", transfersOpen: "Açık sevk", autoAccepted: "Hekim kabulü",
+    autoRejected: "Gerekçeli ret", activeTasks: "Aktif görev", activeShifts: "Aktif vardiya", handoffs: "Devir",
   } as Record<string, string>)[key] || key;
 }
 function formatMetricValue(value: unknown) {
@@ -3942,11 +3955,10 @@ function statusLabel(status?: string | null) {
         running: "Çalışıyor",
         dead_letter: "Karantina",
         received: "Sistem talebi alındı",
-        checking: "Otomatik kontrol",
-        auto_accepted: "Otomatik ön kabul",
-        auto_rejected: "Kapasite yok · ret",
-        auto_rerouted: "Alternatife yönlendirildi",
-        scheduled: "Otomatik planlandı",
+        checking: "Kapasite bilgisi toplanıyor",
+        awaiting_decision: "Hekim kararı bekliyor",
+        rejected: "Hekim gerekçeyle reddetti",
+        scheduled: "Planlandı",
         transport_assigned: "Transport atandı",
         in_transit: "Sevk sürüyor",
       } as Record<string, string>
@@ -3992,4 +4004,24 @@ function maskActor(actor: string) {
   if (!actor.includes("@")) return actor;
   const [name, domain] = actor.split("@");
   return `${name.slice(0, 2)}***@${(domain || "").split(".")[0]}`;
+}
+
+// Transfer kararı: yalnız yetkili hekim kabul eder veya gerekçeyle reddeder. Sistem öneri sunmaz.
+function TransferDecision({ reference, decide }: { reference: string; decide: (body: Record<string, unknown>) => Promise<void> }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  async function send(decision: "accept" | "reject") {
+    setBusy(true); setMessage("");
+    try { await decide({ reference, decision, reason }); setMessage(decision === "accept" ? "Kabul kaydedildi." : "Ret kaydedildi."); }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : "Karar kaydedilemedi."); }
+    finally { setBusy(false); }
+  }
+  return <form className="transfer-decision" onSubmit={(e) => e.preventDefault()} aria-label={`${reference} kararı`}>
+    <b>{reference} · Hekim kararı</b>
+    <p className="note">Karar, oturum açmış hekimin adıyla kaydedilir.</p>
+    <label>Gerekçe / not<input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="Ret için zorunlu" /></label>
+    <div><button type="button" className="primary" disabled={busy} onClick={() => void send("accept")}>Kabul et</button><button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void send("reject")}>Gerekçeyle reddet</button></div>
+    <small role="status">{message}</small>
+  </form>;
 }

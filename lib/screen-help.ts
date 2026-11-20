@@ -69,10 +69,10 @@ export const SCREEN_HELP: Record<string, ScreenHelp> = {
     purpose: "Hastaların web, WhatsApp, SMS veya danışmadan gelen talepleri. Telefon numarası ve TCKN metinden otomatik maskelenir.",
     who: "Hasta iletişim, birim görevlileri",
     steps: [
-      "\"Yeni talep\" ile hasta takma adı ve konuyu girin; sistem uygun birimi önerir.",
-      "\"Göğsüm ağrıyor\" gibi acil ifadelerde otomasyon durur, kayıt Acil Yönlendirme'ye geçer ve hekim onayı açılır.",
+      "\"Yeni talep\" ile hasta takma adı, konu ve hedef birimi girin; metin yorumlanmaz, birimi siz seçersiniz.",
+      "Acil bir durum varsa formdaki \"Acil olarak işaretle\" kutusunu seçin; otomasyon durur ve görevli incelemesi açılır. Sistem metinden acil çıkarmaz.",
       "Talebi açıp \"Görevi üstlen\", \"İşleme al\", \"Başka birime aktar\" veya \"Çözüldü\" ile ilerletin.",
-      "Şikâyet türündeki talepler \"Hasta şikâyeti\" akışını kendiliğinden başlatır.",
+      "Talep türünü \"Şikâyet\" seçtiğinizde \"Hasta şikâyeti\" akışı başlar.",
     ],
     tip: "Hasta adını değil takma adı (ör. HST-...) yazın; gerçek kimlik HBYS'de kalır.",
   },
@@ -124,7 +124,7 @@ export const SCREEN_HELP: Record<string, ScreenHelp> = {
   },
   calls: {
     purpose: "Canlı ve geçmiş görüşmeler: konuşma dökümü, birim yönlendirmesi ve insan devri.",
-    who: "Çağrı merkezi, klinik triyaj rolü",
+    who: "Çağrı merkezi, nöbetçi sağlık personeli",
     steps: [
       "Soldaki listeden görüşmeyi seçin; sağda konuşma ve yönlendirme bilgisi açılır. Liste yerinde kalır.",
       "Acil sinyal varsa görüşme kırmızı görünür; insan devri onayı gerekir.",
@@ -191,3 +191,12 @@ export const SCREEN_HELP: Record<string, ScreenHelp> = {
   security: { purpose: "Güvenlik olayları, imza hataları, hız sınırı aşımları.", who: "Bilgi güvenliği", steps: ["Kritik olayları inceleyin.", "Tekrar eden kaynakları bilgi işlem ekibine bildirin; engelleme kurum altyapısında yapılır."] },
   audit: { purpose: "Zincirli denetim izi: kim, ne zaman, ne yaptı.", who: "Denetim, kalite", steps: ["Kayıt veya kişi adıyla arayın.", "Zincirli geçmişi inceleyin. Eş zamanlı yazımda zincir çatallanması uyarısı oluşabilir; bu bir uygunluk belgesi değildir."] },
 };
+
+// K3: Her ekranın başında kısa kullanım amacı beyanı. Modül sınırını üretici çizer: idari/lojistik koordinasyon.
+export const USAGE_LIMIT_TEXT = "Klinik karar, tanı veya tedavi önerisi üretmez; tıbbi cihaz değildir.";
+export function usageStatement(view: string): string | null {
+  const help = SCREEN_HELP[view];
+  if (!help) return null;
+  const first = help.purpose.split(/(?<=[.!?])\s/)[0]!.trim();
+  return `Kullanım amacı: ${first} ${USAGE_LIMIT_TEXT}`;
+}

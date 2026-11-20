@@ -4,6 +4,7 @@ import handler from "vinext/server/app-router-entry";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
 import { runAutomationAgent } from "../lib/agent-runtime";
+import { dispatchPush } from "../lib/web-push";
 
 interface Env {
   ASSETS: Fetcher;
@@ -19,6 +20,9 @@ interface Env {
   KLINORBIS_AI_API_KEY?: string;
   OPENAI_API_KEY?: string;
   KLINORBIS_AI_MODEL?: string;
+  KLINORBIS_VAPID_PUBLIC_KEY?: string;
+  KLINORBIS_VAPID_PRIVATE_KEY?: string;
+  KLINORBIS_VAPID_SUBJECT?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -60,6 +64,8 @@ const worker = {
     }
 
     const response = await handler.fetch(request, env, ctx);
+    // K8: değişiklik yapan her API isteğinden sonra telefon sinyalleri arka planda gönderilir (yanıtı geciktirmez).
+    if (request.method !== "GET" && url.pathname.startsWith("/api/")) ctx.waitUntil(dispatchPush().catch(() => undefined));
     return withSecurityHeaders(response, request);
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -67,7 +73,9 @@ const worker = {
     // Cron tetikleyicisi (vite.config.ts → triggers.crons). Durdurma anahtarı runAutomationAgent içinde uygulanır;
     // hata yakalanır ki zamanlanmış tur çökse bile sonraki tur engellenmesin.
     const db = drizzle(env.DB, { schema });
-    ctx.waitUntil(runAutomationAgent(db, "scheduled-worker").then(() => undefined, (error) => { console.error("Zamanlanmış otomasyon turu başarısız", error instanceof Error ? error.message : "bilinmeyen hata"); }));
+    ctx.waitUntil(runAutomationAgent(db, "scheduled-worker").then(() => undefined, (error) => { console.error("Zamanlanmış otomasyon turu başarısız", error instanceof Error ? error.message : "bilinmeyen hata"); })
+      // K8: zamanlanmış turda oluşan gecikme bildirimleri de telefona gider.
+      .then(() => dispatchPush()).then(() => undefined, () => undefined));
   },
 };
 
@@ -84,6 +92,9 @@ function setRuntime(env: Env) {
     aiApiKey: env.KLINORBIS_AI_API_KEY,
     openaiApiKey: env.OPENAI_API_KEY,
     aiModel: env.KLINORBIS_AI_MODEL,
+    vapidPublicKey: env.KLINORBIS_VAPID_PUBLIC_KEY,
+    vapidPrivateKey: env.KLINORBIS_VAPID_PRIVATE_KEY,
+    vapidSubject: env.KLINORBIS_VAPID_SUBJECT,
   };
   (globalThis as typeof globalThis & { __KLINORBIS_DEMO_ENABLED?: string }).__KLINORBIS_DEMO_ENABLED = env.KLINORBIS_DEMO_ENABLED;
 }

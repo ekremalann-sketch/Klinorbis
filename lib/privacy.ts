@@ -39,7 +39,7 @@ export function validPatientAlias(value: string) {
 export const NAME_MASK = "[AD MASKELİ]";
 // Operasyon sözlüğü: bu köklerle başlayan büyük harfli kelimeler kişi adı sayılmaz (birim, rol, kategori, kurum terimleri).
 const NON_NAME_STEMS = [
-  "acil","yonlendir","randevu","merkez","cagri","hasta","iletisim","kardiyo","kalp","damar","cerrahi","koroner","yogun","bakim","noroloji","norosir","ortopedi","travma","radyoloji","goruntule","laboratuv","biyokimya","onkoloji","kemoterapi","pediatri","cocuk","kadin","dogum","neonat","yenidogan","dahiliye","genel","gogus","goz","kulak","burun","bogaz","uroloji","nefroloji","diyaliz","endokrin","gastro","enfeksiyon","psikiyatri","fizik","tedavi","rehabilit","anestezi","ameliyat","poliklinik","klinik","klinig","servis","birim","rolu","rol","gorevli","operator","operasyon","yonetici","yonetim","mudur","koordinat","sorumlu","ekip","ekibi","vardiya","nobet","triyaj","eczane","sterilizasyon","temizlik","hijyen","guvenlik","teknik","biyomedikal","bilgi","islem","kalite","satinalma","depo","cevre","atik","kvkk","kisisel","veri","gizlilik","siber","denetim","sistem","otomatik","otomasyon","kural","tabanli","ozet","oneri","yapay","zeka","standart","talep","talebi","oncelikli","insan","incelemesi","inceleme","olasilik","sinyal","sinyali","geri","arama","aranacak","kuyruk","kuyrugu","devir","devri","egitim","pilot","sentetik","demo","kampus","hastane","hastanesi","saglik","sehir","ornek","telefon","web","form","santral","whatsapp","sms","eposta","takvim","hbys","fhir","api","ozel","kamu","universite","devlet","turkiye","istanbul","ankara","izmir","pazartesi","sali","carsamba","persembe","cuma","cumartesi","pazar","ocak","subat","mart","nisan","mayis","haziran","temmuz","agustos","eylul","ekim","kasim","aralik","bugun","yarin","dun","sabah","aksam","gece","ogle","lutfen","merhaba","tesekkur","iyi","gunler","arayan","gorusme","kayit","kaydi","durum","yeni","acik","kapali","tamam","tamamlandi","bekliyor","onay","onayi","red","iptal","aktarma","aktar","kapat","basla","kabul","not","notu","masked","maskeli","ad","soyad","takma","dr","doc","prof","uzm","hemsire","sayin","bey","hanim","bay","bayan","kurum","sahibi","yardimci","asistan","ai","ayni","gun","ben","biz","siz","sen","onlar","bu","su","evet","hayir","gunaydin","selam","alo","rica","efendim","acaba","hocam","annem","babam","esim","oglum","kizim","kardesim","benim","bizim","sizin","adim","ismim","ama","ve","ile","icin","cok","daha","simdi","sonra","once","hemen","saat","dakika","yuksek","dusuk","orta","kritik","risk","agri","ates","kusma","kanama","nefes","bilinc","bayil","kriz","yanik","felc","inme",
+  "acil","yonlendir","randevu","merkez","cagri","hasta","iletisim","kardiyo","kalp","damar","cerrahi","koroner","yogun","bakim","noroloji","norosir","ortopedi","travma","radyoloji","goruntule","laboratuv","biyokimya","onkoloji","kemoterapi","pediatri","cocuk","kadin","dogum","neonat","yenidogan","dahiliye","genel","gogus","goz","kulak","burun","bogaz","uroloji","nefroloji","diyaliz","endokrin","gastro","enfeksiyon","psikiyatri","fizik","tedavi","rehabilit","anestezi","ameliyat","poliklinik","klinik","klinig","servis","birim","rolu","rol","gorevli","operator","operasyon","yonetici","yonetim","mudur","koordinat","sorumlu","ekip","ekibi","vardiya","nobet","eczane","sterilizasyon","temizlik","hijyen","guvenlik","teknik","biyomedikal","bilgi","islem","kalite","satinalma","depo","cevre","atik","kvkk","kisisel","veri","gizlilik","siber","denetim","sistem","otomatik","otomasyon","kural","tabanli","ozet","oneri","yapay","zeka","standart","talep","talebi","oncelikli","insan","incelemesi","inceleme","olasilik","sinyal","sinyali","geri","arama","aranacak","kuyruk","kuyrugu","devir","devri","egitim","pilot","sentetik","demo","kampus","hastane","hastanesi","saglik","sehir","ornek","telefon","web","form","santral","whatsapp","sms","eposta","takvim","hbys","fhir","api","ozel","kamu","universite","devlet","turkiye","istanbul","ankara","izmir","pazartesi","sali","carsamba","persembe","cuma","cumartesi","pazar","ocak","subat","mart","nisan","mayis","haziran","temmuz","agustos","eylul","ekim","kasim","aralik","bugun","yarin","dun","sabah","aksam","gece","ogle","lutfen","merhaba","tesekkur","iyi","gunler","arayan","gorusme","kayit","kaydi","durum","yeni","acik","kapali","tamam","tamamlandi","bekliyor","onay","onayi","red","iptal","aktarma","aktar","kapat","basla","kabul","not","notu","masked","maskeli","ad","soyad","takma","dr","doc","prof","uzm","hemsire","sayin","bey","hanim","bay","bayan","kurum","sahibi","yardimci","asistan","ai","ayni","gun","ben","biz","siz","sen","onlar","bu","su","evet","hayir","gunaydin","selam","alo","rica","efendim","acaba","hocam","annem","babam","esim","oglum","kizim","kardesim","benim","bizim","sizin","adim","ismim","ama","ve","ile","icin","cok","daha","simdi","sonra","once","hemen","saat","dakika","yuksek","dusuk","orta","kritik","risk","agri","ates","kusma","kanama","nefes","bilinc","bayil","kriz","yanik","felc","inme",
 ];
 const COMMON_FIRST_NAMES = new Set([
   "ayse","fatma","emine","hatice","zeynep","elif","meryem","sultan","hacer","merve","esra","busra","ozlem","yasemin","hulya","sevgi","leyla","gulsen","hanife","havva","zehra","rabia","kubra","tugba","ebru","derya","sibel","songul","filiz","aysel","nuray","serap","dilek","melek","asli",
@@ -115,26 +115,10 @@ export function maskEmail(value?: string | null): string {
   const local = v.slice(0, at), domain = v.slice(at + 1).split(".")[0] || "";
   return `${local.slice(0, Math.min(3, local.length))}…@${domain}`;
 }
-const fold = (value: string) => value.toLocaleLowerCase("tr-TR").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ı/g, "i");
-// Yalnız 112 bilgilendirmesini tetikleyen ifadeler (sınıflandırma değil). Kök biçimler: Türkçe çekim ekleri ("ağrısı", "ağrım", "ağrısından", "bayıldı", "bayılıyor") yakalanır.
-// Uzun kökler (6+ harf) ek alabilir; kısa kökler ("felç", "inme") yalnız tam kelime olarak eşleşir
-// ki "inmek" gibi ilgisiz kelimeler acil sayılmasın.
-const critical = ["kalp krizi", "zehirlen", "anafilaksi", "havale", "ciddi yanik", "agir yanik", "gogus agri", "gogsum agri", "nefes alamiyor", "nefes darligi cok", "siddetli kanama", "kanamasi durmuyor", "bilinc kaybi", "bilincini kaybet", "solunum durma", "nobet geciri", "havale geciri", "felc", "inme", "bayildi", "bayiliyor", "bayilma", "asiri doz", "intihar"];
-/** Hasta/arayan metninde acil durum ifadesi geçerse yalnız sabit 112 bilgilendirmesi gösterilir ve otomatik akış
- * bir görevliye bırakılır. Puan, aciliyet sınıfı, klinik birim önerisi veya öncelik ÜRETİLMEZ (ADR-003: Klinorbis
- * belirtiden triyaj yapmaz; öncelik yalnız yetkili personelden veya HBYS'den gelir). */
+/** Klinorbis serbest metni yorumlamaz (K2). Acil işareti yalnız talebi giren görevlinin açık seçimidir;
+ * 112 bilgilendirmesi her kayıtta sabit metin olarak gösterilir. Puan, aciliyet sınıfı veya birim önerisi ÜRETİLMEZ. */
 export const EMERGENCY_NOTICE_TEXT = "Bu kanal acil sağlık hizmeti değildir. Tıbbi acil durumda hemen 112'yi arayın.";
-export function emergencyWordsNotice(text: string): { notice: boolean; matched: string | null } {
-  const normalized = fold(text);
-  for (const phrase of critical) {
-    const tail = phrase.replace(/\s/g, "").length >= 5 ? "[a-z]*" : "";
-    const regex = new RegExp(`(?<![a-z])${phrase}${tail}(?![a-z])`, "g");
-    for (const match of normalized.matchAll(regex)) {
-      const after = normalized.slice((match.index ?? 0) + match[0].length);
-      if (/^\s*(?:yok(?:tu)?|degil|olmadi|bulunmuyor)\b/.test(after)) continue;
-      return { notice: true, matched: phrase };
-    }
-  }
-  return { notice: false, matched: null };
+export function staffUrgentFlag(value: unknown): { notice: boolean; source: "staff" } {
+  return { notice: value === true, source: "staff" };
 }
 

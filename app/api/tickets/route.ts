@@ -6,9 +6,9 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { patientCoordination, approvals, automationEvents, operationalTasks, ticketEvents, tickets, workflowJobs } from "../../../db/schema";
 import { appendAudit } from "../../../lib/audit";
-import { findUnit, HOSPITAL_UNITS, recommendUnit } from "../../../lib/hospital-units";
+import { findUnit, HOSPITAL_UNITS } from "../../../lib/hospital-units";
 import { ensureOperationalSeed } from "../../../lib/operations";
-import { EMERGENCY_NOTICE_TEXT, emergencyWordsNotice, redactPII, validPatientAlias } from "../../../lib/privacy";
+import { EMERGENCY_NOTICE_TEXT, redactPII, staffUrgentFlag, validPatientAlias } from "../../../lib/privacy";
 import {
   assertBrowserMutation,
   assertJsonRequest,
@@ -22,7 +22,7 @@ import {
 } from "../../../lib/security";
 import { runWorkflowCycle } from "../../../lib/workflow-engine";
 import { buildStructuredSubject } from "../../../lib/structured-forms";
-import { classifyRequest, renderMessage } from "../../../lib/patient-access";
+import { requestTypeByCode, renderMessage } from "../../../lib/patient-access";
 import { queueNotification } from "../../../lib/patient-access-store";
 import { startFromEvent } from "../../../lib/playbook-store";
 
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     const actor = await requireActor(request);
     requireOperationalWriter(actor);
     await enforceRateLimit(request, actor, "tickets.create", 30, 60);
-    const payload = await request.json() as { patientAlias?: unknown; subject?: unknown; unitCode?: unknown; channel?: unknown; formKind?: unknown; form?: unknown; notifyChannel?: unknown };
+    const payload = await request.json() as { patientAlias?: unknown; subject?: unknown; unitCode?: unknown; channel?: unknown; formKind?: unknown; form?: unknown; notifyChannel?: unknown; priority?: unknown; requestType?: unknown; staffUrgent?: unknown };
     const patientAlias = cleanText(payload.patientAlias, "Hasta/protokol takma adı", 3, 40).toUpperCase();
     if (!validPatientAlias(patientAlias)) throw new Error("Hasta takma adı yalnız harf, sayı, nokta, tire ve alt çizgi içerebilir.");
     // Yapılandırılmış form (hasta nakli / taburculuk): özet ve birim sunucuda formdan üretilir.
@@ -67,10 +67,12 @@ export async function POST(request: Request) {
     const channel = structured ? "Portal" : typeof payload.channel === "string" && ["Web", "Telefon", "Çağrı", "Portal", "WhatsApp", "HBYS"].includes(payload.channel) ? payload.channel : "Web";
     const requestedCode = structured ? structured.unitCode : typeof payload.unitCode === "string" && HOSPITAL_UNITS.some((unit) => unit.code === payload.unitCode) ? payload.unitCode : null;
     const redaction = redactPII(subject);
-    // ADR-003: belirtiden puan/triyaj yok. Acil ifade yalnız 112 bilgilendirmesi ve görevli incelemesi açar;
-    // birim idari kurala göre (talep türü/seçilen birim), öncelik yalnız personelin formda seçtiğiyle belirlenir.
-    const signal = emergencyWordsNotice(redaction.maskedText);
-    const destination = recommendUnit(redaction.maskedText, requestedCode);
+    // K2: serbest metin yorumlanmaz. Talep türü, birim, öncelik ve acil işareti yalnız talebi giren personelin
+    // formdaki seçimidir; metin olduğu gibi (maskelenmiş) iletilir. 112 bilgilendirmesi her kayıtta sabit gösterilir.
+    const requestType = requestTypeByCode(payload.requestType);
+    const signal = staffUrgentFlag(payload.staffUrgent);
+    const destination = findUnit(requestedCode ?? (payload.requestType === undefined ? null : requestType.unit));
+    const staffPriority = structured?.priority === "Yüksek" || payload.priority === "Yüksek" ? "Yüksek" : "Normal";
     const now = new Date();
     const reference = `KLI-${now.getTime().toString(36).slice(-7).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
     const taskReference = `TSK-${reference}`;
@@ -87,7 +89,7 @@ export async function POST(request: Request) {
       unit: destination.name,
       unitCode: destination.code,
       assignedRole: destination.assignedRole,
-      priority: structured?.priority === "Yüksek" ? "Yüksek" : "Normal",
+      priority: staffPriority,
       status: signal.notice ? "Personele aktarıldı" : "Yeni",
       channel,
       createdAt: now,
@@ -112,7 +114,7 @@ export async function POST(request: Request) {
       actor: actor.email,
       toUnitCode: destination.code,
       detail: signal.notice
-        ? `Metinde acil durum ifadesi geçtiği için otomatik bildirim durduruldu ve 112 bilgilendirmesi gösterildi; ${destination.name} kuyruğunda görevli incelemesi açıldı. Klinik değerlendirme yapılmadı.`
+        ? `Talebi giren personel acil olarak işaretledi; otomatik bildirim durduruldu, 112 bilgilendirmesi gösterildi ve ${destination.name} kuyruğunda görevli incelemesi açıldı. Metin yorumlanmadı.`
         : `${destination.name} birim kuyruğunda ${taskReference} görevi oluşturuldu; hedef rol: ${destination.assignedRole}.`,
       createdAt: now,
     });
@@ -145,9 +147,7 @@ export async function POST(request: Request) {
       payload: JSON.stringify({ unit: destination.name, unitCode: destination.code, taskReference, priority: ticket.priority, masked: true }),
     });
     await appendAudit(db, { actor: actor.email, action: "ticket.created", resource: reference, detail: `unit:${destination.code}; task:${taskReference}; pii:${redaction.detected.join(",") || "none"}; staffReview:${signal.notice}` });
-    // Hastaya "başvurunuz alındı" bildirimi: yalnız hasta izin verdiği kanalı seçtiyse. Acil ifade geçtiyse otomatik
-    // mesaj gönderilmez; görevli kayıt üzerinden ilgilenir, kayıt ekranında 112 bilgilendirmesi görünür.
-    const requestType = classifyRequest(redaction.maskedText);
+    // Hastaya "başvurunuz alındı" bildirimi: yalnız hasta izin verdiği kanalı seçtiyse ve personel acil işaretlemediyse.
     const notifyChannel = typeof payload.notifyChannel === "string" && ["sms", "whatsapp", "email"].includes(payload.notifyChannel) ? payload.notifyChannel as "sms" | "whatsapp" | "email" : null;
     if (notifyChannel && !signal.notice) {
       await queueNotification(db, { ticketReference: reference, patientAlias, channel: notifyChannel, template: "request_received", body: renderMessage("request_received", { reference }), urgent: false, createdBy: actor.email });
@@ -165,7 +165,7 @@ export async function POST(request: Request) {
       patientNotified: false, notificationQueued: Boolean(notifyChannel && !signal.notice),
       ticket,
       destination: { unitCode: destination.code, unitName: destination.name, assignedRole: destination.assignedRole, taskReference, queueStatus: "queued" },
-      automation: { staffReview: signal.notice, emergencyNotice: signal.notice ? EMERGENCY_NOTICE_TEXT : null, redaction: { detected: redaction.detected } },
+      automation: { staffReview: signal.notice, prioritySource: "talep eden personel", textInterpreted: false, emergencyNotice: EMERGENCY_NOTICE_TEXT, redaction: { detected: redaction.detected } },
     }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Hasta takma")) return Response.json({ error: error.message, code: "INVALID_INPUT" }, { status: 400 });

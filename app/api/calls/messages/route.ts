@@ -10,7 +10,7 @@ import {
 } from "../../../../db/schema";
 import { appendAudit } from "../../../../lib/audit";
 import { findUnit } from "../../../../lib/hospital-units";
-import { EMERGENCY_NOTICE_TEXT, emergencyWordsNotice, redactPII } from "../../../../lib/privacy";
+import { EMERGENCY_NOTICE_TEXT, redactPII, staffUrgentFlag } from "../../../../lib/privacy";
 import {
   assertBrowserMutation,
   assertJsonRequest,
@@ -34,6 +34,7 @@ export async function POST(request: Request) {
       callReference?: unknown;
       speakerType?: unknown;
       message?: unknown;
+      staffUrgent?: unknown;
     };
     if (
       typeof body.callReference !== "string" ||
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
       .orderBy(desc(callMessages.sequence))
       .limit(1);
     const redaction = redactPII(message);
-    const signal = emergencyWordsNotice(redaction.maskedText); // ADR-003: puan/yönlendirme yok
+    const signal = staffUrgentFlag(body.staffUrgent); // K2: metin yorumlanmaz; devir yalnız görevlinin açık işaretiyle
     const speakerType = actor.role === "clinician" ? "clinician" : "agent";
     const speakerLabel = (speakerType === "clinician" ? "Klinik personel · " : "Çağrı görevlisi · ") + actor.label;
     const nextSequence = (last?.sequence || 0) + 1;
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
           assignedRole: destination.assignedRole,
           status,
           requiresHuman: true,
-          summary: "Metinde acil durum ifadesi geçti; arayana 112 bilgilendirmesi yapılmalı. Otomatik akış durduruldu, görüşmeyi görevli sürdürür. Klinik değerlendirme yapılmadı.",
+          summary: "Görevli acil olarak işaretledi; arayana 112 bilgilendirmesi yapılmalı. Otomatik akış durduruldu, görüşmeyi görevli sürdürür. Klinik değerlendirme yapılmadı.",
           lastMessageAt: now,
         })
         .where(eq(callSessions.reference, call.reference));
@@ -194,6 +195,7 @@ export async function POST(request: Request) {
         assignedRole: destination.assignedRole,
       },
       staffReview: signal.notice,
+      emergency: signal.notice,
       emergencyNotice: signal.notice ? EMERGENCY_NOTICE_TEXT : null,
     });
   } catch (error) {

@@ -15,7 +15,7 @@ export const ROLE_MAP: Record<RoleKey, { title: string; home: string; homePath: 
     cannot: ["Başka birimin kayıtlarını göremez", "Personel ve rol atayamaz"],
   },
   clinician: {
-    title: "Klinik Rol",
+    title: "Hekim",
     home: "İnsan Onayları ve birim kuyruğu", homePath: "/approvals",
     does: ["Kritik adımda insan onayı verir veya reddeder", "Birim taleplerini işler", "Vardiya devri başlatır ve kabul eder"],
     cannot: ["Sistem tanı veya tedavi kararı üretmez; karar klinik personeldedir", "Başka birimin kayıtlarını göremez"],
