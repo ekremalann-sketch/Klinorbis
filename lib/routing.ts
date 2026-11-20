@@ -205,7 +205,10 @@ export async function myRequests(db: Db, actor: RequestActor) {
     const t = tasks.find((x) => x.reference === r.taskReference);
     const owner = t?.assignedUser ? labels.get(t.assignedUser) ?? "Birim görevlisi" : null;
     const state = r.status === "done" ? "Tamamlandı · onayınız bekleniyor" : t?.status === "in_progress" ? `${owner} çalışıyor` : owner ? `${owner} üstlendi` : "Birimde, görevlendirme bekliyor";
-    return { reference: r.reference, label: requestType(r.typeCode)?.label ?? "Talep", unit: findUnit(r.unitCode).name, location: taskLocation({ location: r.location, targetLocation: r.targetLocation, campus: null }), status: r.status, state, createdAt: r.createdAt };
+    // Akış kolaylığı (20 Kasım): talep eden kişi sıradaki adımı ve kimin elinde olduğunu tek satırda görür.
+    const unitName = findUnit(r.unitCode).name;
+    const next = r.status === "done" ? "Sonucu onaylayın: çözüldü mü, sürüyor mu?" : t?.status === "in_progress" ? `${owner} işi bitirince size bildirilecek.` : owner ? `${owner} işe başlayacak.` : `${unitName} birimi işi bir görevliye verecek.`;
+    return { reference: r.reference, label: requestType(r.typeCode)?.label ?? "Talep", unit: findUnit(r.unitCode).name, location: taskLocation({ location: r.location, targetLocation: r.targetLocation, campus: null }), status: r.status, state, next, owner, createdAt: r.createdAt };
   });
 }
 

@@ -21,7 +21,7 @@ type Data = {
   canReportFault: boolean; myUnits: { code: string; name: string }[];
   teammates: { email: string; unitCode: string; label: string }[];
   requestTypes: { group: string; types: ReqType[] }[];
-  requests: { reference: string; label: string; unit: string; location: string | null; status: string; state: string }[];
+  requests: { reference: string; label: string; unit: string; location: string | null; status: string; state: string; next?: string; owner?: string | null; createdAt?: string | number }[];
 };
 const CATEGORIES: [string, string][] = [["cihaz", "Tıbbi cihaz"], ["oda", "Oda / mobilya / tesisat"], ["elektrik", "Elektrik / aydınlatma"], ["iklim", "Isıtma / soğutma"], ["asansor", "Asansör"], ["diger", "Diğer teknik sorun"]];
 const CAT_LABEL = Object.fromEntries(CATEGORIES);
@@ -121,6 +121,8 @@ export function MyWork() {
             {d.requests.map((r) => <article key={r.reference} className="wk-card wk-card-compact">
               <header><b>{r.label}</b><span className="wk-tag">{r.unit}</span></header>
               <p className="wk-meta">{r.location ? `${r.location} · ` : ""}{r.state}</p>
+              {r.next && <p className="wk-next"><b>Sıradaki adım:</b> {r.next}</p>}
+              <p className="wk-meta wk-ref">{r.reference}{r.createdAt ? ` · ${sinceText(r.createdAt)}` : ""}</p>
               {r.status === "done" && <div className="wk-actions">
                 <button type="button" className="wk-primary" disabled={!!busy} onClick={() => void api("/api/my-work", { action: "request.confirm", reference: r.reference, ok: true }).then(async () => { setReceipt("Teşekkürler; talep kapandı."); await live.reload(); }, (e) => setError(e.message))}>Tamam, sorun çözüldü</button>
                 <button type="button" className="wk-secondary" onClick={() => { setText(""); setDlg({ kind: "requestNo", ref: r.reference }); }}>Sorun sürüyor</button>
@@ -257,4 +259,12 @@ export function TaskCard({ task: t, busy, onPrimary, secondary, extra }: { task:
       </div>
     </article>
   );
+}
+
+/** "12 dk önce açıldı" gibi kısa süre metni (talep eden kişi için). */
+function sinceText(at: string | number) {
+  const ms = Date.now() - new Date(at).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const min = Math.round(ms / 60000);
+  return min < 1 ? "az önce açıldı" : min < 60 ? `${min} dk önce açıldı` : min < 1440 ? `${Math.round(min / 60)} sa önce açıldı` : `${Math.round(min / 1440)} gün önce açıldı`;
 }
