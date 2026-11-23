@@ -24,7 +24,7 @@ const WRITERS = ["operations_manager", "unit_manager", "clinician", "call_agent"
 
 export async function reportFault(db: Db, actor: RequestActor, input: { category?: unknown; location?: unknown; deviceCode?: unknown; note?: unknown; campus?: unknown }, now = new Date()) {
   if (!WRITERS.includes(actor.role)) throw new SecurityError(403, "Gözetim rolleri arıza bildirimi açamaz.", "OPERATION_ROLE_REQUIRED");
-  const cat = typeof input.category === "string" ? FAULT_CATEGORIES[input.category] : undefined;
+  const cat = typeof input.category === "string" && Object.hasOwn(FAULT_CATEGORIES, input.category) ? FAULT_CATEGORIES[input.category] : undefined;
   if (!cat) throw new SecurityError(400, "Arıza türünü seçin.", "INVALID_INPUT");
   const pb = playbookOf(cat.playbook);
   if (!pb) throw new SecurityError(500, "Arıza akışı tanımlı değil.", "CONFIG");
@@ -53,7 +53,7 @@ export async function confirmFault(db: Db, actor: RequestActor, reference: strin
       ...await auditStatements(db, [{ actor: actor.email, action: "fault.confirmed", resource: reference, detail: "giderildi" }])] as [Stmt, ...Stmt[]]);
     return { reference, status: "confirmed" };
   }
-  const cat = FAULT_CATEGORIES[f.category];
+  const cat = Object.hasOwn(FAULT_CATEGORIES, f.category) ? FAULT_CATEGORIES[f.category] : undefined;
   const pb = playbookOf(cat?.playbook ?? "oda-bakim")!;
   const text = typeof note === "string" && note.trim() ? redactPII(note.trim().slice(0, 300)).maskedText : "Sorun sürüyor";
   const runRef = newReference(pb.code);
