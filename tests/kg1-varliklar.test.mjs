@@ -74,3 +74,17 @@ test('ekran: tek ana düğme, QR varlığa bağlanır, klinik dil yok, giriş zo
   assert.doesNotMatch(ui+readFileSync('lib/assets.ts','utf8'),/triyaj|erken uyarı|klinik öneri|tanı|tedavi/i);
   assert.match(page,/requireChatGPTUser\('\/varliklar'\)/);assert.match(page,/privateMeta/);
 });
+
+await test('tür ve durum yalnız tanımlı değerlerden seçilir; prototip adları reddedilir',async()=>{
+  const {sqlite,api}=await setup();
+  const proto=['constructor','__proto__','toString','hasOwnProperty'];
+  for(const kind of proto)assert.equal((await post(api,OPS,{action:'create',kind,name:'Kurgusal cihaz',unitCode:'BMD'})).status,400,kind);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM assets').get().n,0);
+  const ok=await post(api,OPS,{action:'create',kind:'biyomedikal',name:'Kurgusal cihaz',unitCode:'BMD',ownerType:'constructor'});
+  assert.equal(ok.status,200);assert.equal(sqlite.prepare('SELECT owner_type FROM assets').get().owner_type,'hastane','tanımsız sahiplik varsayılana düşer');
+  for(const status of proto)assert.equal((await post(api,OPS,{action:'update',code:'BIO-0001',version:1,change:'status',status})).status,400,status);
+  assert.deepEqual({...sqlite.prepare('SELECT status,version FROM assets').get()},{status:'aktif',version:1});
+  assert.equal((await get(api,OPS,'?durum=constructor')).status,200);
+  assert.equal((await post(api,OPS,{action:'update',code:'BIO-0001',version:1,change:'status',status:'bakimda'})).status,200);
+  assert.equal(sqlite.prepare('SELECT status FROM assets').get().status,'bakimda');
+});

@@ -106,6 +106,10 @@ await test("3) onay: bildiren onaylayamaz; birim yöneticisi onaylar; bildirimle
 await test("4) hasta yanıtı: kabul → randevu taşınır; çift yanıt 409; üç kez ulaşılamadı → takip; ret → geri arama görevi", async () => {
   const rows = changes(absence).filter((c) => c.status === "offered" && c.proposed_starts_at);
   const target = rows[0];
+  for (const response of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.equal((await post(AGENT, { action: "response.record", changeId: target.id, response })).status, 400, response);
+  }
+  assert.equal(sqlite.prepare("SELECT status FROM appointment_changes WHERE id = ?").get(target.id).status, "offered", "geçersiz yanıt kaydı değiştirmez");
   const r = await post(AGENT, { action: "response.record", changeId: target.id, response: "accepted" });
   assert.equal(r.status, 200, await r.clone().text());
   const moved = appt(target.appointment_reference);
