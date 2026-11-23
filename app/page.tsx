@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SiteFooter as Footer, SiteHeader as Header } from "./site-chrome";
 
-// Ana sayfa (23 Kasım, patron talimatı): Ekim sürümünün (e1dee8b öncesi) koyu "kontrol kulesi" kimliği geri geldi; anlatım yatak/temizlik yerine
+// Ana sayfa (23 Kasım): Ekim sürümünün (e1dee8b öncesi) koyu "kontrol kulesi" kimliği geri geldi; anlatım yatak/temizlik yerine
 // hastanenin klinik dışı operasyonlarının tamamını kapsar. Yalnız çalışan modüller anlatılır. Tek ana düğme.
 // Klinorbis klinik karar üretmez, tıbbi cihaz değildir; gerçek HBYS bağlantısı yoktur (benzetim ve dosya yükleme).
 const modules = [
