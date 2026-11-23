@@ -73,3 +73,18 @@ test('ekran: tek ana düğme, QR varlığa bağlanır, klinik dil yok, giriş zo
   assert.doesNotMatch(ui+readFileSync('lib/assets.ts','utf8'),/triyaj|erken uyarı|klinik öneri|tanı|tedavi/i);
   assert.match(page,/requireChatGPTUser\('\/varliklar'\)/);assert.match(page,/privateMeta/);
 });
+
+await test('denetim yazılamazsa varlık kaydı ve güncellemesi geri alınır', async () => {
+  const { sqlite, api } = await setup();
+  const input = { action: 'create', kind: 'biyomedikal', name: 'Kurgusal cihaz', unitCode: 'BMD' };
+  const denyAudit = "CREATE TRIGGER test_audit_failure BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT,'test audit failure'); END";
+  sqlite.exec(denyAudit);
+  assert.ok((await post(api, OPS, input)).status >= 400);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM assets').get().n, 0);
+  sqlite.exec('DROP TRIGGER test_audit_failure');
+  assert.equal((await post(api, OPS, input)).status, 200);
+  sqlite.exec(denyAudit);
+  assert.ok((await post(api, OPS, { action: 'update', code: 'BIO-0001', change: 'status', status: 'hurda', version: 1 })).status >= 400);
+  assert.deepEqual({ ...sqlite.prepare('SELECT status, version FROM assets').get() }, { status: 'aktif', version: 1 });
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM audit_logs WHERE resource='BIO-0001'").get().n, 1);
+});

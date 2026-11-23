@@ -2,7 +2,7 @@
 // Yetki sunucuda: kayıt ve güncelleme yalnız operasyon yöneticisi (her birim) veya birim sorumlusu (yalnız kendi birimi).
 // Okuma birimle sınırlıdır. Her değişiklik denetim kaydına yazılır. Klinik bilgi tutulmaz, klinik karar üretilmez.
 import { getDb } from "../db";
-import { appendAudit } from "./audit";
+import { auditHeadConflict, auditStatements } from "./audit";
 import { findUnit, HOSPITAL_UNITS } from "./hospital-units";
 import { redactPII } from "./privacy";
 import { canAccessUnit, SecurityError, type RequestActor } from "./security";
@@ -83,13 +83,16 @@ export async function createAsset(actor: RequestActor, input: Record<string, unk
     const max = await d1().prepare("SELECT max(CAST(substr(code,5) AS INTEGER)) AS n FROM assets WHERE code LIKE ?").bind(`${prefix}-%`).first<number>("n");
     const code = `${prefix}-${String(Number(max ?? 0) + 1).padStart(4, "0")}`;
     try {
-      await d1().prepare(`INSERT INTO assets(code,name,kind,category,brand,model,serial,owner_type,unit_code,location,status,maintenance_interval_days,calibration_interval_days,created_by,created_at,updated_at)
+      const binding = d1();
+      const change = binding.prepare(`INSERT INTO assets(code,name,kind,category,brand,model,serial,owner_type,unit_code,location,status,maintenance_interval_days,calibration_interval_days,created_by,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,'aktif',?,?,?,?,?)`).bind(code, name, kind, text(input.category, 60), text(input.brand, 60), text(input.model, 60), text(input.serial, 60),
-        owner, unit.code, text(input.location, 80), mInt, cInt, actor.email, now, now).run();
-      await appendAudit(getDb(), { actor: actor.email, action: "asset.created", resource: code, detail: `${ASSET_KINDS[kind].label} · ${unit.name}` });
+        owner, unit.code, text(input.location, 80), mInt, cInt, actor.email, now, now);
+      const [audit] = await auditStatements(getDb(), [{ actor: actor.email, action: "asset.created", resource: code, detail: `${ASSET_KINDS[kind].label} · ${unit.name}` }]);
+      const statement = audit.toSQL();
+      await binding.batch([change, binding.prepare(statement.sql).bind(...statement.params)]);
       return { code };
     } catch (error) {
-      if (!/UNIQUE/i.test(String((error as Error)?.message))) throw error;
+      if (!auditHeadConflict(error) && !/UNIQUE.*assets\.code/i.test(String((error as Error)?.message))) throw error;
     }
   }
   throw new SecurityError(409, "Kod üretilemedi; tekrar deneyin.", "CONFLICT");
@@ -113,8 +116,21 @@ export async function updateAsset(actor: RequestActor, input: Record<string, unk
     case "calibrated": set = "last_calibration_at=?"; val = now; detail = "Kalibrasyon yapıldı olarak işaretlendi"; break;
     default: throw new SecurityError(400, "Bilinmeyen değişiklik.", "INVALID_INPUT");
   }
-  const r = await d1().prepare(`UPDATE assets SET ${set},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(val, now, a.id, Number(input.version ?? a.version)).run();
-  if (!Number(r.meta?.changes ?? 0)) throw new SecurityError(409, "Kayıt başka biri tarafından değiştirildi; sayfayı yenileyin.", "VERSION_CONFLICT");
-  await appendAudit(getDb(), { actor: actor.email, action: `asset.${input.change}`, resource: a.code, detail });
-  return { code: a.code };
+  const binding = d1();
+  const change = binding.prepare(`UPDATE assets SET ${set},updated_at=?,version=version+1 WHERE id=? AND version=?`)
+    .bind(val, now, a.id, Number(input.version ?? a.version));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const [audit] = await auditStatements(getDb(), [{ actor: actor.email, action: `asset.${input.change}`, resource: a.code, detail }]);
+    const statement = audit.toSQL();
+    const auditSql = statement.sql.replace(/\bvalues\s*\(([\s\S]*)\)$/i, "select $1 where changes() = 1");
+    if (auditSql === statement.sql) throw new Error("Denetim sorgusu hazırlanamadı.");
+    try {
+      const [result] = await binding.batch([change, binding.prepare(auditSql).bind(...statement.params)]);
+      if (!Number(result.meta?.changes ?? 0)) throw new SecurityError(409, "Kayıt başka biri tarafından değiştirildi; sayfayı yenileyin.", "VERSION_CONFLICT");
+      return { code: a.code };
+    } catch (error) {
+      if (!auditHeadConflict(error)) throw error;
+    }
+  }
+  throw new SecurityError(409, "Denetim kaydı çakıştı; tekrar deneyin.", "CONFLICT");
 }
