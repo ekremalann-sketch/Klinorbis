@@ -2,7 +2,7 @@
 // Yetki sunucuda: kayıt ve güncelleme yalnız operasyon yöneticisi (her birim) veya birim sorumlusu (yalnız kendi birimi).
 // Okuma birimle sınırlıdır. Her değişiklik denetim kaydına yazılır. Klinik bilgi tutulmaz, klinik karar üretilmez.
 import { getDb } from "../db";
-import { appendAudit, auditStatements } from "./audit";
+import { auditHeadConflict, auditRows, auditStatements, type AuditEntry } from "./audit";
 import { notificationStatements } from "./notifications";
 import { newReference, runBatch, runStatements, stepNotifications } from "./playbook-store";
 import { playbookOf } from "./playbooks";
@@ -32,6 +32,33 @@ const d1 = () => {
   if (!d) throw new SecurityError(503, "Veritabanı kullanılamıyor.", "DATABASE_UNAVAILABLE");
   return d;
 };
+/**
+ * Varlık veya zimmet değişikliği ile denetim kaydını tek batch (tek işlem) içinde yazar; denetim yazılamazsa değişiklik de geri alınır.
+ * onlyIfChanged: denetim satırı yalnız önceki ifade tam bir satırı değiştirdiyse eklenir (koşullu UPDATE için).
+ * Döner: değişiklik ifadesinin etkilediği satır sayısı.
+ */
+async function writeWithAudit(change: D1PreparedStatement, entry: AuditEntry, onlyIfChanged: boolean) {
+  const binding = d1();
+  const [row] = await auditRows(getDb(), [entry]);
+  const audit = binding.prepare(`INSERT INTO audit_logs(actor,action,resource,result,detail,previous_hash,current_hash,created_at)
+    SELECT ?,?,?,?,?,?,?,?${onlyIfChanged ? " WHERE changes()=1" : ""}`)
+    .bind(row.actor, row.action, row.resource, row.result, row.detail, row.previousHash, row.currentHash, Date.now());
+  const [result] = await binding.batch([change, audit]);
+  return Number(result.meta?.changes ?? 0);
+}
+const AUDIT_ATTEMPTS = 5;
+/** Denetim zincirinin başı eşzamanlı bir yazımla değiştiyse batch geri alınmıştır; zincir yeniden okunarak tekrar denenir. */
+async function writeWithAuditRetry(change: D1PreparedStatement, entry: AuditEntry, onlyIfChanged: boolean) {
+  for (let attempt = 0; attempt < AUDIT_ATTEMPTS; attempt++) {
+    try {
+      return await writeWithAudit(change, entry, onlyIfChanged);
+    } catch (error) {
+      if (!auditHeadConflict(error)) throw error;
+    }
+  }
+  throw new SecurityError(409, "Denetim kaydı çakıştı; tekrar deneyin.", "CONFLICT");
+}
+
 const text = (v: unknown, n: number) => (typeof v === "string" && v.trim() ? redactPII(v.trim().slice(0, n)).maskedText : null);
 const days = (v: unknown) => {
   if (v === undefined || v === null || v === "") return null;
@@ -84,17 +111,19 @@ export async function createAsset(actor: RequestActor, input: Record<string, unk
   const owner = typeof input.ownerType === "string" && Object.hasOwn(OWNER_TYPES, input.ownerType) ? input.ownerType : "hastane";
   const mInt = days(input.maintenanceIntervalDays), cInt = days(input.calibrationIntervalDays);
   const prefix = ASSET_KINDS[kind].prefix;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  const fields = [text(input.category, 60), text(input.brand, 60), text(input.model, 60), text(input.serial, 60)];
+  const location = text(input.location, 80);
+  // Kod çakışması (eşzamanlı kayıt) veya denetim zinciri çakışmasında kod ve zincir yeniden okunur.
+  for (let attempt = 0; attempt < AUDIT_ATTEMPTS; attempt++) {
     const max = await d1().prepare("SELECT max(CAST(substr(code,5) AS INTEGER)) AS n FROM assets WHERE code LIKE ?").bind(`${prefix}-%`).first<number>("n");
     const code = `${prefix}-${String(Number(max ?? 0) + 1).padStart(4, "0")}`;
+    const change = d1().prepare(`INSERT INTO assets(code,name,kind,category,brand,model,serial,owner_type,unit_code,location,status,maintenance_interval_days,calibration_interval_days,created_by,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,'aktif',?,?,?,?,?)`).bind(code, name, kind, ...fields, owner, unit.code, location, mInt, cInt, actor.email, now, now);
     try {
-      await d1().prepare(`INSERT INTO assets(code,name,kind,category,brand,model,serial,owner_type,unit_code,location,status,maintenance_interval_days,calibration_interval_days,created_by,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,'aktif',?,?,?,?,?)`).bind(code, name, kind, text(input.category, 60), text(input.brand, 60), text(input.model, 60), text(input.serial, 60),
-        owner, unit.code, text(input.location, 80), mInt, cInt, actor.email, now, now).run();
-      await appendAudit(getDb(), { actor: actor.email, action: "asset.created", resource: code, detail: `${ASSET_KINDS[kind].label} · ${unit.name}` });
+      await writeWithAudit(change, { actor: actor.email, action: "asset.created", resource: code, detail: `${ASSET_KINDS[kind].label} · ${unit.name}` }, false);
       return { code };
     } catch (error) {
-      if (!/UNIQUE/i.test(String((error as Error)?.message))) throw error;
+      if (!auditHeadConflict(error) && !/UNIQUE.*assets\.code/i.test(String((error as Error)?.message))) throw error;
     }
   }
   throw new SecurityError(409, "Kod üretilemedi; tekrar deneyin.", "CONFLICT");
@@ -118,9 +147,9 @@ export async function updateAsset(actor: RequestActor, input: Record<string, unk
     case "calibrated": set = "last_calibration_at=?"; val = now; detail = "Kalibrasyon yapıldı olarak işaretlendi"; break;
     default: throw new SecurityError(400, "Bilinmeyen değişiklik.", "INVALID_INPUT");
   }
-  const r = await d1().prepare(`UPDATE assets SET ${set},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(val, now, a.id, Number(input.version ?? a.version)).run();
-  if (!Number(r.meta?.changes ?? 0)) throw new SecurityError(409, "Kayıt başka biri tarafından değiştirildi; sayfayı yenileyin.", "VERSION_CONFLICT");
-  await appendAudit(getDb(), { actor: actor.email, action: `asset.${input.change}`, resource: a.code, detail });
+  const change = d1().prepare(`UPDATE assets SET ${set},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(val, now, a.id, Number(input.version ?? a.version));
+  const changed = await writeWithAuditRetry(change, { actor: actor.email, action: `asset.${input.change}`, resource: a.code, detail }, true);
+  if (!changed) throw new SecurityError(409, "Kayıt başka biri tarafından değiştirildi; sayfayı yenileyin.", "VERSION_CONFLICT");
   return { code: a.code };
 }
 
@@ -162,9 +191,9 @@ export async function acceptCustody(actor: RequestActor, input: Record<string, u
   if (c.accepted_at) throw new SecurityError(409, "Zimmet zaten onaylandı.", "CUSTODY_STATE");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${a.code}|${actor.email}|${c.given_at}|${now}`));
   const receipt = [...new Uint8Array(digest)].slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
-  const r = await d1().prepare("UPDATE asset_custody SET accepted_at=?,receipt=? WHERE id=? AND accepted_at IS NULL AND returned_at IS NULL").bind(now, receipt, c.id).run();
-  if (!Number(r.meta?.changes ?? 0)) throw new SecurityError(409, "Zimmet durumu değişti; sayfayı yenileyin.", "CUSTODY_STATE");
-  await appendAudit(getDb(), { actor: actor.email, action: "asset.custody.accepted", resource: a.code, detail: `makbuz ${receipt}` });
+  const change = d1().prepare("UPDATE asset_custody SET accepted_at=?,receipt=? WHERE id=? AND accepted_at IS NULL AND returned_at IS NULL").bind(now, receipt, c.id);
+  const changed = await writeWithAuditRetry(change, { actor: actor.email, action: "asset.custody.accepted", resource: a.code, detail: `makbuz ${receipt}` }, true);
+  if (!changed) throw new SecurityError(409, "Zimmet durumu değişti; sayfayı yenileyin.", "CUSTODY_STATE");
   return { code: a.code, receipt };
 }
 
@@ -173,9 +202,9 @@ export async function returnCustody(actor: RequestActor, input: Record<string, u
   const { a, c } = await openAsset(actor, input.code);
   if (!c) throw new SecurityError(409, "Açık zimmet yok.", "CUSTODY_STATE");
   if (c.holder_email !== actor.email && !canManageUnit(actor, a.unit_code)) throw new SecurityError(403, "İadeyi zimmetli kişi veya birim sorumlusu kaydeder.", "UNIT_ACCESS_DENIED");
-  const r = await d1().prepare("UPDATE asset_custody SET returned_at=?,returned_by=? WHERE id=? AND returned_at IS NULL").bind(now, actor.email, c.id).run();
-  if (!Number(r.meta?.changes ?? 0)) throw new SecurityError(409, "Zimmet durumu değişti; sayfayı yenileyin.", "CUSTODY_STATE");
-  await appendAudit(getDb(), { actor: actor.email, action: "asset.custody.returned", resource: a.code, detail: `iade: ${c.holder_email}` });
+  const change = d1().prepare("UPDATE asset_custody SET returned_at=?,returned_by=? WHERE id=? AND returned_at IS NULL").bind(now, actor.email, c.id);
+  const changed = await writeWithAuditRetry(change, { actor: actor.email, action: "asset.custody.returned", resource: a.code, detail: `iade: ${c.holder_email}` }, true);
+  if (!changed) throw new SecurityError(409, "Zimmet durumu değişti; sayfayı yenileyin.", "CUSTODY_STATE");
   return { code: a.code };
 }
 
