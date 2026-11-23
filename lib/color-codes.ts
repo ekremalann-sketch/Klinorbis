@@ -52,7 +52,7 @@ export async function listCodes(actor: RequestActor) {
 
 export async function callCode(actor: RequestActor, input: Record<string, unknown>, now = Date.now()) {
   requireOperationalWriter(actor);
-  const color = typeof input.color === "string" && input.color in COLOR_CODES ? input.color as Color : null;
+  const color = typeof input.color === "string" && Object.hasOwn(COLOR_CODES, input.color) ? input.color as Color : null;
   if (!color) throw new SecurityError(400, "Kod rengini seçin.", "INVALID_INPUT");
   const location = typeof input.location === "string" ? redactPII(input.location.trim().slice(0, 80)).maskedText : "";
   if (location.length < 2) throw new SecurityError(400, "Yeri yazın (ör. 3. kat B blok koridor).", "INVALID_INPUT");
