@@ -74,3 +74,92 @@ test('ekran: tek ana düğme, QR varlığa bağlanır, klinik dil yok, giriş zo
   assert.doesNotMatch(ui+readFileSync('lib/assets.ts','utf8'),/triyaj|erken uyarı|klinik öneri|tanı|tedavi/i);
   assert.match(page,/requireChatGPTUser\('\/varliklar'\)/);assert.match(page,/privateMeta/);
 });
+
+await test('tür ve durum yalnız tanımlı değerlerden seçilir; prototip adları reddedilir',async()=>{
+  const {sqlite,api}=await setup();
+  const proto=['constructor','__proto__','toString','hasOwnProperty'];
+  for(const kind of proto)assert.equal((await post(api,OPS,{action:'create',kind,name:'Kurgusal cihaz',unitCode:'BMD'})).status,400,kind);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM assets').get().n,0);
+  const ok=await post(api,OPS,{action:'create',kind:'biyomedikal',name:'Kurgusal cihaz',unitCode:'BMD',ownerType:'constructor'});
+  assert.equal(ok.status,200);assert.equal(sqlite.prepare('SELECT owner_type FROM assets').get().owner_type,'hastane','tanımsız sahiplik varsayılana düşer');
+  for(const status of proto)assert.equal((await post(api,OPS,{action:'update',code:'BIO-0001',version:1,change:'status',status})).status,400,status);
+  assert.deepEqual({...sqlite.prepare('SELECT status,version FROM assets').get()},{status:'aktif',version:1});
+  assert.equal((await get(api,OPS,'?durum=constructor')).status,200);
+  assert.equal((await post(api,OPS,{action:'update',code:'BIO-0001',version:1,change:'status',status:'bakimda'})).status,200);
+  assert.equal(sqlite.prepare('SELECT status FROM assets').get().status,'bakimda');
+});
+
+const DENY_AUDIT="CREATE TRIGGER test_audit_failure BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT,'test audit failure'); END";
+const auditCount=(sqlite,code)=>sqlite.prepare('SELECT count(*) n FROM audit_logs WHERE resource=?').get(code).n;
+
+await test('denetim yazılamazsa varlık kaydı ve güncellemesi iz bırakmaz',async()=>{
+  const {sqlite,api}=await setup();
+  const input={action:'create',kind:'biyomedikal',name:'Kurgusal cihaz',unitCode:'BMD'};
+  sqlite.exec(DENY_AUDIT);
+  assert.ok((await post(api,OPS,input)).status>=400);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM assets').get().n,0,'denetimsiz varlık kaydı kalmaz');
+  sqlite.exec('DROP TRIGGER test_audit_failure');
+  assert.equal((await post(api,OPS,input)).status,200);
+  sqlite.exec(DENY_AUDIT);
+  for(const body of [{change:'status',status:'hurda'},{change:'maintained'},{change:'calibrated'}]){
+    assert.ok((await post(api,OPS,{action:'update',code:'BIO-0001',version:1,...body})).status>=400,body.change);
+  }
+  assert.deepEqual({...sqlite.prepare('SELECT status,version,last_maintenance_at m,last_calibration_at c FROM assets').get()},{status:'aktif',version:1,m:null,c:null});
+  sqlite.exec('DROP TRIGGER test_audit_failure');
+  assert.equal(auditCount(sqlite,'BIO-0001'),1);
+  assert.equal((await post(api,OPS,{action:'update',code:'BIO-0001',version:1,change:'status',status:'bakimda'})).status,200);
+  assert.equal(auditCount(sqlite,'BIO-0001'),2);
+});
+
+await test('denetim yazılamazsa zimmet onayı ve iadesi iz bırakmaz',async()=>{
+  const {sqlite,api}=await setup();
+  await post(api,OPS,{action:'create',kind:'biyomedikal',name:'Kurgusal cihaz',unitCode:'BMD'});
+  assert.equal((await post(api,BMD,{action:'custody.assign',code:'BIO-0001',email:PER})).status,200);
+  const custody=()=>({...sqlite.prepare('SELECT accepted_at,receipt,returned_at,returned_by FROM asset_custody').get()});
+  const before=auditCount(sqlite,'BIO-0001');
+  sqlite.exec(DENY_AUDIT);
+  assert.ok((await post(api,PER,{action:'custody.accept',code:'BIO-0001'})).status>=400);
+  assert.deepEqual(custody(),{accepted_at:null,receipt:null,returned_at:null,returned_by:null},'onay kaydı kalmaz');
+  sqlite.exec('DROP TRIGGER test_audit_failure');
+  assert.equal(auditCount(sqlite,'BIO-0001'),before);
+  assert.equal((await post(api,PER,{action:'custody.accept',code:'BIO-0001'})).status,200);
+  const accepted=custody();assert.ok(accepted.accepted_at&&accepted.receipt);
+  sqlite.exec(DENY_AUDIT);
+  assert.ok((await post(api,PER,{action:'custody.return',code:'BIO-0001'})).status>=400);
+  assert.deepEqual(custody(),accepted,'iade kaydı kalmaz');
+  sqlite.exec('DROP TRIGGER test_audit_failure');
+  assert.equal(auditCount(sqlite,'BIO-0001'),before+1);
+  assert.equal((await post(api,PER,{action:'custody.return',code:'BIO-0001'})).status,200);
+  assert.ok(custody().returned_at);
+  assert.deepEqual(sqlite.prepare("SELECT action FROM audit_logs WHERE resource='BIO-0001' AND action LIKE 'asset.custody%' ORDER BY id").all().map(r=>r.action),
+    ['asset.custody.assigned','asset.custody.accepted','asset.custody.returned']);
+});
+
+await test('eşzamanlı kayıtlar: kod ve denetim zinciri çakışması yeniden denenir, her kayıt tek denetim satırıyla yazılır',async()=>{
+  const {sqlite,api}=await setup();
+  const rs=await Promise.all([1,2,3,4].map(i=>post(api,OPS,{action:'create',kind:'teknik',name:`Kurgusal ekipman ${i}`,unitCode:'TKH'})));
+  assert.deepEqual(rs.map(r=>r.status),[200,200,200,200]);
+  assert.deepEqual(rs.map(r=>r.body.result.code).sort(),['TEK-0001','TEK-0002','TEK-0003','TEK-0004']);
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM audit_logs WHERE action='asset.created'").get().n,4);
+  const chain=sqlite.prepare('SELECT previous_hash p,current_hash c FROM audit_logs ORDER BY id').all();
+  for(let i=1;i<chain.length;i++)assert.equal(chain[i].p,chain[i-1].c,'zincir kopmaz');
+});
+
+await test('denetim yazılamazsa zimmet verme iz bırakmaz: zimmet satırı ve bildirim kalmaz',async()=>{
+  const {sqlite,api}=await setup();
+  await post(api,OPS,{action:'create',kind:'biyomedikal',name:'Kurgusal cihaz',unitCode:'BMD'});
+  const before=auditCount(sqlite,'BIO-0001');
+  const notes=()=>sqlite.prepare("SELECT count(*) n FROM staff_notifications WHERE email=? AND path='/varliklar?kod=BIO-0001'").get(PER).n;
+  sqlite.exec(DENY_AUDIT);
+  assert.ok((await post(api,BMD,{action:'custody.assign',code:'BIO-0001',email:PER})).status>=400);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM asset_custody').get().n,0,'denetimsiz zimmet kalmaz');
+  assert.equal(notes(),0,'bildirim de geri alınır');
+  sqlite.exec('DROP TRIGGER test_audit_failure');
+  assert.equal(auditCount(sqlite,'BIO-0001'),before);
+  assert.equal((await post(api,BMD,{action:'custody.assign',code:'BIO-0001',email:PER})).status,200,'açık zimmet kalmadığı için yeniden verilebilir');
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM asset_custody').get().n,1);
+  assert.equal(notes(),1);
+  assert.equal(auditCount(sqlite,'BIO-0001'),before+1);
+  assert.equal((await post(api,BMD,{action:'custody.assign',code:'BIO-0001',email:PER})).status,409,'tek açık zimmet');
+  assert.equal(auditCount(sqlite,'BIO-0001'),before+1,'reddedilen zimmet denetime yazılmaz');
+});

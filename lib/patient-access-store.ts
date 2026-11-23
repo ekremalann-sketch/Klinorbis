@@ -47,7 +47,7 @@ async function commit(db: Db, statements: Stmt[], conflict: SecurityError) {
 export async function reportAbsence(db: Db, actor: RequestActor, input: { physicianCode: string; day: string; reason: string }) {
   if (!["operations_manager", "unit_manager", "clinician"].includes(actor.role)) throw new SecurityError(403, "Hekim yokluğunu birim sorumlusu, hekimin kendisi veya operasyon yöneticisi bildirir.", "ABSENCE_ROLE_REQUIRED");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.day) || !Number.isFinite(Date.parse(input.day + "T00:00:00Z")) || new Date(input.day+"T00:00:00Z").toISOString().slice(0,10)!==input.day) throw new SecurityError(400, "Gün YYYY-AA-GG biçiminde olmalı.", "INVALID_INPUT");
-  if (!(input.reason in ABSENCE_REASONS)) throw new SecurityError(400, "Yokluk nedeni listeden seçilmeli.", "INVALID_INPUT");
+  if (!(Object.hasOwn(ABSENCE_REASONS, input.reason))) throw new SecurityError(400, "Yokluk nedeni listeden seçilmeli.", "INVALID_INPUT");
   if (input.day < localDay(Date.now())) throw new SecurityError(400, "Geçmiş bir gün için yokluk bildirilemez.", "INVALID_INPUT");
   const [physician] = await db.select().from(physicians).where(eq(physicians.code, input.physicianCode)).limit(1);
   if (!physician) throw new SecurityError(404, "Hekim bulunamadı.", "NOT_FOUND");

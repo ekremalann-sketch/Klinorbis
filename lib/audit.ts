@@ -29,9 +29,10 @@ export async function appendAudit(db:ReturnType<typeof import("../db").getDb>,en
  throw new Error("Audit head contention; retry transaction");
 }
 
-type AuditEntry={actor?:string;action:string;resource:string;result?:string;detail?:string};
-/** Denetim izini ana işlemle aynı batch içinde yazmak için hazır INSERT ifadeleri üretir (hash zinciri sırayla hesaplanır). */
-export async function auditStatements(db:ReturnType<typeof import("../db").getDb>,entries:AuditEntry[]){
+export type AuditEntry={actor?:string;action:string;resource:string;result?:string;detail?:string};
+export type AuditRow={actor:string;action:string;resource:string;result:string;detail:string|null;previousHash:string;currentHash:string};
+/** Zincirin güncel başına göre denetim satırlarının değerlerini (hash dahil) sırayla hesaplar. */
+export async function auditRows(db:ReturnType<typeof import("../db").getDb>,entries:AuditEntry[]):Promise<AuditRow[]>{
  await guard(db);
  const [last]=await db.select({currentHash:auditLogs.currentHash}).from(auditLogs).orderBy(desc(auditLogs.id)).limit(1);
  let previousHash=last?.currentHash||"GENESIS";
@@ -39,6 +40,10 @@ export async function auditStatements(db:ReturnType<typeof import("../db").getDb
   const body={actor:entry.actor||"system",action:entry.action,resource:entry.resource,result:entry.result||"success",detail:entry.detail||null,previousHash};
   const currentHash=keyedHash(body);
   previousHash=currentHash;
-  return db.insert(auditLogs).values({...body,currentHash});
+  return {...body,currentHash};
  });
+}
+/** Denetim izini ana işlemle aynı batch içinde yazmak için hazır INSERT ifadeleri üretir (hash zinciri sırayla hesaplanır). */
+export async function auditStatements(db:ReturnType<typeof import("../db").getDb>,entries:AuditEntry[]){
+ return (await auditRows(db,entries)).map((row)=>db.insert(auditLogs).values(row));
 }

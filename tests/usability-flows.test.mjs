@@ -147,6 +147,13 @@ await test("görevlendirme: vardiya dışı kişiye ve başkasının işine sess
 await test("arıza: tür seçmek yeterli, doğru teknik birime gider; bitiş ile bildirenin kabulü ayrı izlenir", async () => {
   assert.equal((await mw(K, { action: "fault.report", category: "cihaz" })).status, 403, "gözetim rolü açamaz");
   assert.equal((await mw(S, { action: "fault.report" })).status, 400, "tür zorunlu");
+  const faultsBefore = sqlite.prepare("SELECT COUNT(*) AS n FROM fault_reports").get().n;
+  for (const category of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    const bad = await mw(S, { action: "fault.report", category, location: "Dahiliye 4-12" });
+    assert.equal(bad.status, 400, category);
+    assert.equal((await bad.json()).code, "INVALID_INPUT");
+  }
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM fault_reports").get().n, faultsBefore, "geçersiz türle kayıt açılmaz");
   const r = await mw(S, { action: "fault.report", category: "cihaz", location: "Dahiliye 4-12", note: "Alarm veriyor, ara 0532 111 22 33" });
   assert.equal(r.status, 200);
   const { reference, runReference, routedTo } = (await r.json()).result;

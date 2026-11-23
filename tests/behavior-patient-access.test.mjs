@@ -65,6 +65,9 @@ await test("2) yokluk bildirimi: yetki, birim sınırı, plan ve onay kapısı",
   assert.equal((await post(AGENT, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "sick" })).status, 403, "çağrı görevlisi yokluk bildiremez");
   assert.equal((await post(ORTM, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "sick" })).status, 403, "başka birimin yöneticisi");
   assert.equal((await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "tatil" })).status, 400);
+  for (const reason of ["constructor", "toString", "hasOwnProperty"]) {
+    assert.equal((await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day, reason })).status, 400);
+  }
   assert.equal((await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day: "2020-01-01", reason: "sick" })).status, 400, "geçmiş gün");
   const r = await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "sick" });
   assert.equal(r.status, 201);
@@ -103,6 +106,10 @@ await test("3) onay: bildiren onaylayamaz; birim yöneticisi onaylar; bildirimle
 await test("4) hasta yanıtı: kabul → randevu taşınır; çift yanıt 409; üç kez ulaşılamadı → takip; ret → geri arama görevi", async () => {
   const rows = changes(absence).filter((c) => c.status === "offered" && c.proposed_starts_at);
   const target = rows[0];
+  for (const response of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.equal((await post(AGENT, { action: "response.record", changeId: target.id, response })).status, 400, response);
+  }
+  assert.equal(sqlite.prepare("SELECT status FROM appointment_changes WHERE id = ?").get(target.id).status, "offered", "geçersiz yanıt kaydı değiştirmez");
   const r = await post(AGENT, { action: "response.record", changeId: target.id, response: "accepted" });
   assert.equal(r.status, 200, await r.clone().text());
   const moved = appt(target.appointment_reference);

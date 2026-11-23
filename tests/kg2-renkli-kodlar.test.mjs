@@ -64,3 +64,15 @@ test('ekran: tek ana düğme, mavi kod tıbbi yönlendirme yapmaz, giriş zorunl
   assert.doesNotMatch(ui+lib,/triyaj|erken uyarı|klinik öneri|kompresyon|adrenalin|ilaç dozu/i);
   assert.match(page,/requireChatGPTUser\('\/kodlar'\)/);
 });
+
+await test('çağrı: nesne prototipinden gelen adlar geçerli renk sayılmaz ve kayıt açmaz',async()=>{
+  const {sqlite,api}=await setup();
+  for(const color of ['constructor','__proto__','toString','hasOwnProperty']){
+    const r=await post(api,PER,{action:'call',color,location:'Dahiliye servisi koridor'});
+    assert.equal(r.status,400,color);
+  }
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM emergency_codes').get().n,0);
+  assert.equal(sqlite.prepare("SELECT count(*) n FROM audit_logs WHERE action='code.called'").get().n,0);
+  assert.equal((await post(api,PER,{action:'call',color:'beyaz',location:'Dahiliye servisi koridor'})).status,200);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM emergency_codes').get().n,1);
+});

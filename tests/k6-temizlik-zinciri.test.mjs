@@ -51,3 +51,14 @@ await test('panoda dolu yatakta "Hasta ayrıldı" düğmesi var (gizli menü de�
   assert.match(board,/action:'departed',id:b\.id,version:b\.version/);
   assert.match(board,/>Hasta ayrıldı</);
 });
+
+await test('tanımsız adım adı (prototip değerleri) 400 döner, görev değişmez',async()=>{
+  const b=bed('YTK-SIM-003')??bed('YTK-SIM-001');
+  const r=await post({action:'departed',id:b.id,version:b.version},NURSE);
+  const id=r.status===200?(await r.json()).task:cleaning;
+  const before=job(id);
+  for(const a of ['constructor','toString','hasOwnProperty','__proto__']){
+    const res=await step(id,a,CLEAN);assert.equal(res.status,400,a);
+    const after=job(id);assert.equal(after.status,before.status,a);assert.equal(after.version,before.version,a);
+  }
+});
