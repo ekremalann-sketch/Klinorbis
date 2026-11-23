@@ -69,3 +69,13 @@ test("personel formunda yeni iş rolleri seçilebilir ve birim rolü olarak kayd
   const staff = await loadRoute("lib/staff.ts");
   assert.equal(typeof staff, "object");
 });
+
+test("temizlik/taşıma personelinde 'Talep ve arıza' iş listesini tekrar göstermez; başlık menü adıyla aynı", async () => {
+  const { readFileSync } = await import("node:fs");
+  const dash = readFileSync("app/dashboard.tsx", "utf8"), mw = readFileSync("app/my-work.tsx", "utf8");
+  assert.match(dash, /const talepOnly = fieldJob === "temizlik" \|\| fieldJob === "tasima";/);
+  assert.match(dash, /<MyWork talepOnly=\{talepOnly\} \/>/);
+  assert.match(dash, /initialView === "mywork" && talepOnly \? "Talep ve arıza"/);
+  assert.match(mw, /\{!talepOnly && <div className="wk-group">\n\s+<h3>Size atanan işler/);
+  assert.match(mw, /\{!talepOnly && <div className="wk-group">\n\s+<h3>Alınabilecek işler/);
+});
