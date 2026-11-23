@@ -68,6 +68,9 @@ export function bMenu(menuRole: string, unitRoles?: readonly string[]): BScreen[
   const job = ["operations_manager", "privacy_officer", "security_officer"].includes(menuRole) ? null : jobRoleOf(unitRoles);
   const keys = job ? BY_JOB[job] : BY_ROLE[menuRole] ?? ["bugun"];
   const screens = keys.map((k) => B_SCREENS[k]);
+  // 23 Kasım: temizlik/taşıma personelinin işleri kendi ekranındadır. İkinci giriş aynı işi tekrar göstermek yerine
+  // talep ve arıza bildirimi için adlandırılır; böylece aynı iş iki farklı menü adıyla görünmez.
+  if (job === "temizlik" || job === "tasima") screens[1] = { ...B_SCREENS.bugun, label: "Talep ve arıza" };
   if (menuRole === "privacy_officer") screens[1] = { ...B_SCREENS.ayarlar, view: "privacy" };
   if (menuRole === "security_officer") screens[1] = { ...B_SCREENS.ayarlar, view: "security" };
   return screens;

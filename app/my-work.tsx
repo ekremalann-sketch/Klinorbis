@@ -7,7 +7,7 @@ import { api, dueText, FormDialog, Opt, Receipt, Req, StaleBanner, StateBox, use
 
 export type WorkTask = {
   reference: string; title: string; location: string | null; unitCode: string; unitName: string; priority: string; status: string;
-  dueAt: string | null; overdue: boolean; minutesLeft: number | null; owner: { mine: boolean; label: string } | null;
+  dueAt: string | null; overdue: boolean; minutesLeft: number | null; owner: { mine: boolean; label: string } | null; requester?: string | null;
   blockedReason: string | null; helpRequested: boolean; escalationLevel: number;
   action: "accept" | "start" | "complete" | "approve" | "inspect" | "open" | "wait" | "none"; actionLabel: string; why: string;
   flow: { reference: string; title: string; step: number; steps: number; approval: boolean } | null; nextStep: string | null; link: string;
@@ -72,8 +72,8 @@ export function MyWork() {
     <section className="wk" aria-labelledby="wk-title">
       <div className="wk-head">
         <div>
-          <h2 id="wk-title">İşlerim</h2>
-          <p>Önce size atanan işler, sonra biriminizde alınabilecek işler. Her kartta yalnız şu an geçerli işlem etkindir.</p>
+          <h2 id="wk-title">Bugünkü işler</h2>
+          <p>Önce size atanan işler, sonra biriminizde alınabilecek işler.</p>
         </div>
         {!!d?.requestTypes.length && <button type="button" className="wk-secondary wk-big" onClick={() => { setReq({ type: "", location: remembered("kb.lastLocation"), targetLocation: "", deviceCode: "", note: "" }); setReqGroup(d.requestTypes[0]?.group ?? ""); setDlg({ kind: "request" }); }}>Yeni talep <small className="wk-btn-sub">arıza, temizlik, taşıma…</small></button>}
       </div>
@@ -245,6 +245,7 @@ export function TaskCard({ task: t, busy, onPrimary, secondary, extra }: { task:
         <div><dt>Kayıt</dt><dd><a href={t.link} onClick={e => { e.preventDefault(); window.dispatchEvent(new CustomEvent("klinorbis:go", {detail:t.link})); }}>{t.reference} · İşi aç</a></dd></div>
         <div><dt>Nerede</dt><dd>{t.location ?? t.unitName}</dd></div>
         <div><dt>Kimde</dt><dd>{t.owner ? t.owner.label : "Sahipsiz"}</dd></div>
+        {t.requester && <div><dt>Talep eden</dt><dd>{t.requester}</dd></div>}
         {due && <div><dt>Hedef</dt><dd className={t.overdue ? "wk-overdue" : ""}>{t.overdue ? "⚠ " : ""}{due}</dd></div>}
         {t.flow && <div><dt>Akış</dt><dd>{t.flow.title} · {t.flow.step}/{t.flow.steps}</dd></div>}
       </dl>

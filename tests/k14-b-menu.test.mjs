@@ -43,8 +43,8 @@ test("yeni iş rolleri birim rolünden tanınır ve kendi menüsünü görür", 
   assert.equal(m.jobRoleOf(["Sorumlu Hemşire"]), "sorumlu_hemsire");
   assert.equal(m.jobRoleOf(["Acil sekreteri"]), "acil_sekreteri");
   assert.equal(m.jobRoleOf(["Randevu Operatörü"]), null);
-  assert.deepEqual(m.bMenu("unit_staff", ["Temizlik personeli"]).map((s) => s.label), ["Temizlik işlerim", "Bugün"]);
-  assert.deepEqual(m.bMenu("unit_staff", ["Taşıma personeli"]).map((s) => s.label), ["Taşıma işlerim", "Bugün"]);
+  assert.deepEqual(m.bMenu("unit_staff", ["Temizlik personeli"]).map((s) => s.label), ["Temizlik işlerim", "Talep ve arıza"]);
+  assert.deepEqual(m.bMenu("unit_staff", ["Taşıma personeli"]).map((s) => s.label), ["Taşıma işlerim", "Talep ve arıza"]);
   assert.ok(m.bMenu("unit_manager", ["Sorumlu hemşire"]).some((s) => s.label === "Temizlik kontrolü"));
   assert.deepEqual(m.bMenu("call_agent", ["Acil sekreteri"]).map((s) => s.label), ["Bugün", "Yatak panosu", "Transfer talepleri"]);
   // Yönetici iş rolüyle daraltılmaz.

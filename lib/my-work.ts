@@ -4,7 +4,7 @@
 // görevler ayrılığı, klinik onay) yapılır; bu katman kuralları gevşetmez, yalnız sahiplik ekler.
 import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import type { getDb } from "../db";
-import { faultReports, operationalTasks, playbookRuns, playbookSteps, staffAccounts, staffShifts, taskHandoffs, unitMemberships } from "../db/schema";
+import { faultReports, operationalTasks, serviceRequests, playbookRuns, playbookSteps, staffAccounts, staffShifts, taskHandoffs, unitMemberships } from "../db/schema";
 import { auditStatements } from "./audit";
 import { demoEnabled } from "./automation-policy";
 import { findUnit } from "./hospital-units";
@@ -50,7 +50,11 @@ async function decorate(db: Db, actor: RequestActor, rows: TaskRow[], now: Date)
   const runs = runRefs.length ? await db.select().from(playbookRuns).where(inArray(playbookRuns.reference, runRefs)) : [];
   const owners = [...new Set(rows.map((t) => t.assignedUser).filter((x): x is string => !!x))];
   const inspections = await inspectionsFor(db, rows.filter((t) => t.sourceType === "inspection").map((t) => t.reference));
-  const labels = owners.length ? new Map((await db.select({ email: staffAccounts.email, label: staffAccounts.displayLabel }).from(staffAccounts).where(inArray(staffAccounts.email, owners))).map((r) => [r.email, r.label])) : new Map<string, string>();
+  // Akış kolaylığı (23 Kasım): birimden talep işlerinde görevli, talebi kimin açtığını kartta görür (teslimde kime haber vereceğini bilir).
+  const reqRefs = rows.filter((t) => t.sourceType === "service_request").map((t) => t.reference);
+  const reqs = reqRefs.length ? await db.select({ task: serviceRequests.taskReference, email: serviceRequests.requesterEmail, unit: serviceRequests.requesterUnit }).from(serviceRequests).where(inArray(serviceRequests.taskReference, reqRefs)) : [];
+  const people = [...new Set([...owners, ...reqs.map((r) => r.email)])];
+  const labels = people.length ? new Map((await db.select({ email: staffAccounts.email, label: staffAccounts.displayLabel }).from(staffAccounts).where(inArray(staffAccounts.email, people))).map((r) => [r.email, r.label])) : new Map<string, string>();
   return rows.map((t) => {
     const step = steps.find((s) => s.taskReference === t.reference);
     const run = step ? runs.find((r) => r.reference === step.runReference) : undefined;
@@ -77,6 +81,7 @@ async function decorate(db: Db, actor: RequestActor, rows: TaskRow[], now: Date)
       unitCode: t.unitCode, unitName: findUnit(t.unitCode).name, priority: t.priority, status: t.status, dueAt: due?.toISOString() ?? null,
       overdue: !!due && due.getTime() < now.getTime(), minutesLeft: due ? Math.round((due.getTime() - now.getTime()) / 60_000) : null,
       owner: t.assignedUser ? { mine, label: mine ? "Siz" : labels.get(t.assignedUser) ?? "Başka bir görevli" } : null,
+      requester: (() => { const r = reqs.find((x) => x.task === t.reference); return r ? `${labels.get(r.email) ?? "Personel"}${r.unit ? ` · ${findUnit(r.unit).name}` : ""}` : null; })(),
       blockedReason: t.blockedReason ?? null, helpRequested: !!t.helpRequestedAt, escalationLevel: t.escalationLevel,
       action, actionLabel: ACTION_LABELS[action], why,
       flow: run && def ? { reference: run.reference, title: run.title, version: run.version, step: step!.stepIndex + 1, steps: run.stepCount, approval: def.approval } : null,
