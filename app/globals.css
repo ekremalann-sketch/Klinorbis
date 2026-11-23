@@ -5163,3 +5163,6 @@ label:not(.required-field):not(:has(.field-star)):has(> :is(input, select, texta
 .wk-recent{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}.wk-recent span{font-size:14px;color:rgb(68 84 106)}.wk-recent button{min-height:44px;padding:6px 12px;border:1px solid rgb(203 213 225);border-radius:999px;background:rgb(255 255 255)}.wk-recent button.on{border-color:rgb(11 90 160);background:rgb(232 241 251)}
 /* K6: taşıma etiketleri */
 small.tags{display:flex;flex-wrap:wrap;gap:6px}small.tags b,small.tags span{padding:1px 8px;border-radius:999px;background:rgb(238 242 247)}small.tags .tag-acil{background:rgb(254 226 226);color:rgb(153 27 27)}small.tags .tag-izo{background:rgb(254 243 199);color:rgb(120 53 15)}
+/* Akış kolaylığı (20 Kasım): talep edenin "sıradaki adım" satırı. */
+.wk-next{margin:6px 0 0;padding:6px 10px;border-radius:8px;background:rgb(240 247 255);color:rgb(18 48 71);font-size:14px;line-height:1.45}
+.wk-ref{font-size:12px}

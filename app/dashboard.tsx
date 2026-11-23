@@ -13,7 +13,7 @@ import { FhirValidator, OperationsForms } from "./operations-forms";
 import { workspaceContentKey } from "../lib/workspace-content";
 import { filterInboxTasks } from "../lib/inbox";
 import { ScreenHelpBox } from "./screen-help-box";
-import { bMenu, SETTINGS_LINKS } from "../lib/b-menu";
+import { bMenu, jobRoleOf, SETTINGS_LINKS } from "../lib/b-menu";
 
 import {
   lazy,
@@ -1148,6 +1148,9 @@ export default function Dashboard({
   const realRole = snapshot.identity.role;
   const effectiveRole = realRole === "operations_manager" && previewRole ? previewRole : realRole;
   const menuRole = previewRole && realRole === "operations_manager" ? previewRole : menuRoleOf(realRole, snapshot.identity.unitCodes);
+  // Temizlik/taşıma personelinin işleri kendi telefon ekranındadır; "Talep ve arıza" girişi iş listesini tekrar göstermez (b-menu ile aynı kural).
+  const fieldJob = ["operations_manager", "privacy_officer", "security_officer"].includes(menuRole) ? null : jobRoleOf(previewRole ? [] : snapshot.identity.unitRoles);
+  const talepOnly = fieldJob === "temizlik" || fieldJob === "tasima";
   const selectedTicket =
     initialReference &&
     ["requests", "inbox", "appointments"].includes(initialView)
@@ -1226,7 +1229,7 @@ export default function Dashboard({
               ☰
             </button>
             <div>
-              <h1>{titles[initialView]}</h1>
+              <h1>{initialView === "mywork" && talepOnly ? "Talep ve arıza" : titles[initialView]}</h1>
               <p>
                 {snapshot.identity.canSeeAllUnits
                   ? "Tüm hastane operasyon kapsamı"
@@ -1309,7 +1312,7 @@ export default function Dashboard({
             create={() => setDialog("ticket")}
           />
         )}
-        {initialView === "mywork" && <Suspense fallback={<ScreenLoading />}><MyWork /></Suspense>}
+        {initialView === "mywork" && <Suspense fallback={<ScreenLoading />}><MyWork talepOnly={talepOnly} /></Suspense>}
         {initialView === "myunit" && <Suspense fallback={<ScreenLoading />}><MyUnit /></Suspense>}
         {initialView === "routing" && <Suspense fallback={<ScreenLoading />}><RoutingCenter /></Suspense>}
         {initialView === "inbox" && (

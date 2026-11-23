@@ -58,18 +58,26 @@ await test("talep: doğru birimin kuyruğuna sahipsiz düşer, birim sorumlusu b
   assert.deepEqual({ unit: t.unit_code, status: t.status, owner: t.assigned_user, title: t.title, src: t.source_type }, { unit: "BTI", status: "queued", owner: null, title: "Bilgisayar / yazıcı", src: "service_request" });
   assert.ok(sqlite.prepare("SELECT 1 FROM staff_notifications WHERE email = ? AND title LIKE 'Yeni talep%'").get(BTM), "dağıtan kişiye bildirim");
   assert.equal((await mw(TKG, { action: "accept", reference: first.task_reference })).status, 403, "başka birim alamaz");
-  assert.ok((await get(myWork, "/api/my-work", BTG)).body.available.some((x) => x.reference === first.task_reference), "BT ekibi görür");
+  const seen = (await get(myWork, "/api/my-work", BTG)).body.available.find((x) => x.reference === first.task_reference);
+  assert.ok(seen, "BT ekibi görür");
+  assert.match(seen.requester, /^Hemşire · /, "görevli talebi kimin açtığını görür");
+  // Talep eden kişi sıradaki adımı ve sorumluyu görür (20 Kasım akış kolaylığı).
+  const waiting = (await get(myWork, "/api/my-work", HEM)).body.requests.find((x) => x.reference === first.reference);
+  assert.match(waiting.next, /Bilgi Teknolojileri birimi işi bir görevliye verecek/); assert.equal(waiting.owner, null);
 });
 
 await test("bitiş: görevli tamamlar, talep eden bilgilendirilir; sorun sürüyorsa aynı birime yeniden açılır", async () => {
-  for (const action of ["accept", "start"]) assert.equal((await mw(BTG, { action, reference: first.task_reference })).status, 200, action);
+  assert.equal((await mw(BTG, { action: "accept", reference: first.task_reference })).status, 200);
+  const accepted = (await get(myWork, "/api/my-work", HEM)).body.requests.find((x) => x.reference === first.reference);
+  assert.equal(accepted.owner, "BT Teknisyeni"); assert.match(accepted.next, /BT Teknisyeni işe başlayacak/);
+  assert.equal((await mw(BTG, { action: "start", reference: first.task_reference })).status, 200);
   assert.equal((await mw(HEM, { action: "request.confirm", reference: first.reference, ok: true })).status, 409, "bitmeden onay yok");
   const done = await mw(BTG, { action: "complete", reference: first.task_reference });
   assert.equal(done.status, 200);
   assert.equal(req(first.reference).status, "done");
   assert.ok(sqlite.prepare("SELECT 1 FROM staff_notifications WHERE email = ? AND title LIKE 'Talebiniz tamamlandı%'").get(HEM));
   const mine = (await get(myWork, "/api/my-work", HEM)).body.requests.find((x) => x.reference === first.reference);
-  assert.match(mine.state, /onayınız bekleniyor/);
+  assert.match(mine.state, /onayınız bekleniyor/); assert.match(mine.next, /Sonucu onaylayın/);
   assert.equal((await mw(BTG, { action: "request.confirm", reference: first.reference, ok: true })).status, 404, "yalnız talep eden onaylar");
   const again = await mw(HEM, { action: "request.confirm", reference: first.reference, ok: false, note: "Yine yazdırmıyor" });
   assert.equal(again.status, 200);

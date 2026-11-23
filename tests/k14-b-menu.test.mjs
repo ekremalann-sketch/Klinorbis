@@ -43,8 +43,8 @@ test("yeni iş rolleri birim rolünden tanınır ve kendi menüsünü görür", 
   assert.equal(m.jobRoleOf(["Sorumlu Hemşire"]), "sorumlu_hemsire");
   assert.equal(m.jobRoleOf(["Acil sekreteri"]), "acil_sekreteri");
   assert.equal(m.jobRoleOf(["Randevu Operatörü"]), null);
-  assert.deepEqual(m.bMenu("unit_staff", ["Temizlik personeli"]).map((s) => s.label), ["Temizlik işlerim", "Bugün"]);
-  assert.deepEqual(m.bMenu("unit_staff", ["Taşıma personeli"]).map((s) => s.label), ["Taşıma işlerim", "Bugün"]);
+  assert.deepEqual(m.bMenu("unit_staff", ["Temizlik personeli"]).map((s) => s.label), ["Temizlik işlerim", "Talep ve arıza"]);
+  assert.deepEqual(m.bMenu("unit_staff", ["Taşıma personeli"]).map((s) => s.label), ["Taşıma işlerim", "Talep ve arıza"]);
   assert.ok(m.bMenu("unit_manager", ["Sorumlu hemşire"]).some((s) => s.label === "Temizlik kontrolü"));
   assert.deepEqual(m.bMenu("call_agent", ["Acil sekreteri"]).map((s) => s.label), ["Bugün", "Yatak panosu", "Transfer talepleri"]);
   // Yönetici iş rolüyle daraltılmaz.
@@ -68,4 +68,14 @@ test("personel formunda yeni iş rolleri seçilebilir ve birim rolü olarak kayd
   assert.match(src, /unitRole: form\.jobRole/);
   const staff = await loadRoute("lib/staff.ts");
   assert.equal(typeof staff, "object");
+});
+
+test("temizlik/taşıma personelinde 'Talep ve arıza' iş listesini tekrar göstermez; başlık menü adıyla aynı", async () => {
+  const { readFileSync } = await import("node:fs");
+  const dash = readFileSync("app/dashboard.tsx", "utf8"), mw = readFileSync("app/my-work.tsx", "utf8");
+  assert.match(dash, /const talepOnly = fieldJob === "temizlik" \|\| fieldJob === "tasima";/);
+  assert.match(dash, /<MyWork talepOnly=\{talepOnly\} \/>/);
+  assert.match(dash, /initialView === "mywork" && talepOnly \? "Talep ve arıza"/);
+  assert.match(mw, /\{!talepOnly && <div className="wk-group">\n\s+<h3>Size atanan işler/);
+  assert.match(mw, /\{!talepOnly && <div className="wk-group">\n\s+<h3>Alınabilecek işler/);
 });

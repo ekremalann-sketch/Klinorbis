@@ -7,7 +7,7 @@ import { api, dueText, FormDialog, Opt, Receipt, Req, StaleBanner, StateBox, use
 
 export type WorkTask = {
   reference: string; title: string; location: string | null; unitCode: string; unitName: string; priority: string; status: string;
-  dueAt: string | null; overdue: boolean; minutesLeft: number | null; owner: { mine: boolean; label: string } | null;
+  dueAt: string | null; overdue: boolean; minutesLeft: number | null; owner: { mine: boolean; label: string } | null; requester?: string | null;
   blockedReason: string | null; helpRequested: boolean; escalationLevel: number;
   action: "accept" | "start" | "complete" | "approve" | "inspect" | "open" | "wait" | "none"; actionLabel: string; why: string;
   flow: { reference: string; title: string; step: number; steps: number; approval: boolean } | null; nextStep: string | null; link: string;
@@ -21,7 +21,7 @@ type Data = {
   canReportFault: boolean; myUnits: { code: string; name: string }[];
   teammates: { email: string; unitCode: string; label: string }[];
   requestTypes: { group: string; types: ReqType[] }[];
-  requests: { reference: string; label: string; unit: string; location: string | null; status: string; state: string }[];
+  requests: { reference: string; label: string; unit: string; location: string | null; status: string; state: string; next?: string; owner?: string | null; createdAt?: string | number }[];
 };
 const CATEGORIES: [string, string][] = [["cihaz", "Tıbbi cihaz"], ["oda", "Oda / mobilya / tesisat"], ["elektrik", "Elektrik / aydınlatma"], ["iklim", "Isıtma / soğutma"], ["asansor", "Asansör"], ["diger", "Diğer teknik sorun"]];
 const CAT_LABEL = Object.fromEntries(CATEGORIES);
@@ -36,7 +36,8 @@ const AFTER: Record<string, string> = {
   approve: "Onay verildi; akış sonraki adıma geçti.",
 };
 
-export function MyWork() {
+/** talepOnly: temizlik/taşıma personeli için ikinci menü girişi. İşleri kendi ekranındadır; burada yalnız talep ve arıza. */
+export function MyWork({ talepOnly = false }: { talepOnly?: boolean } = {}) {
   const live = useLive<Data>("/api/my-work");
   const [busy, setBusy] = useState("");
   const [receipt, setReceipt] = useState("");
@@ -72,8 +73,8 @@ export function MyWork() {
     <section className="wk" aria-labelledby="wk-title">
       <div className="wk-head">
         <div>
-          <h2 id="wk-title">İşlerim</h2>
-          <p>Önce size atanan işler, sonra biriminizde alınabilecek işler. Her kartta yalnız şu an geçerli işlem etkindir.</p>
+          <h2 id="wk-title">{talepOnly ? "Taleplerim ve arıza bildirimlerim" : "Bugünkü işler"}</h2>
+          <p>{talepOnly ? "Başka birimden iş isteyin veya arıza bildirin; açtığınız talebin kimde olduğunu buradan izleyin. Kendi işleriniz menüdeki ilk ekrandadır." : "Önce size atanan işler, sonra biriminizde alınabilecek işler."}</p>
         </div>
         {!!d?.requestTypes.length && <button type="button" className="wk-secondary wk-big" onClick={() => { setReq({ type: "", location: remembered("kb.lastLocation"), targetLocation: "", deviceCode: "", note: "" }); setReqGroup(d.requestTypes[0]?.group ?? ""); setDlg({ kind: "request" }); }}>Yeni talep <small className="wk-btn-sub">arıza, temizlik, taşıma…</small></button>}
       </div>
@@ -104,7 +105,7 @@ export function MyWork() {
               </div>
             </article>)}
           </div>}
-          <div className="wk-group">
+          {!talepOnly && <div className="wk-group">
             <h3>Size atanan işler <span className="wk-count">{d.mine.length}</span></h3>
             {d.mine.length === 0 ? <p className="wk-empty-line">Üzerinizde açık iş yok.{d.available.length ? " Aşağıdan alınabilecek bir işi kabul edebilirsiniz." : ""}</p>
               : d.mine.map((t) => <TaskCard key={t.reference} task={t} busy={busy} onPrimary={() => primary(t)}
@@ -115,24 +116,27 @@ export function MyWork() {
                   {t.owner?.mine && ["accepted", "in_progress"].includes(t.status) && <button type="button" onClick={() => { setEmail(""); setText(""); setDlg({ kind: "handoff", task: t }); }}>Devir öner</button>}
                   {t.link && <button type="button" onClick={() => go(t.link)}>Kaydı aç</button>}
                 </>} />)}
-          </div>
+          </div>}
+          {talepOnly && d.requests.length === 0 && !d.faults.length && <p className="wk-empty-line">Açık talebiniz veya arıza bildiriminiz yok. Sağ üstteki “Yeni talep” ile başlayın.</p>}
           {d.requests.length > 0 && <div className="wk-group">
             <h3>Açtığım talepler <span className="wk-count">{d.requests.length}</span></h3>
             {d.requests.map((r) => <article key={r.reference} className="wk-card wk-card-compact">
               <header><b>{r.label}</b><span className="wk-tag">{r.unit}</span></header>
               <p className="wk-meta">{r.location ? `${r.location} · ` : ""}{r.state}</p>
+              {r.next && <p className="wk-next"><b>Sıradaki adım:</b> {r.next}</p>}
+              <p className="wk-meta wk-ref">{r.reference}{r.createdAt ? ` · ${sinceText(r.createdAt)}` : ""}</p>
               {r.status === "done" && <div className="wk-actions">
                 <button type="button" className="wk-primary" disabled={!!busy} onClick={() => void api("/api/my-work", { action: "request.confirm", reference: r.reference, ok: true }).then(async () => { setReceipt("Teşekkürler; talep kapandı."); await live.reload(); }, (e) => setError(e.message))}>Tamam, sorun çözüldü</button>
                 <button type="button" className="wk-secondary" onClick={() => { setText(""); setDlg({ kind: "requestNo", ref: r.reference }); }}>Sorun sürüyor</button>
               </div>}
             </article>)}
           </div>}
-          <div className="wk-group">
+          {!talepOnly && <div className="wk-group">
             <h3>Alınabilecek işler <span className="wk-count">{d.available.length}</span></h3>
             {d.available.length === 0 ? <p className="wk-empty-line">Biriminizde sahipsiz iş yok.</p>
               : d.available.map((t) => <TaskCard key={t.reference} task={t} busy={busy} onPrimary={() => primary(t)} secondary={t.link ? <button type="button" onClick={() => go(t.link)}>Kaydı aç</button> : null} />)}
             {d.teamCount > 0 && <p className="wk-note">Biriminizde başkalarının üstlendiği {d.teamCount} iş daha var; başkasının kabul ettiği iş buradan alınamaz.</p>}
-          </div>
+          </div>}
           {d.faults.some((f) => f.status === "open") && <div className="wk-group">
             <h3>Açık arıza bildirimleriniz</h3>
             <ul className="wk-list">{d.faults.filter((f) => f.status === "open").map((f) => <li key={f.reference}><b>{CAT_LABEL[f.category] ?? "Arıza"}</b> · {f.reference} · teknik ekipte</li>)}</ul>
@@ -243,6 +247,7 @@ export function TaskCard({ task: t, busy, onPrimary, secondary, extra }: { task:
         <div><dt>Kayıt</dt><dd><a href={t.link} onClick={e => { e.preventDefault(); window.dispatchEvent(new CustomEvent("klinorbis:go", {detail:t.link})); }}>{t.reference} · İşi aç</a></dd></div>
         <div><dt>Nerede</dt><dd>{t.location ?? t.unitName}</dd></div>
         <div><dt>Kimde</dt><dd>{t.owner ? t.owner.label : "Sahipsiz"}</dd></div>
+        {t.requester && <div><dt>Talep eden</dt><dd>{t.requester}</dd></div>}
         {due && <div><dt>Hedef</dt><dd className={t.overdue ? "wk-overdue" : ""}>{t.overdue ? "⚠ " : ""}{due}</dd></div>}
         {t.flow && <div><dt>Akış</dt><dd>{t.flow.title} · {t.flow.step}/{t.flow.steps}</dd></div>}
       </dl>
@@ -257,4 +262,12 @@ export function TaskCard({ task: t, busy, onPrimary, secondary, extra }: { task:
       </div>
     </article>
   );
+}
+
+/** "12 dk önce açıldı" gibi kısa süre metni (talep eden kişi için). */
+function sinceText(at: string | number) {
+  const ms = Date.now() - new Date(at).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const min = Math.round(ms / 60000);
+  return min < 1 ? "az önce açıldı" : min < 60 ? `${min} dk önce açıldı` : min < 1440 ? `${Math.round(min / 60)} sa önce açıldı` : `${Math.round(min / 1440)} gün önce açıldı`;
 }
