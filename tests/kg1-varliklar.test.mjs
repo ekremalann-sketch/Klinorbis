@@ -144,3 +144,22 @@ await test('eşzamanlı kayıtlar: kod ve denetim zinciri çakışması yeniden 
   const chain=sqlite.prepare('SELECT previous_hash p,current_hash c FROM audit_logs ORDER BY id').all();
   for(let i=1;i<chain.length;i++)assert.equal(chain[i].p,chain[i-1].c,'zincir kopmaz');
 });
+
+await test('denetim yazılamazsa zimmet verme iz bırakmaz: zimmet satırı ve bildirim kalmaz',async()=>{
+  const {sqlite,api}=await setup();
+  await post(api,OPS,{action:'create',kind:'biyomedikal',name:'Kurgusal cihaz',unitCode:'BMD'});
+  const before=auditCount(sqlite,'BIO-0001');
+  const notes=()=>sqlite.prepare("SELECT count(*) n FROM staff_notifications WHERE email=? AND path='/varliklar?kod=BIO-0001'").get(PER).n;
+  sqlite.exec(DENY_AUDIT);
+  assert.ok((await post(api,BMD,{action:'custody.assign',code:'BIO-0001',email:PER})).status>=400);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM asset_custody').get().n,0,'denetimsiz zimmet kalmaz');
+  assert.equal(notes(),0,'bildirim de geri alınır');
+  sqlite.exec('DROP TRIGGER test_audit_failure');
+  assert.equal(auditCount(sqlite,'BIO-0001'),before);
+  assert.equal((await post(api,BMD,{action:'custody.assign',code:'BIO-0001',email:PER})).status,200,'açık zimmet kalmadığı için yeniden verilebilir');
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM asset_custody').get().n,1);
+  assert.equal(notes(),1);
+  assert.equal(auditCount(sqlite,'BIO-0001'),before+1);
+  assert.equal((await post(api,BMD,{action:'custody.assign',code:'BIO-0001',email:PER})).status,409,'tek açık zimmet');
+  assert.equal(auditCount(sqlite,'BIO-0001'),before+1,'reddedilen zimmet denetime yazılmaz');
+});

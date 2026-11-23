@@ -35,23 +35,30 @@ const d1 = () => {
 /**
  * Varlık veya zimmet değişikliği ile denetim kaydını tek batch (tek işlem) içinde yazar; denetim yazılamazsa değişiklik de geri alınır.
  * onlyIfChanged: denetim satırı yalnız önceki ifade tam bir satırı değiştirdiyse eklenir (koşullu UPDATE için).
+ * extra: aynı işleme dahil edilecek ek ifadeler (ör. bildirim); denetim satırından sonra çalışır.
  * Döner: değişiklik ifadesinin etkilediği satır sayısı.
  */
-async function writeWithAudit(change: D1PreparedStatement, entry: AuditEntry, onlyIfChanged: boolean) {
+async function writeWithAudit(change: D1PreparedStatement, entry: AuditEntry, onlyIfChanged: boolean, extra: D1PreparedStatement[] = []) {
   const binding = d1();
   const [row] = await auditRows(getDb(), [entry]);
   const audit = binding.prepare(`INSERT INTO audit_logs(actor,action,resource,result,detail,previous_hash,current_hash,created_at)
     SELECT ?,?,?,?,?,?,?,?${onlyIfChanged ? " WHERE changes()=1" : ""}`)
     .bind(row.actor, row.action, row.resource, row.result, row.detail, row.previousHash, row.currentHash, Date.now());
-  const [result] = await binding.batch([change, audit]);
+  const [result] = await binding.batch([change, audit, ...extra]);
   return Number(result.meta?.changes ?? 0);
+}
+/** Drizzle ifadesini aynı D1 batch'ine eklemek için ürettiği SQL ve parametrelerle hazırlar; SQL üretemeyen ifade açık hata verir. */
+function toD1(statement: unknown): D1PreparedStatement {
+  const query = (statement as { toSQL?: () => { sql: string; params: unknown[] } })?.toSQL?.();
+  if (!query || typeof query.sql !== "string") throw new Error("Batch ifadesi SQL'e çevrilemedi.");
+  return d1().prepare(query.sql).bind(...query.params);
 }
 const AUDIT_ATTEMPTS = 5;
 /** Denetim zincirinin başı eşzamanlı bir yazımla değiştiyse batch geri alınmıştır; zincir yeniden okunarak tekrar denenir. */
-async function writeWithAuditRetry(change: D1PreparedStatement, entry: AuditEntry, onlyIfChanged: boolean) {
+async function writeWithAuditRetry(change: D1PreparedStatement, entry: AuditEntry, onlyIfChanged: boolean, extra: D1PreparedStatement[] = []) {
   for (let attempt = 0; attempt < AUDIT_ATTEMPTS; attempt++) {
     try {
-      return await writeWithAudit(change, entry, onlyIfChanged);
+      return await writeWithAudit(change, entry, onlyIfChanged, extra);
     } catch (error) {
       if (!auditHeadConflict(error)) throw error;
     }
@@ -170,17 +177,15 @@ export async function assignCustody(actor: RequestActor, input: Record<string, u
   const email = typeof input.email === "string" ? input.email.trim().toLowerCase().slice(0, 200) : "";
   const staff = await d1().prepare("SELECT email FROM staff_accounts WHERE email=? AND active=1").bind(email).first<string>("email");
   if (!staff) throw new SecurityError(400, "Zimmet verilecek kişi etkin personel listesinde yok.", "INVALID_INPUT");
+  // Zimmet satırı, personele bildirim ve denetim kaydı tek işlemde yazılır; biri yazılamazsa hiçbiri kalmaz.
+  const change = d1().prepare("INSERT INTO asset_custody(asset_code,holder_email,given_by,given_at) VALUES(?,?,?,?)").bind(a.code, email, actor.email, now);
+  const notify = notificationStatements(getDb(), [email], { kind: "task", title: "Zimmet onayınız bekleniyor", detail: `${a.code} ${a.name}`, path: `/varliklar?kod=${a.code}`, key: `custody:${a.code}:${now}` }, new Date(now)).map(toD1);
   try {
-    await d1().prepare("INSERT INTO asset_custody(asset_code,holder_email,given_by,given_at) VALUES(?,?,?,?)").bind(a.code, email, actor.email, now).run();
+    await writeWithAuditRetry(change, { actor: actor.email, action: "asset.custody.assigned", resource: a.code, detail: `zimmet → ${email}` }, false, notify);
   } catch (error) {
-    if (/UNIQUE/i.test(String((error as Error)?.message))) throw new SecurityError(409, "Varlığın açık zimmeti var; önce iade alın.", "CUSTODY_OPEN");
+    if (/UNIQUE.*asset_custody/i.test(String((error as Error)?.message))) throw new SecurityError(409, "Varlığın açık zimmeti var; önce iade alın.", "CUSTODY_OPEN");
     throw error;
   }
-  const db = getDb();
-  await runBatch(db, [
-    ...notificationStatements(db, [email], { kind: "task", title: "Zimmet onayınız bekleniyor", detail: `${a.code} ${a.name}`, path: `/varliklar?kod=${a.code}`, key: `custody:${a.code}:${now}` }, new Date(now)),
-    ...await auditStatements(db, [{ actor: actor.email, action: "asset.custody.assigned", resource: a.code, detail: `zimmet → ${email}` }]),
-  ] as Parameters<typeof runBatch>[1], "Zimmet bildirimi yazılamadı.");
   return { code: a.code, holder: email };
 }
 
