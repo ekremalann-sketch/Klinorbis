@@ -26,3 +26,11 @@ test('K2/K7 ve tasarım bulguları: kullanım amacı sayfası, yapay zekâ ayrı
   const mw=await readFile('app/my-work.tsx','utf8');assert.match(mw,/kb\.recentTypes/);assert.doesNotMatch(mw,/"Talep aç"|>Talep aç </);
   assert.match(await readFile('app/hbys/coordination.tsx','utf8'),/Yatak dönüş süreleri/);
 });
+
+test("ana sayfa hukuk onayı bekleyen kullanım amacı sayfasına bağlantı vermez (diğer sayfalarda alt bilgide kalır)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const home = await readFile("app/page.tsx", "utf8");
+  assert.doesNotMatch(home, /kullanim-amaci/);
+  assert.match(home, /<Footer home \/>/);
+  assert.match(await readFile("app/site-chrome.tsx", "utf8"), /\{!home&&<Link href="\/kullanim-amaci">/);
+});
