@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       }
       case "response.record": {
         const response = String(body.response ?? "") as PatientResponse;
-        if (!(response in PATIENT_RESPONSES)) throw new SecurityError(400, "Geçersiz hasta yanıtı.", "INVALID_INPUT");
+        if (!(Object.hasOwn(PATIENT_RESPONSES, response))) throw new SecurityError(400, "Geçersiz hasta yanıtı.", "INVALID_INPUT");
         const [change] = await db.select().from(appointmentChanges).where(eq(appointmentChanges.id, Number(body.changeId))).limit(1);
         if (!change) throw new SecurityError(404, "Değişiklik kaydı bulunamadı.", "NOT_FOUND");
         const [appt] = await db.select().from(appointments).where(eq(appointments.reference, change.appointmentReference)).limit(1);

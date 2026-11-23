@@ -65,6 +65,9 @@ await test("2) yokluk bildirimi: yetki, birim sınırı, plan ve onay kapısı",
   assert.equal((await post(AGENT, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "sick" })).status, 403, "çağrı görevlisi yokluk bildiremez");
   assert.equal((await post(ORTM, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "sick" })).status, 403, "başka birimin yöneticisi");
   assert.equal((await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "tatil" })).status, 400);
+  for (const reason of ["constructor", "toString", "hasOwnProperty"]) {
+    assert.equal((await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day, reason })).status, 400);
+  }
   assert.equal((await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day: "2020-01-01", reason: "sick" })).status, 400, "geçmiş gün");
   const r = await post(DOC, { action: "absence.report", physicianCode: "KRD-H01", day, reason: "sick" });
   assert.equal(r.status, 201);

@@ -65,7 +65,7 @@ export async function listAssets(actor: RequestActor, filter: { unit?: string; s
     args.push(...actor.unitCodes, actor.email);
   }
   if (filter.unit) { where.push("unit_code=?"); args.push(filter.unit); }
-  if (filter.status && filter.status in ASSET_STATUSES) { where.push("status=?"); args.push(filter.status); }
+  if (filter.status && Object.hasOwn(ASSET_STATUSES, filter.status)) { where.push("status=?"); args.push(filter.status); }
   if (filter.code) { where.push("code=?"); args.push(filter.code.toUpperCase().slice(0, 20)); }
   const rows = (await d1().prepare(`SELECT assets.*,c.holder_email AS holder,c.accepted_at AS custody_accepted_at FROM assets
     LEFT JOIN asset_custody c ON c.asset_code=assets.code AND c.returned_at IS NULL ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY code LIMIT 500`).bind(...args).all<AssetRow & { holder: string | null; custody_accepted_at: number | null }>()).results;
@@ -74,14 +74,14 @@ export async function listAssets(actor: RequestActor, filter: { unit?: string; s
 }
 
 export async function createAsset(actor: RequestActor, input: Record<string, unknown>, now = Date.now()) {
-  const kind = typeof input.kind === "string" && input.kind in ASSET_KINDS ? input.kind as Kind : null;
+  const kind = typeof input.kind === "string" && Object.hasOwn(ASSET_KINDS, input.kind) ? input.kind as Kind : null;
   if (!kind) throw new SecurityError(400, "Varlık türünü seçin.", "INVALID_INPUT");
   const unit = typeof input.unitCode === "string" ? HOSPITAL_UNITS.find((u) => u.code === input.unitCode) : undefined;
   if (!unit) throw new SecurityError(400, "Sorumlu birimi seçin.", "INVALID_INPUT");
   if (!canManageUnit(actor, unit.code)) throw new SecurityError(403, "Bu birim için varlık kaydı açma yetkiniz yok.", "UNIT_ACCESS_DENIED");
   const name = text(input.name, 80);
   if (!name) throw new SecurityError(400, "Varlık adını yazın.", "INVALID_INPUT");
-  const owner = typeof input.ownerType === "string" && input.ownerType in OWNER_TYPES ? input.ownerType : "hastane";
+  const owner = typeof input.ownerType === "string" && Object.hasOwn(OWNER_TYPES, input.ownerType) ? input.ownerType : "hastane";
   const mInt = days(input.maintenanceIntervalDays), cInt = days(input.calibrationIntervalDays);
   const prefix = ASSET_KINDS[kind].prefix;
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -110,7 +110,7 @@ export async function updateAsset(actor: RequestActor, input: Record<string, unk
   let set: string, val: unknown, detail: string;
   switch (input.change) {
     case "status": {
-      const s = typeof input.status === "string" && input.status in ASSET_STATUSES ? input.status as Status : null;
+      const s = typeof input.status === "string" && Object.hasOwn(ASSET_STATUSES, input.status) ? input.status as Status : null;
       if (!s || s === a.status) throw new SecurityError(400, "Yeni durumu seçin.", "INVALID_INPUT");
       set = "status=?"; val = s; detail = `${ASSET_STATUSES[a.status]} → ${ASSET_STATUSES[s]}`; break;
     }
